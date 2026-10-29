@@ -5,6 +5,7 @@
 library;
 
 import 'dart:async';
+import 'dart:io';
 
 import 'data/forum_repository.dart';
 import 'data/link_preview_repository.dart';
@@ -18,6 +19,7 @@ import 'core/log_store.dart';
 import 'network/chh_client.dart';
 import 'network/chh_session.dart';
 import 'data/image_disk_cache.dart';
+import 'data/thread_read_index.dart';
 
 final ChhClient chhClient = ChhClient.createDefault();
 final ChhSession chhSession = ChhSession(chhClient);
@@ -47,6 +49,8 @@ void setupDependencies() {
   unawaited(_attachLogStore());
   // 图片缓存目录同样异步解析,就绪前图片照常直连下载
   unawaited(_attachImageCache());
+  // 已读账本放在 filesDir(系统不得回收),同样异步解析;就绪前的标记留在内存,接线时补写
+  unawaited(_attachReadIndex());
 }
 
 Future<void> _attachLogStore() async {
@@ -61,4 +65,10 @@ Future<void> _attachImageCache() async {
   imageDiskCache = cache;
   // 目录扫描要逐个 stat,提前在后台预热,避免首批图片的 read 为它买单
   unawaited(cache.totalBytes());
+}
+
+Future<void> _attachReadIndex() async {
+  final dir = await AppPaths.instance.subdir('read');
+  if (dir == null) return;
+  await threadReadIndex.attach(File('${dir.path}/threads-v1.json'));
 }
