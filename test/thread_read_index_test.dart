@@ -184,7 +184,7 @@ void main() {
   });
 
   test('writes are debounced and coalesced; flush forces them out', () async {
-    final index = make(file, writeDelay: const Duration(milliseconds: 100));
+    final index = make(file, writeDelay: const Duration(milliseconds: 500));
     index.markRead(1, 1);
     await Future<void>.delayed(const Duration(milliseconds: 20));
     index.markRead(2, 2);
@@ -195,7 +195,7 @@ void main() {
       reason: 'still inside the debounce window',
     );
 
-    await Future<void>.delayed(const Duration(milliseconds: 600));
+    await Future<void>.delayed(const Duration(milliseconds: 900));
     final stored = jsonDecode(await file.readAsString())['threads'] as Map;
     expect(stored.keys.toSet(), {'1', '2'});
 
@@ -262,4 +262,13 @@ void main() {
     expect(index.stateOf(3, replies: 1), isA<ThreadReadSeen>());
     expect(index.stateOf(1, replies: 1), isA<ThreadReadUnseen>());
   });
+
+  test(
+    'capacity 0 terminates instead of spinning',
+    () {
+      final index = make(null, capacity: 0)..markRead(1, 1);
+      expect(index.stateOf(1, replies: 1), isA<ThreadReadSeen>());
+    },
+    timeout: const Timeout(Duration(seconds: 5)),
+  );
 }

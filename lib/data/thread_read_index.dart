@@ -162,6 +162,8 @@ class ThreadReadIndex extends ChangeNotifier {
           oldestAt = item.value.at;
         }
       }
+      // Nothing evictable (capacity 0 with only the kept entry): stop, don't spin.
+      if (oldest == null) return;
       _entries.remove(oldest);
     }
   }
