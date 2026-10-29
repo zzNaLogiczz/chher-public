@@ -83,4 +83,42 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 120));
     expect(await AppLog.history().join('\n'), contains('靠定时器落盘'));
   });
+
+  group('writeFullLog', () {
+    late Directory tmp;
+    setUp(() async {
+      tmp = await Directory.systemTemp.createTemp('chh-applog-export-');
+      addTearDown(() => tmp.delete(recursive: true));
+    });
+
+    test('已接线且有磁盘历史:按旧到新写出落盘内容', () async {
+      final dir = await Directory('${tmp.path}/logs').create();
+      AppLog.attachStore(LogStore(dir));
+      AppLog.i('T', '甲');
+      AppLog.i('T', '乙');
+      final out = File('${tmp.path}/out.txt');
+      await AppLog.writeFullLog(out);
+      final lines = (await out.readAsString()).trimRight().split('\n');
+      expect(lines, hasLength(2));
+      expect(lines[0], endsWith('甲'));
+      expect(lines[1], endsWith('乙'));
+    });
+
+    test('未接线:退回内存环形缓冲', () async {
+      AppLog.i('T', '只在内存');
+      final out = File('${tmp.path}/out.txt');
+      await AppLog.writeFullLog(out);
+      expect(await out.readAsString(), contains('只在内存'));
+    });
+
+    test('已接线但磁盘无历史:导出为空,不拿内存冒充', () async {
+      // 目录不存在时 store 什么都写不出,而内存里确实有日志
+      AppLog.attachStore(LogStore(Directory('${tmp.path}/missing')));
+      AppLog.i('T', '内存里有但没落盘');
+      expect(AppLog.instance.isEmpty, isFalse);
+      final out = File('${tmp.path}/out.txt');
+      await AppLog.writeFullLog(out);
+      expect(await out.readAsString(), isEmpty);
+    });
+  });
 }

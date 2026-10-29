@@ -7,6 +7,8 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
@@ -98,6 +100,24 @@ class AppLog extends ChangeNotifier {
   /// 已落盘的历史,旧的在前、流式读取;未接线时为空流
   static Stream<String> history() =>
       instance._store?.dump() ?? const Stream.empty();
+
+  /// 流式写出磁盘历史,10MB 不会一次进内存;仅在未接线时退回内存缓冲
+  ///
+  /// 已接线但磁盘读不到时导出就是空的,不用内存冒充完整历史。
+  static Future<void> writeFullLog(File file) async {
+    await flush();
+    final sink = file.openWrite();
+    try {
+      if (hasStore) {
+        // addStream 带背压,磁盘读得再快也不会在写端堆积
+        await sink.addStream(history().map((line) => utf8.encode('$line\n')));
+      } else {
+        sink.write(instance.dump());
+      }
+    } finally {
+      await sink.close();
+    }
+  }
 
   /// store 按行存取且不检查内容,单行不变式由这里保证:内嵌换行会被读回成多条
   static final _lineBreak = RegExp(r'\r\n|\r|\n');

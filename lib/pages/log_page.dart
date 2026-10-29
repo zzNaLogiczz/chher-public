@@ -1,7 +1,6 @@
 /// A searchable diagnostic stream; all content stays within the application.
 library;
 
-import 'dart:convert';
 import 'dart:io';
 import '../ui/app_button.dart';
 import '../design/typography.dart';
@@ -158,28 +157,10 @@ class _LogPageState extends State<LogPage> {
       final file = File(
         '${Directory.systemTemp.path}/chh-log-${DateTime.now().millisecondsSinceEpoch}.txt',
       );
-      await _writeFullLog(file);
+      await AppLog.writeFullLog(file);
       if (mounted) _toast('已导出 ${file.path}');
     } catch (_) {
       if (mounted) _toast('日志导出失败，请稍后重试');
-    }
-  }
-
-  /// 流式写出磁盘历史,10MB 不会一次进内存;仅在未接线时退回内存缓冲
-  Future<void> _writeFullLog(File file) async {
-    await AppLog.flush();
-    final sink = file.openWrite();
-    try {
-      if (AppLog.hasStore) {
-        // addStream 带背压,磁盘读得再快也不会在写端堆积
-        await sink.addStream(
-          AppLog.history().map((line) => utf8.encode('$line\n')),
-        );
-      } else {
-        sink.write(AppLog.instance.dump());
-      }
-    } finally {
-      await sink.close();
     }
   }
 
