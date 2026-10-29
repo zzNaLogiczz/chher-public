@@ -107,7 +107,9 @@ void main() {
       ),
     );
     expect(tester.takeException(), isNull);
-    expect(find.text('+123 新回复'), findsOneWidget);
+    final rect = tester.getRect(find.text('+123 新回复'));
+    expect(rect.left, greaterThanOrEqualTo(0));
+    expect(rect.right, lessThanOrEqualTo(320));
   });
 
   testWidgets('搜索行置灰后关键词高亮仍可辨', (tester) async {
@@ -180,7 +182,8 @@ void main() {
     expect(styleOf(tester, '+3 新回复')!.color, t.accent);
   });
 
-  testWidgets('markRead 只重建对应行,不重建整个列表', (tester) async {
+  /// 30 行列表,每行记录 builder 调用次数;回复数统一为 10
+  Future<Map<int, int>> pumpRows(WidgetTester tester, int base) async {
     tester.view.physicalSize = const Size(400, 6000);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -190,28 +193,57 @@ void main() {
         ListView.builder(
           itemCount: 30,
           itemBuilder: (context, i) => ReadStateBuilder(
-            tid: 1000 + i,
-            replies: 5,
+            tid: base + i,
+            replies: 10,
             builder: (context, state) {
               builds[i] = (builds[i] ?? 0) + 1;
-              return ThreadRow(thread: thread(1000 + i), readState: state);
+              return ThreadRow(
+                thread: thread(base + i, replies: 10),
+                readState: state,
+              );
             },
           ),
         ),
       ),
     );
     expect(builds.length, 30);
+    return builds;
+  }
+
+  List<int> changedRows(Map<int, int> builds, Map<int, int> before) => [
+    for (final e in builds.entries)
+      if (e.value != before[e.key]) e.key,
+  ];
+
+  testWidgets('markRead 只重建对应行,不重建整个列表', (tester) async {
+    final builds = await pumpRows(tester, 1000);
     final before = Map<int, int>.of(builds);
 
-    threadReadIndex.markRead(1012, 5);
+    threadReadIndex.markRead(1012, 10);
     await tester.pump();
 
-    final changed = [
-      for (final e in builds.entries)
-        if (e.value != before[e.key]) e.key,
-    ];
-    expect(changed, [12]);
+    expect(changedRows(builds, before), [12]);
     expect(builds[12], before[12]! + 1);
+  });
+
+  testWidgets('新回复数变化会重建该行;别的行更新时它不重建', (tester) async {
+    final builds = await pumpRows(tester, 2000);
+    threadReadIndex.markRead(2005, 7); // 未看 -> 新回复 3
+    await tester.pump();
+    expect(find.text('+3 新回复'), findsOneWidget);
+
+    // 同为新回复但数量变了:走 count 比较,必须重建
+    var before = Map<int, int>.of(builds);
+    threadReadIndex.markRead(2005, 6); // 新回复 4
+    await tester.pump();
+    expect(find.text('+4 新回复'), findsOneWidget);
+    expect(changedRows(builds, before), [5]);
+
+    // 另一行变化时,数量未变的这一行不重建
+    before = Map<int, int>.of(builds);
+    threadReadIndex.markRead(2006, 10);
+    await tester.pump();
+    expect(changedRows(builds, before), [6]);
   });
 }
 

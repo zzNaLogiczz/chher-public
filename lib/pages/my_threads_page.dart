@@ -141,7 +141,12 @@ class _Row extends StatelessWidget {
               spacing: 12,
               runSpacing: 4,
               children: [
-                Text(_meta(), style: AppType.footnote.copyWith(color: t.text3)),
+                // 元信息为空时不放空 Text,免得白占一格 Wrap 间距
+                if (_meta().isNotEmpty)
+                  Text(
+                    _meta(),
+                    style: AppType.footnote.copyWith(color: t.text3),
+                  ),
                 if (readState case final ThreadReadNewReplies fresh)
                   newRepliesText(t, fresh),
               ],
