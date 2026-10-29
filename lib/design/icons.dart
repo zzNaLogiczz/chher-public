@@ -7,6 +7,7 @@ import 'package:flutter/material.dart' show Icons;
 import 'package:solar_icons/solar_icons.dart';
 
 abstract final class AppIcons {
+  static const sort = SolarIconsOutline.sortVertical;
   static const search = SolarIconsOutline.magnifier;
   static const comments = SolarIconsOutline.chatRoundDots;
   static const reply = SolarIconsOutline.chatSquareArrow;

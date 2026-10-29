@@ -99,7 +99,7 @@ class ChromeGroupItem {
   });
 }
 
-/// 同一侧多个操作合进一个胶囊,每格 38 宽,按下格内铺 `fill`。
+/// 同一侧多个操作合进一个 38 高胶囊,每格命中区 44,按下格内铺 `fill`。
 class ChromeGroup extends StatelessWidget {
   static const surfaceKey = ValueKey('chrome-group-surface');
   static const double _inset = 4;
@@ -115,15 +115,23 @@ class ChromeGroup extends StatelessWidget {
     final radius = BorderRadius.circular(_visual / 2);
     return SizedBox(
       height: _hit,
-      child: Center(
-        child: DecoratedBox(
-          key: surfaceKey,
-          decoration: BoxDecoration(
-            color: onImage ? t.glassOnImage : t.glass,
-            borderRadius: radius,
-            boxShadow: onImage ? null : t.shadowE1,
+      child: Stack(
+        children: [
+          Positioned(
+            top: (_hit - _visual) / 2,
+            bottom: (_hit - _visual) / 2,
+            left: 0,
+            right: 0,
+            child: DecoratedBox(
+              key: surfaceKey,
+              decoration: BoxDecoration(
+                color: onImage ? t.glassOnImage : t.glass,
+                borderRadius: radius,
+                boxShadow: onImage ? null : t.shadowE1,
+              ),
+            ),
           ),
-          child: Padding(
+          Padding(
             padding: const EdgeInsets.symmetric(horizontal: _inset),
             child: Row(
               mainAxisSize: MainAxisSize.min,
@@ -137,7 +145,7 @@ class ChromeGroup extends StatelessWidget {
                       color: t.fill,
                       borderRadius: radius,
                       child: SizedBox.square(
-                        dimension: _visual,
+                        dimension: _hit,
                         child: Icon(
                           item.icon,
                           size: _iconSize,
@@ -155,7 +163,7 @@ class ChromeGroup extends StatelessWidget {
               ],
             ),
           ),
-        ),
+        ],
       ),
     );
   }

@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../di.dart';
 import '../data/forum_repository.dart';
 import '../models/models.dart';
+import '../models/thread_sort.dart';
 import '../widgets/browse_controls.dart';
 import '../design/tokens.dart';
 import '../ui/chrome_button.dart';
@@ -32,6 +33,9 @@ class ForumThreadsPage extends StatefulWidget {
 }
 
 class _ForumThreadsPageState extends State<ForumThreadsPage> {
+  static final Map<int, ThreadSort> _sortMemory = {};
+  late ThreadSort _sort;
+  bool _sortPickerOpen = false;
   List<ThreadType> _types = const [];
   int _typeid = 0;
   int _revision = 0;
@@ -40,6 +44,7 @@ class _ForumThreadsPageState extends State<ForumThreadsPage> {
   @override
   void initState() {
     super.initState();
+    _sort = _sortMemory[widget.fid] ?? ThreadSort.fallback;
     _loadTypes();
   }
 
@@ -50,6 +55,24 @@ class _ForumThreadsPageState extends State<ForumThreadsPage> {
     } catch (_) {
       /* Categories are optional; discussion remains available. */
     }
+  }
+
+  Future<void> _pickSort() async {
+    if (_sortPickerOpen) return;
+    _sortPickerOpen = true;
+    final picked = await showPickerSheet<ThreadSort>(
+      context,
+      title: '排序方式',
+      options: [
+        for (final sort in ThreadSort.values)
+          PickerOption(value: sort, label: sort.label),
+      ],
+      value: _sort,
+    );
+    _sortPickerOpen = false;
+    if (!mounted || picked == null || picked.value == _sort) return;
+    setState(() => _sort = picked.value);
+    _sortMemory[widget.fid] = _sort;
   }
 
   Future<void> _openNewThread() async {
@@ -73,6 +96,12 @@ class _ForumThreadsPageState extends State<ForumThreadsPage> {
       actions: [
         ChromeGroup(
           items: [
+            ChromeGroupItem(
+              tooltip: '排序',
+              icon: AppIcons.sort,
+              selected: _sort != ThreadSort.fallback,
+              onPressed: _pickSort,
+            ),
             ChromeGroupItem(
               tooltip: '搜索帖子',
               icon: AppIcons.search,
@@ -115,12 +144,14 @@ class _ForumThreadsPageState extends State<ForumThreadsPage> {
           ),
           Expanded(
             child: BrowseThreadList(
-              key: ValueKey('$_typeid-$_revision'),
+              key: ValueKey('${widget.fid}-$_typeid-${_sort.name}-$_revision'),
               loader: (page, {bool refresh = false}) async {
                 final result = await _repository.threadList(
                   widget.fid,
                   page: page,
                   typeid: _typeid == 0 ? null : _typeid,
+                  filter: _sort.filter,
+                  orderby: _sort.orderby,
                   refresh: refresh,
                 );
                 return Paged(items: result.threads, page: result.page);

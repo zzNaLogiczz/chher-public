@@ -105,13 +105,17 @@ void main() {
     expect(find.byKey(ChromeGroup.surfaceKey), findsOneWidget);
     expect(
       tester.getSize(find.byKey(ChromeGroup.surfaceKey)),
-      const Size(2 * 38 + 8, 38),
+      const Size(2 * 44 + 8, 38),
     );
     expect(
       decorationOf(tester, ChromeGroup.surfaceKey).color,
       AppTokens.light.glass,
     );
-    await tester.tap(find.byTooltip('搜索帖子'));
+    expect(tester.getSize(find.byTooltip('搜索帖子')), const Size(44, 44));
+    expect(tester.getSize(find.byTooltip('发主题')), const Size(44, 44));
+    await tester.tapAt(
+      tester.getTopLeft(find.byTooltip('搜索帖子')) + const Offset(1, 1),
+    );
     expect(searched, 1);
     expect(find.byTooltip('发主题'), findsOneWidget);
   });
