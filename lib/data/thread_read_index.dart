@@ -50,7 +50,7 @@ class _Entry {
 /// Every storage failure degrades silently to "nothing has been seen".
 class ThreadReadIndex extends ChangeNotifier {
   final int capacity;
-  final Duration _writeDelay;
+  final Duration writeDelay;
 
   File? _file;
   // Insertion order doubles as recency; see _evict for the tie-break.
@@ -66,8 +66,8 @@ class ThreadReadIndex extends ChangeNotifier {
   ThreadReadIndex(
     this._file, {
     this.capacity = 2000,
-    Duration writeDelay = const Duration(seconds: 2),
-  }) : _writeDelay = writeDelay;
+    this.writeDelay = const Duration(seconds: 2),
+  });
 
   /// Idempotent. Marks made before the read completes win over old disk data.
   Future<void> load() => _loading ??= _read();
@@ -164,7 +164,7 @@ class ThreadReadIndex extends ChangeNotifier {
     _dirty = true;
     if (_file == null || _disposed) return;
     _timer?.cancel();
-    _timer = Timer(_writeDelay, () {
+    _timer = Timer(writeDelay, () {
       _timer = null;
       unawaited(_persist());
     });
