@@ -118,12 +118,16 @@ class ThreadReadIndex extends ChangeNotifier {
   /// up after the debounce. Same count again is a no-op.
   void markRead(int tid, int replies) {
     if (tid <= 0 || replies < 0) return;
-    if (_entries[tid]?.replies == replies) return;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final unchanged = _entries[tid]?.replies == replies;
     _entries.remove(tid);
-    _entries[tid] = _Entry(replies, DateTime.now().millisecondsSinceEpoch);
-    _evict();
-    notifyListeners();
+    _entries[tid] = _Entry(replies, now);
     _scheduleWrite();
+    // A repeat open only refreshes `at` (last-opened, so it ages out last);
+    // nothing visible changed, so no repaint and no eviction.
+    if (unchanged) return;
+    _evict(keep: tid);
+    notifyListeners();
   }
 
   /// A lower [replies] than recorded (posts get deleted) is still seen.
@@ -145,12 +149,14 @@ class ThreadReadIndex extends ChangeNotifier {
     return _persist();
   }
 
-  void _evict() {
+  void _evict({int? keep}) {
     while (_entries.length > capacity) {
       int? oldest;
       var oldestAt = 0;
       // Strict `<` keeps the earliest-inserted among equal timestamps.
       for (final item in _entries.entries) {
+        // Skip the just-marked thread: clock skew must not make it evict itself.
+        if (item.key == keep) continue;
         if (oldest == null || item.value.at < oldestAt) {
           oldest = item.key;
           oldestAt = item.value.at;

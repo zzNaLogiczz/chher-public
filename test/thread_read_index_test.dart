@@ -184,18 +184,18 @@ void main() {
   });
 
   test('writes are debounced and coalesced; flush forces them out', () async {
-    final index = make(file, writeDelay: const Duration(milliseconds: 150));
+    final index = make(file, writeDelay: const Duration(milliseconds: 100));
     index.markRead(1, 1);
-    await Future<void>.delayed(const Duration(milliseconds: 50));
+    await Future<void>.delayed(const Duration(milliseconds: 20));
     index.markRead(2, 2);
-    await Future<void>.delayed(const Duration(milliseconds: 50));
+    await Future<void>.delayed(const Duration(milliseconds: 20));
     expect(
       file.existsSync(),
       isFalse,
       reason: 'still inside the debounce window',
     );
 
-    await Future<void>.delayed(const Duration(milliseconds: 300));
+    await Future<void>.delayed(const Duration(milliseconds: 600));
     final stored = jsonDecode(await file.readAsString())['threads'] as Map;
     expect(stored.keys.toSet(), {'1', '2'});
 
@@ -220,4 +220,46 @@ void main() {
       expect(n, greaterThan(0));
     },
   );
+
+  test(
+    'repeat open refreshes at without notifying, so it outlives stale',
+    () async {
+      await file.writeAsString(
+        jsonEncode({
+          'version': 1,
+          'threads': {
+            '1': {'r': 1, 'at': 1000},
+            '2': {'r': 1, 'at': 2000},
+          },
+        }),
+      );
+      final index = make(file, capacity: 2);
+      await index.load();
+      var n = 0;
+      index.addListener(() => n++);
+      index.markRead(1, 1);
+      expect(n, 0);
+      index.markRead(3, 1);
+      expect(index.stateOf(1, replies: 1), isA<ThreadReadSeen>());
+      expect(index.stateOf(2, replies: 1), isA<ThreadReadUnseen>());
+    },
+  );
+
+  test('future-dated entries cannot evict the one just marked', () async {
+    final future = DateTime.now().millisecondsSinceEpoch + 10000000;
+    await file.writeAsString(
+      jsonEncode({
+        'version': 1,
+        'threads': {
+          '1': {'r': 1, 'at': future},
+          '2': {'r': 1, 'at': future + 1},
+        },
+      }),
+    );
+    final index = make(file, capacity: 2);
+    await index.load();
+    index.markRead(3, 1);
+    expect(index.stateOf(3, replies: 1), isA<ThreadReadSeen>());
+    expect(index.stateOf(1, replies: 1), isA<ThreadReadUnseen>());
+  });
 }

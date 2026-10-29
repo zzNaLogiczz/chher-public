@@ -7,6 +7,8 @@ library;
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/widgets.dart';
+
 import 'data/forum_repository.dart';
 import 'data/link_preview_repository.dart';
 import 'data/message_repository.dart';
@@ -42,6 +44,9 @@ final LinkPreviewRepository linkPreviewRepo = LinkPreviewRepository.live(
 /// 没人读就永远不执行 —— 之前页头观察钩子就是这样从未生效,
 /// 表现为个人中心始终显示「已登录」而不是账号名。
 void setupDependencies() {
+  // 进后台时进程随时可能被回收,debounce/周期定时器来不及触发,先把数据落盘
+  WidgetsFlutterBinding.ensureInitialized();
+  WidgetsBinding.instance.addObserver(_lifecycleFlusher);
   // 让会话顺带观察每次页面响应,从页头取账号与未读计数,不额外发请求
   chhClient.htmlObserver = chhSession.observeHtml;
   AppLog.i('BOOT', '页头观察已接线');
@@ -71,4 +76,20 @@ Future<void> _attachReadIndex() async {
   final dir = await AppPaths.instance.subdir('read');
   if (dir == null) return;
   await threadReadIndex.attach(File('${dir.path}/threads-v1.json'));
+}
+
+final _lifecycleFlusher = LifecycleFlusher();
+
+/// Flushes the read ledger and the log when the app leaves the foreground.
+/// Holds no timer of its own; both flushes are no-ops while nothing is attached.
+class LifecycleFlusher with WidgetsBindingObserver {
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.detached) {
+      unawaited(threadReadIndex.flush());
+      unawaited(AppLog.flush());
+    }
+  }
 }
