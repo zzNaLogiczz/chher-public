@@ -7,6 +7,7 @@ import '../ui/segmented.dart';
 import '../design/tokens.dart';
 import '../ui/picker.dart';
 import '../di.dart';
+import '../data/image_disk_cache.dart';
 import '../data/space_repository.dart';
 import '../widgets/large_title_scaffold.dart';
 import '../widgets/expressive_controls.dart';
@@ -45,6 +46,8 @@ class _SettingsBodyState extends State<SettingsBody> {
   ];
   int _seg = 0;
   late Future<SettingsForm> _future = _load();
+  // 缓存大小异步统计,算完前行上显示占位,不阻塞设置页出现
+  String _cacheLabel = '计算中';
   Future<SettingsForm> _load() {
     final (ac, op) = _ops[_seg];
     return (widget.repository ?? spaceRepo).settings(ac: ac, op: op);
@@ -56,6 +59,17 @@ class _SettingsBodyState extends State<SettingsBody> {
       _seg = i;
       _future = _load();
     });
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _refreshCacheSize();
+  }
+
+  Future<void> _refreshCacheSize() async {
+    final bytes = await imageDiskCache.totalBytes();
+    if (mounted) setState(() => _cacheLabel = _formatBytes(bytes));
   }
 
   void _retry() => setState(() => _future = _load());
@@ -185,6 +199,15 @@ class _SettingsBodyState extends State<SettingsBody> {
                         MaterialPageRoute(builder: (_) => const LogPage()),
                       ),
                     ),
+                    GroupedRow(
+                      title: '图片缓存',
+                      value: _cacheLabel,
+                      icon: const IconTile(
+                        icon: AppIcons.image,
+                        tint: IconTints.teal,
+                      ),
+                      onTap: () => _clearCache(context),
+                    ),
                   ],
                 ),
                 // 退出登录放在最底部,单独一组,先确认再清会话
@@ -204,6 +227,31 @@ class _SettingsBodyState extends State<SettingsBody> {
       ),
     ],
   );
+
+  Future<void> _clearCache(BuildContext context) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('清除图片缓存？'),
+        actions: [
+          AppButton(
+            label: '取消',
+            variant: AppButtonVariant.quiet,
+            onPressed: () => Navigator.pop(context, false),
+          ),
+          AppButton(
+            label: '清除',
+            variant: AppButtonVariant.plain,
+            onPressed: () => Navigator.pop(context, true),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await imageDiskCache.clear();
+    // 清除后重新统计,不显示过期的大小
+    await _refreshCacheSize();
+  }
 
   Future<void> _logout(BuildContext context) async {
     final ok = await showDialog<bool>(
@@ -226,4 +274,10 @@ class _SettingsBodyState extends State<SettingsBody> {
     );
     if (ok == true) await chhSession.logout();
   }
+}
+
+String _formatBytes(int bytes) {
+  if (bytes < 1024) return '$bytes B';
+  if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+  return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
 }
