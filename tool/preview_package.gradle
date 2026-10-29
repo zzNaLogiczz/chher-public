@@ -1,0 +1,17 @@
+// 真机验收用的临时 Gradle 初始化脚本:把 applicationId 改成独立测试包,
+// 与手机上的原应用(com.chhreader.chh_app,签名不同)并存,不动原应用和它的数据。
+//
+// 用法(只在验收期间放进 init.d,结束后删除):
+//   mkdir -p ~/.gradle/init.d
+//   cp tool/preview_package.gradle ~/.gradle/init.d/chh-preview.gradle
+//   ... flutter run --profile / flutter build apk ...
+//   rm ~/.gradle/init.d/chh-preview.gradle
+//
+// 仓库里的正式 applicationId 不改。
+allprojects {
+    afterEvaluate { project ->
+        if (project.name == 'app' && project.extensions.findByName('android') != null) {
+            project.android.defaultConfig.applicationId = 'com.chhreader.chh_app.preview'
+        }
+    }
+}

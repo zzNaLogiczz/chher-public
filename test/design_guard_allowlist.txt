@@ -1,0 +1,17 @@
+# 例外清单:每行 路径:规则名:该行代码(去首尾空格);上一行写原因
+# 离线交互样板的示例延时(模拟网络等待),不是界面动画
+lib/pages/interaction_review_page.dart:raw duration:await Future<void>.delayed(const Duration(milliseconds: 1100));
+lib/pages/interaction_review_page.dart:raw duration:await Future<void>.delayed(const Duration(milliseconds: 350));
+lib/pages/interaction_review_page.dart:raw duration:await Future<void>.delayed(const Duration(milliseconds: 450));
+# 登录页轮询会话 Cookie 的定时器间隔,不是界面动画
+lib/pages/login_page.dart:raw duration:const Duration(milliseconds: 800),
+# 人机验证页轮询表单与验证状态的定时器间隔,不是界面动画
+lib/pages/web_post_page.dart:raw duration:_poll = Timer.periodic(const Duration(milliseconds: 500), (_) => _tick());
+# 离线讨论样板的示例提交延时,不是界面动画
+lib/pages/thread_review_page.dart:raw duration:await Future<void>.delayed(const Duration(milliseconds: 900));
+# 封面展开路由的时长:规格 §2 非目标,保留现有 hero 弹簧与路由参数
+lib/widgets/editorial_article_route.dart:raw duration:duration: const Duration(milliseconds: 100),
+lib/widgets/editorial_article_route.dart:raw duration:Duration(milliseconds: _reduced ? 100 : 460);
+lib/widgets/editorial_article_route.dart:raw duration:Duration(milliseconds: _reduced ? 100 : 520);
+# 鼠标滚轮手势去抖间隔,不是界面动画
+lib/widgets/thread_conversation_sheet.dart:raw duration:const Duration(milliseconds: 180)) {

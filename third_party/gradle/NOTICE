@@ -1,0 +1,30 @@
+Gradle Wrapper and Gradle CLI components
+https://gradle.org/
+
+This notice accompanies the Gradle Wrapper scripts and JAR redistributed
+in this repository. These components are licensed under the Apache
+License, Version 2.0. See LICENSE in this directory.
+
+The JAR identifies itself as Gradle 2.10, built from upstream commit:
+276bdcded730f53aa8c11b479986aafa58e124a6
+
+Original source locations:
+https://github.com/gradle/gradle/tree/276bdcded730f53aa8c11b479986aafa58e124a6/subprojects/wrapper
+https://github.com/gradle/gradle/tree/276bdcded730f53aa8c11b479986aafa58e124a6/subprojects/cli
+
+Copyright notices retained from the corresponding Wrapper and CLI sources:
+
+Copyright 2007 the original author or authors.
+Copyright 2007-2008 the original author or authors.
+Copyright 2007-2009 the original author or authors.
+Copyright 2007-2014 the original author or authors.
+Copyright 2009 the original author or authors.
+Copyright 2010 the original author or authors.
+Copyright 2011 the original author or authors.
+Copyright 2012 the original author or authors.
+Copyright 2014 the original author or authors.
+
+This repository notice records only the Gradle components redistributed
+here. It is not the NOTICE for the full Gradle distribution. Libraries
+downloaded with the full distribution retain their accompanying licenses
+and notices. The attribution notices above do not modify the license.

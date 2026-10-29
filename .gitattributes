@@ -1,0 +1,9 @@
+# Synthetic parser fixtures use portable line endings.
+test_data/*.html text eol=lf
+
+# Binary project assets.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.jar binary

@@ -1,0 +1,104 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# The .vscode folder contains launch configuration and tasks you configure in
+# VS Code which you may wish to be included in version control, so this line
+# is commented out by default.
+#.vscode/
+
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+/coverage/
+
+# Symbolication related
+app.*.symbols
+
+# Obfuscation related
+app.*.map.json
+
+# Android Studio will place build artifacts here
+/android/app/debug
+/android/app/profile
+/android/app/release
+
+# Local web previews, caches and generated distributions
+**/node_modules/
+**/.vite/
+**/.next/
+/docs/ui/dist/
+**/.cache/
+
+# Local credentials and signing material
+.env
+.env.*
+!.env.example
+!.env.sample
+*.pem
+*.p12
+*.pfx
+*.keystore
+*.jks
+*.key
+*.p8
+*.pk8
+key.properties
+*.mobileprovision
+
+# Generated packages, local databases, captures and private audit backups.
+*.apk
+*.aab
+*.ipa
+*.bundle
+*.sqlite
+*.sqlite3
+*.db
+*.har
+*.pcap
+*.pcapng
+*.hprof
+/private_samples/
+/.audit/
+
+# Keep the Android wrapper needed for a fresh checkout.
+!android/gradlew
+!android/gradlew.bat
+!android/gradle/wrapper/gradle-wrapper.jar
+
+# Gradle reports are generated locally.
+/android/build/
+/android/.kotlin/
+
+# Local agent workflow state; reviewable plans live under docs/qa/.
+/.omx/
+/.code-review-graph/
+
+.superpowers/
+.gstack/
+
+# Local design/agent notes and historical QA evidence are not public source.
+/docs/
+AGENTS.md
+DESIGN.md
