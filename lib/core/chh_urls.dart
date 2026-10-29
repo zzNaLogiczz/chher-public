@@ -22,7 +22,8 @@ class ChhUrls {
 
   /// 版块页。typeid 走 filter=typeid 组合;digest / heat 等走 filter 本身。
   ///
-  /// 注意站点行为:裸 orderby 会在翻页时丢失,所以排序一律带上对应 filter。
+  /// 2026-10-29 实测:第 2 页裸 orderby 与 filter+orderby 结果一致。
+  /// 排序沿用站点的配对 filter;分类筛选时 filter=typeid 仍可叠加 orderby。
   static Uri threadListFiltered(
     int fid, {
     int page = 1,
@@ -40,8 +41,8 @@ class ChhUrls {
       q['typeid'] = '$typeid';
     } else if (filter != null) {
       q['filter'] = filter;
-      if (orderby != null) q['orderby'] = orderby;
     }
+    if (orderby != null) q['orderby'] = orderby;
     return Uri.parse('$base/forum.php').replace(queryParameters: q);
   }
 
