@@ -35,6 +35,7 @@ class ImageDiskCache {
   /// url-hash file name -> byte size, least recently used first.
   final LinkedHashMap<String, int> _entries = LinkedHashMap<String, int>();
   int _total = 0;
+  int _writeEpoch = 0;
   Future<void>? _scan;
   Future<void> _writes = Future<void>.value();
 
@@ -47,6 +48,7 @@ class ImageDiskCache {
       misses++;
       return null;
     }
+    final epoch = _writeEpoch;
     try {
       final data = await File('${dir.path}/$name').readAsBytes();
       // Re-check: an eviction or clear may have run while we were reading.
@@ -60,7 +62,8 @@ class ImageDiskCache {
       return data;
     } catch (_) {
       // Vanished or unreadable: forget it and treat as a miss.
-      _forget(name);
+      // Skip if a write completed meanwhile: it may have re-added this name.
+      if (epoch == _writeEpoch) _forget(name);
       misses++;
       return null;
     }
@@ -100,19 +103,22 @@ class ImageDiskCache {
     final dir = _dir!;
     await _ensureScanned();
     final name = _fileName(url);
+    final temporary = File('${dir.path}/$name.tmp');
     try {
       await dir.create(recursive: true);
-      final temporary = File('${dir.path}/$name.tmp');
       await temporary.writeAsBytes(bytes, flush: true);
       await temporary.rename('${dir.path}/$name');
     } catch (_) {
-      // Full disk or reclaimed directory: skip caching, never throw.
+      // Full disk or reclaimed directory: skip caching, never throw. Remove the
+      // partial temp file, which is in neither the index nor the total.
+      await _tryDelete(temporary);
       return;
     }
     final old = _entries.remove(name);
     if (old != null) _total -= old;
     _entries[name] = bytes.length;
     _total += bytes.length;
+    _writeEpoch++;
     _evictIfNeeded();
   }
 
@@ -131,6 +137,8 @@ class ImageDiskCache {
     final dir = _dir!;
     _enqueue(() async {
       for (final name in victims) {
+        // A write queued before this job may have re-added the name; keep it.
+        if (_entries.containsKey(name)) continue;
         await _tryDelete(File('${dir.path}/$name'));
       }
     });
@@ -184,10 +192,12 @@ class ImageDiskCache {
 
   static const _suffix = '.img';
 
-  /// File name = two independent 64-bit FNV-1a hashes of the UTF-8 URL (128
-  /// bits, 32 hex chars) + ".img". Hex only: no separators or traversal,
-  /// fixed length regardless of URL length, and 128 bits makes accidental
-  /// collisions between distinct URLs negligible. No `crypto` dependency.
+  /// File name = two 64-bit FNV-1a-style hashes of the UTF-8 URL, each
+  /// rendered as 16 zero-padded lowercase hex digits (32 total) + ".img".
+  /// Hex only (no separators or traversal) and fixed width regardless of URL
+  /// length, so the two halves cannot blur into each other. 128 bits of hash
+  /// state makes accidental collisions between distinct URLs negligible; it is
+  /// not cryptographic. No `crypto` dependency.
   static String _fileName(String url) {
     var h1 = 0xcbf29ce484222325;
     var h2 = 0x84222325cbf29ce4;
@@ -195,7 +205,10 @@ class ImageDiskCache {
       h1 = ((h1 ^ b) * 0x100000001b3);
       h2 = ((h2 ^ (b + 0x9e)) * 0x1000193 + (h2 >>> 29));
     }
-    String hex(int v) => v.toUnsigned(64).toRadixString(16).padLeft(16, '0');
+    // Split into unsigned 32-bit halves: toRadixString on a negative int
+    // would emit a '-' sign.
+    String part(int v) => (v & 0xFFFFFFFF).toRadixString(16).padLeft(8, '0');
+    String hex(int v) => '${part(v >>> 32)}${part(v)}';
     return '${hex(h1)}${hex(h2)}$_suffix';
   }
 }

@@ -56,7 +56,7 @@ void main() {
     expect(names, hasLength(1));
     expect(names.single, isNot(contains('/')));
     expect(names.single, isNot(endsWith('.tmp')));
-    expect(names.single.length, lessThan(64));
+    expect(names.single, matches(RegExp(r'^[0-9a-f]{32}\.img$')));
   });
 
   test(
@@ -129,4 +129,28 @@ void main() {
     expect(await cache.totalBytes(), 0);
     expect(await cache.read('https://static.chiphell.com/a.jpg'), isNull);
   });
+
+  test(
+    'eviction does not delete a file re-written while it was queued',
+    () async {
+      final cache = ImageDiskCache(dir, maxBytes: 200);
+      const a = 'https://static.chiphell.com/a.jpg';
+      // Queue order: write A, write B (evicts A), write A again. The eviction's
+      // delete job runs after the second write of A and must not remove it.
+      final writes = [
+        cache.write(a, bytes(100)),
+        cache.write('https://static.chiphell.com/b.jpg', bytes(100)),
+        cache.write(a, bytes(100)),
+      ];
+      await Future.wait(writes);
+      // totalBytes drains the queue, including the background deletions.
+      final total = await cache.totalBytes();
+      final onDisk = dir.listSync().whereType<File>().fold<int>(
+        0,
+        (sum, f) => sum + f.lengthSync(),
+      );
+      expect(total, onDisk);
+      expect(await cache.read(a), isNotNull);
+    },
+  );
 }
