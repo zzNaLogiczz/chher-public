@@ -163,6 +163,19 @@ class AppLog extends ChangeNotifier {
   static String fields(Map<String, String> form) =>
       form.entries.map((e) => '${e.key}(${e.value.length})').join(' ');
 
+  /// URL 摘要:不保留用户信息、片段或查询值;重复字段分别记录长度。
+  static String url(Object? input) {
+    try {
+      final uri = Uri.parse('$input');
+      final query = uri.queryParametersAll.entries
+          .expand((e) => e.value.map((v) => '${e.key}(${v.length})'))
+          .join(' ');
+      return '${uri.path}${query.isEmpty ? '' : '?$query'}';
+    } catch (_) {
+      return '<invalid URL>';
+    }
+  }
+
   /// 响应摘要:状态、长度、去标签后的开头
   static String response(int status, String body, {int head = 160}) {
     final text = body

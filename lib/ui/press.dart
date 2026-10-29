@@ -206,6 +206,7 @@ class PressHighlight extends StatefulWidget {
 
   /// 按下底色,默认 `pressed`;浮动胶囊内的格子用 `fill`(规格 §6.2)
   final Color? color;
+  final EdgeInsets paintInset;
 
   const PressHighlight({
     super.key,
@@ -215,6 +216,7 @@ class PressHighlight extends StatefulWidget {
     this.borderRadius,
     this.semanticLabel,
     this.color,
+    this.paintInset = EdgeInsets.zero,
   });
 
   @override
@@ -265,9 +267,12 @@ class _PressHighlightState extends State<PressHighlight>
             child: child,
           );
           final radius = widget.borderRadius;
-          return radius == null
-              ? tint
-              : ClipRRect(borderRadius: radius, child: tint);
+          return Padding(
+            padding: widget.paintInset,
+            child: radius == null
+                ? tint
+                : ClipRRect(borderRadius: radius, child: tint),
+          );
         },
       ),
       child: widget.child,

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
@@ -21,7 +22,37 @@ import 'package:flutter/foundation.dart';
 /// cache is therefore FIFO-by-write across restarts and true LRU within a
 /// session; this is the price of keeping reads write-free.
 class ImageDiskCache {
-  ImageDiskCache(this._dir, {this.maxBytes = 200 << 20, this.evictTo = 0.9});
+  ImageDiskCache(
+    this._dir, {
+    this.maxBytes = 200 << 20,
+    this.evictTo = 0.9,
+    this.maxConcurrentReads = 4,
+    @visibleForTesting Future<Uint8List> Function(File)? readFile,
+  }) : assert(maxConcurrentReads > 0),
+       _readFile = readFile ?? ((file) => file.readAsBytes());
+
+  final int maxConcurrentReads;
+  final Future<Uint8List> Function(File) _readFile;
+  final Queue<Completer<void>> _readWaiters = Queue();
+  int _activeReads = 0;
+
+  Future<void> _acquireRead() async {
+    if (_activeReads < maxConcurrentReads) {
+      _activeReads++;
+    } else {
+      final waiter = Completer<void>();
+      _readWaiters.add(waiter);
+      await waiter.future;
+    }
+  }
+
+  void _releaseRead() {
+    if (_readWaiters.isEmpty) {
+      _activeReads--;
+    } else {
+      _readWaiters.removeFirst().complete();
+    }
+  }
 
   final Directory? _dir;
   final int maxBytes;
@@ -43,29 +74,34 @@ class ImageDiskCache {
     final dir = _dir;
     if (dir == null) return null;
     await _ensureScanned();
-    final name = _fileName(url);
-    if (!_entries.containsKey(name)) {
-      misses++;
-      return null;
-    }
-    final epoch = _writeEpoch;
+    await _acquireRead();
     try {
-      final data = await File('${dir.path}/$name').readAsBytes();
-      // Re-check: an eviction or clear may have run while we were reading.
-      final size = _entries.remove(name);
-      if (size == null) {
+      final name = _fileName(url);
+      if (!_entries.containsKey(name)) {
         misses++;
         return null;
       }
-      _entries[name] = size;
-      hits++;
-      return data;
-    } catch (_) {
-      // Vanished or unreadable: forget it and treat as a miss.
-      // Skip if a write completed meanwhile: it may have re-added this name.
-      if (epoch == _writeEpoch) _forget(name);
-      misses++;
-      return null;
+      final epoch = _writeEpoch;
+      try {
+        final data = await _readFile(File('${dir.path}/$name'));
+        // Re-check: an eviction or clear may have run while we were reading.
+        final size = _entries.remove(name);
+        if (size == null) {
+          misses++;
+          return null;
+        }
+        _entries[name] = size;
+        hits++;
+        return data;
+      } catch (_) {
+        // Vanished or unreadable: forget it and treat as a miss.
+        // Skip if a write completed meanwhile: it may have re-added this name.
+        if (epoch == _writeEpoch) _forget(name);
+        misses++;
+        return null;
+      }
+    } finally {
+      _releaseRead();
     }
   }
 

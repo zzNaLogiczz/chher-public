@@ -143,6 +143,9 @@ class ChromeGroup extends StatelessWidget {
                       onTap: item.onPressed,
                       semanticLabel: item.tooltip,
                       color: t.fill,
+                      paintInset: const EdgeInsets.symmetric(
+                        vertical: (_hit - _visual) / 2,
+                      ),
                       borderRadius: radius,
                       child: SizedBox.square(
                         dimension: _hit,

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -153,4 +154,91 @@ void main() {
       expect(await cache.read(a), isNotNull);
     },
   );
+  test('read permits bound physical IO and release on failure', () async {
+    var active = 0;
+    var peak = 0;
+    final started = <Completer<Uint8List>>[];
+    final cache = ImageDiskCache(
+      dir,
+      maxConcurrentReads: 2,
+      readFile: (_) async {
+        active++;
+        if (active > peak) peak = active;
+        final gate = Completer<Uint8List>();
+        started.add(gate);
+        try {
+          return await gate.future;
+        } finally {
+          active--;
+        }
+      },
+    );
+    for (var i = 0; i < 6; i++) {
+      await cache.write('$i', bytes(10));
+    }
+    final reads = [for (var i = 0; i < 6; i++) cache.read('$i')];
+    await Future<void>.delayed(Duration.zero);
+    expect(started, hasLength(2));
+    started[0].completeError(const FileSystemException('fixture failure'));
+    await Future<void>.delayed(Duration.zero);
+    expect(started, hasLength(3));
+    expect(active, 2);
+    for (var i = 1; i < 6; i++) {
+      started[i].complete(bytes(10));
+      await Future<void>.delayed(Duration.zero);
+    }
+    final results = await Future.wait(reads);
+    expect(results.first, isNull);
+    expect(results.skip(1), everyElement(hasLength(10)));
+    expect(peak, 2);
+    expect(active, 0);
+  });
+
+  test('queued reads recheck clear and do not start forgotten IO', () async {
+    final gate = Completer<Uint8List>();
+    var physicalReads = 0;
+    final cache = ImageDiskCache(
+      dir,
+      maxConcurrentReads: 1,
+      readFile: (_) {
+        physicalReads++;
+        return gate.future;
+      },
+    );
+    await cache.write('a', bytes(10));
+    await cache.write('b', bytes(10));
+    final reads = [cache.read('a'), cache.read('b')];
+    await Future<void>.delayed(Duration.zero);
+    await cache.clear();
+    expect(physicalReads, 1);
+    gate.complete(bytes(10));
+    expect(await Future.wait(reads), [null, null]);
+    expect(physicalReads, 1);
+    expect(await cache.totalBytes(), 0);
+  });
+
+  test('queued reads recheck eviction before physical IO', () async {
+    final gate = Completer<Uint8List>();
+    var physicalReads = 0;
+    final cache = ImageDiskCache(
+      dir,
+      maxBytes: 40,
+      maxConcurrentReads: 1,
+      readFile: (_) {
+        physicalReads++;
+        return gate.future;
+      },
+    );
+    await cache.write('a', bytes(10));
+    await cache.write('b', bytes(10));
+    await cache.write('c', bytes(10));
+    final reads = [cache.read('c'), cache.read('a')];
+    await Future<void>.delayed(Duration.zero);
+    await cache.write('d', bytes(10));
+    gate.complete(bytes(10));
+    final result = await Future.wait(reads);
+    expect(result[0], hasLength(10));
+    expect(result[1], isNull);
+    expect(physicalReads, 1);
+  });
 }

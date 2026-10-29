@@ -10,6 +10,7 @@ library;
 
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data' show BytesBuilder;
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
@@ -18,7 +19,8 @@ import 'package:flutter/painting.dart';
 import '../data/image_disk_cache.dart';
 
 /// 与 direct_fetcher 的接收超时一致;卡住的响应体会连带拖住所有共享在途下载的等待者
-const _receiveTimeout = Duration(seconds: 30);
+@visibleForTesting
+Duration imageReceiveTimeout = const Duration(seconds: 30);
 
 HttpClient Function() _clientFactory = _defaultClient;
 HttpClient? _client;
@@ -119,24 +121,32 @@ class ChhCachedImage extends ImageProvider<ChhCachedImageKey> {
 
   /// 下载并校验;只有 200、非空、能解码才落盘,否则抛错交给 errorBuilder
   Future<Uint8List> _download(ChhCachedImageKey key) async {
+    HttpClientRequest? request;
     try {
       downloadCount++;
       final client = _client ??= _clientFactory();
-      final request = await client.getUrl(Uri.parse(key.url));
+      request = await client.getUrl(Uri.parse(key.url));
       key.headers.forEach(request.headers.set);
-      final response = await request.close().timeout(_receiveTimeout);
+      final response = await request.close().timeout(imageReceiveTimeout);
       if (response.statusCode != HttpStatus.ok) {
-        await response.drain<void>();
+        // Headers have completed the request Future: abort alone no longer
+        // closes its socket. Cancel the body subscription instead of draining.
+        await response.listen((_) {}).cancel();
         throw HttpException('HTTP ${response.statusCode}', uri: request.uri);
       }
-      final bytes = await consolidateHttpClientResponseBytes(
-        response,
-      ).timeout(_receiveTimeout);
+      final builder = BytesBuilder(copy: false);
+      await for (final chunk in response.timeout(imageReceiveTimeout)) {
+        builder.add(chunk);
+      }
+      final bytes = builder.takeBytes();
       if (bytes.isEmpty) throw const HttpException('empty body');
       // 仅校验格式与文件头(不解整帧像素),挡住 HTML 错误页等非图片内容;校验后立即释放
       (await ui.instantiateImageCodec(bytes)).dispose();
       await imageDiskCache.write(key.url, bytes);
       return bytes;
+    } catch (_) {
+      request?.abort();
+      rethrow;
     } finally {
       _inflight.remove(key.url);
     }

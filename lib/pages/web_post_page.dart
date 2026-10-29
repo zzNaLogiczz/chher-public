@@ -13,6 +13,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
 import '../core/app_log.dart';
+import '../core/web_post_diagnostics.dart';
 import '../core/chh_urls.dart';
 import '../design/icons.dart';
 import '../design/tokens.dart';
@@ -63,11 +64,7 @@ class _WebPostPageState extends State<WebPostPage> {
   @override
   void initState() {
     super.initState();
-    AppLog.i(
-      'WEBPOST',
-      '打开 ${_page.path}?${_page.query} '
-          '${AppLog.fields(widget.submission.fields)}',
-    );
+    WebPostDiagnostics.opened(_page, widget.submission.fields);
     _poll = Timer.periodic(const Duration(milliseconds: 500), (_) => _tick());
   }
 
@@ -98,7 +95,7 @@ class _WebPostPageState extends State<WebPostPage> {
         );
         if (report is! Map) return;
         _filled = true;
-        AppLog.i('WEBPOST', '已填表 ${jsonEncode(report)}');
+        WebPostDiagnostics.filled(report);
         _set(_Phase.ready);
       }
       if (_phase == _Phase.submitting) return;
@@ -138,7 +135,7 @@ class _WebPostPageState extends State<WebPostPage> {
   Future<void> _onLoaded(InAppWebViewController c, WebUri? url) async {
     final page = url?.toString() ?? '';
     final title = (await c.getTitle()) ?? '';
-    AppLog.i('WEBPOST', '加载 ${Uri.tryParse(page)?.query ?? page} 「$title」');
+    WebPostDiagnostics.loaded(page, title);
     // 防护跳转的中间页不算结果
     if (title.toLowerCase().contains('loading')) return;
     final onForm = await c.evaluateJavascript(source: _hasFormScript) == true;
@@ -240,12 +237,12 @@ class _WebPostPageState extends State<WebPostPage> {
               onLoadStop: _onLoaded,
               onConsoleMessage: (_, message) {
                 if (message.messageLevel == ConsoleMessageLevel.ERROR) {
-                  AppLog.w('WEBPOST', '页面报错 ${message.message}');
+                  WebPostDiagnostics.consoleError(message.message);
                 }
               },
               onReceivedError: (_, request, error) {
                 if (request.isForMainFrame == true) {
-                  AppLog.w('WEBPOST', '加载失败 ${error.description}');
+                  WebPostDiagnostics.loadError(request.url, error.type);
                   _set(_Phase.failed, error: '页面加载失败，请检查网络后重试');
                 }
               },
@@ -323,7 +320,7 @@ String _fillScript(Map<String, String> fields) =>
   var verify = document.getElementById('codeVerifyButton');
   if (verify) verify.scrollIntoView({ block: 'center' });
   return {
-    action: (form.getAttribute('action') || '').replace(/formhash=[^&]*/, ''),
+    action: form.getAttribute('action') || '',
     names: names.join(','),
     seccode: document.querySelectorAll('[id^="seccode_"]').length,
     verifyButton: !!verify,

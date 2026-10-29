@@ -2,6 +2,7 @@ import 'package:chh_app/design/icons.dart';
 import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/design/tokens.dart';
 import 'package:chh_app/ui/chrome_button.dart';
+import 'package:chh_app/ui/press.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:solar_icons/solar_icons.dart';
@@ -154,5 +155,47 @@ void main() {
       tester.widget<Text>(find.text('65')).style!.color,
       AppTokens.light.bg,
     );
+  });
+  testWidgets('group edge presses retain 44dp hit area with 38dp paint', (
+    tester,
+  ) async {
+    var taps = 0;
+    await tester.pumpWidget(
+      app(
+        ChromeGroup(
+          items: [
+            ChromeGroupItem(
+              icon: AppIcons.search,
+              tooltip: 'edge',
+              onPressed: () => taps++,
+            ),
+          ],
+        ),
+      ),
+    );
+    final target = find.byType(PressHighlight);
+    final rect = tester.getRect(target);
+    expect(rect.height, 44);
+    final gesture = await tester.startGesture(
+      rect.topLeft + const Offset(1, 1),
+    );
+    await tester.pump();
+    final tint = find.descendant(of: target, matching: find.byType(ColoredBox));
+    final painted = tester.getRect(tint);
+    expect(painted.height, 38);
+    expect(painted.top, rect.top + 3);
+    expect(tester.widget<ColoredBox>(tint).color, AppTokens.light.fill);
+    final capsule = tester.getRect(find.byKey(ChromeGroup.surfaceKey));
+    expect(capsule.contains(painted.topLeft), isTrue);
+    expect(
+      capsule.contains(painted.bottomRight - const Offset(0.1, 0.1)),
+      isTrue,
+    );
+    await gesture.up();
+    await tester.pumpAndSettle();
+    expect(taps, 1);
+    await tester.tapAt(rect.bottomRight - const Offset(1, 1));
+    await tester.pumpAndSettle();
+    expect(taps, 2);
   });
 }

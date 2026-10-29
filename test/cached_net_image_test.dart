@@ -26,7 +26,8 @@ class _FakeHeaders implements HttpHeaders {
 }
 
 class _FakeResponse extends Stream<List<int>> implements HttpClientResponse {
-  _FakeResponse(this.statusCode, this.body);
+  _FakeResponse(this.statusCode, this.body, [this.chunks]);
+  final Stream<List<int>>? chunks;
   @override
   final int statusCode;
   final List<int> body;
@@ -36,7 +37,7 @@ class _FakeResponse extends Stream<List<int>> implements HttpClientResponse {
     Function? onError,
     void Function()? onDone,
     bool? cancelOnError,
-  }) => Stream<List<int>>.fromIterable([body]).listen(
+  }) => (chunks ?? Stream<List<int>>.fromIterable([body])).listen(
     onData,
     onError: onError,
     onDone: onDone,
@@ -63,7 +64,12 @@ class _FakeRequest implements HttpClientRequest {
     client.lastHeaders = headers.sent;
     // Yield so concurrent loads genuinely overlap.
     await Future<void>.delayed(const Duration(milliseconds: 10));
-    return _FakeResponse(client.status, client.body);
+    return _FakeResponse(client.status, client.body, client.chunks);
+  }
+
+  @override
+  void abort([Object? exception, StackTrace? stackTrace]) {
+    client.aborts++;
   }
 
   @override
@@ -72,6 +78,8 @@ class _FakeRequest implements HttpClientRequest {
 
 class _FakeClient implements HttpClient {
   int status = 200;
+  int aborts = 0;
+  Stream<List<int>>? chunks;
   List<int> body = _png;
   Map<String, String> lastHeaders = {};
   @override
@@ -95,6 +103,7 @@ void main() {
   });
 
   tearDown(() {
+    imageReceiveTimeout = const Duration(seconds: 30);
     imageDiskCache = ImageDiskCache(null);
     dir.deleteSync(recursive: true);
   });
@@ -227,4 +236,61 @@ void main() {
     expect(info.image.height, 2);
     info.dispose();
   });
+  test('never closing non-200 aborts promptly and permits retry', () async {
+    var canceled = false;
+    final stalled = StreamController<List<int>>(
+      onCancel: () {
+        canceled = true;
+      },
+    );
+    client.status = 500;
+    client.chunks = stalled.stream;
+    await expectLater(
+      load(provider).timeout(const Duration(seconds: 1)),
+      throwsA(isA<HttpException>()),
+    );
+    expect(canceled, isTrue);
+    expect(client.aborts, greaterThanOrEqualTo(1));
+    client.status = 200;
+    client.chunks = null;
+    await load(provider);
+    expect(downloadCount, 2);
+    await stalled.close();
+  });
+
+  test('progressing chunks survive beyond the idle deadline', () async {
+    imageReceiveTimeout = const Duration(milliseconds: 100);
+    client.chunks = (() async* {
+      for (var i = 0; i < _png.length; i += 10) {
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        yield _png.sublist(i, (i + 10).clamp(0, _png.length));
+      }
+    })();
+    final elapsed = Stopwatch()..start();
+    await load(provider);
+    expect(elapsed.elapsed, greaterThan(imageReceiveTimeout));
+    expect(client.aborts, 0);
+    expect(await imageDiskCache.read(url), _png);
+  });
+
+  test(
+    'idle stream cancels source and aborts request, then retry succeeds',
+    () async {
+      imageReceiveTimeout = const Duration(milliseconds: 50);
+      var canceled = false;
+      final stalled = StreamController<List<int>>(
+        onCancel: () {
+          canceled = true;
+        },
+      );
+      client.chunks = stalled.stream;
+      await expectLater(load(provider), throwsA(isA<TimeoutException>()));
+      expect(canceled, isTrue);
+      expect(client.aborts, greaterThanOrEqualTo(1));
+      client.chunks = null;
+      await load(provider);
+      expect(downloadCount, 2);
+      await stalled.close();
+    },
+  );
 }

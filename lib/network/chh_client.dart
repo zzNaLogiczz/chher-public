@@ -76,7 +76,7 @@ class ChhClient {
         _cache[key] = _CacheEntry(resp.body);
         AppLog.i(
           'GET',
-          '${f.name} ${url.path}${_q(url)} '
+          '${f.name} ${AppLog.url(url)} '
               'status=${resp.status} len=${resp.body.length}',
         );
         htmlObserver?.call(resp.body);
@@ -84,12 +84,12 @@ class ChhClient {
       }
       AppLog.w(
         'GET',
-        '${f.name} 被拦 ${url.path}${_q(url)} '
+        '${f.name} 被拦 ${AppLog.url(url)} '
             '${AppLog.response(resp.status, resp.body, head: 80)}',
       );
     }
-    AppLog.e('GET', '所有通道都被拦 $key');
-    throw ChhAllBlockedError(key);
+    AppLog.e('GET', '所有通道都被拦 ${AppLog.url(url)}');
+    throw ChhAllBlockedError(AppLog.url(url));
   }
 
   /// 表单提交:直连优先,被拦再降级 WebView
@@ -98,7 +98,7 @@ class ChhClient {
   /// 回机器人挑战页,POST 体在挑战跳转中丢失。直连没有 Chromium 客户端提示,
   /// 反而能带着自洽的桌面请求头直达 PHP。
   Future<ChhResponse> postForm(Uri url, Map<String, String> form) async {
-    AppLog.i('POST', '${url.path}${_q(url)} ${AppLog.fields(form)}');
+    AppLog.i('POST', '${AppLog.url(url)} ${AppLog.fields(form)}');
 
     ChhResponse? last;
     for (final f in fetchers) {
@@ -128,7 +128,7 @@ class ChhClient {
         continue;
       }
     }
-    AppLog.e('POST', '提交未被受理 ${url.path}');
+    AppLog.e('POST', '提交未被受理 ${AppLog.url(url)}');
     return last ?? const ChhResponse(-1, '', error: '没有可用的提交通道');
   }
 
@@ -140,7 +140,7 @@ class ChhClient {
   ) async {
     AppLog.i(
       'UPLOAD',
-      '${url.path} ${file.filename} ${file.bytes.length}B ${file.contentType}',
+      '${AppLog.url(url)} ${file.filename} ${file.bytes.length}B ${file.contentType}',
     );
     ChhResponse? last;
     for (final f in fetchers) {
@@ -161,8 +161,6 @@ class ChhClient {
     }
     return last ?? const ChhResponse(-1, '', error: '没有可用的上传通道');
   }
-
-  String _q(Uri url) => url.query.isEmpty ? '' : '?${url.query}';
 
   void clearCache() => _cache.clear();
 }
