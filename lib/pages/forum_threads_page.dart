@@ -128,16 +128,22 @@ class _ForumThreadsPageState extends State<ForumThreadsPage> {
               emptyMessage: '这个分类还没有帖子',
               collapsePinned: true,
               pinnedMemoryKey: widget.fid,
-              itemBuilder: (context, thread) => ThreadRow(
-                thread: thread,
-                eyebrow: thread.typeName,
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => ThreadDetailPage(
-                      tid: thread.tid,
-                      title: thread.title,
-                      fid: widget.fid,
+              // 行级监听:一次 markRead 只重建对应一行
+              itemBuilder: (context, thread) => ReadStateBuilder(
+                tid: thread.tid,
+                replies: thread.replies,
+                builder: (context, state) => ThreadRow(
+                  thread: thread,
+                  readState: state,
+                  eyebrow: thread.typeName,
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => ThreadDetailPage(
+                        tid: thread.tid,
+                        title: thread.title,
+                        fid: widget.fid,
+                      ),
                     ),
                   ),
                 ),

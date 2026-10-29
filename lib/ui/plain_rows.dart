@@ -8,6 +8,7 @@ import '../design/icons.dart';
 import '../design/motion.dart';
 import '../design/shapes.dart';
 import '../design/tokens.dart';
+import '../data/thread_read_index.dart';
 import '../design/typography.dart';
 import '../models/models.dart';
 import 'app_button.dart';
@@ -89,6 +90,83 @@ class PlainRowScope extends InheritedWidget {
       impliesSticky != oldWidget.impliesSticky;
 }
 
+/// 标题色:只有"已看"降为 text2;未看与有新回复都保持强色
+Color readTitleColor(AppTokens t, ThreadReadState state) =>
+    state is ThreadReadSeen ? t.text2 : t.text;
+
+/// 读屏标签:颜色不能是唯一线索,已看与新回复数都要说出来
+String? readSemanticsLabel(ThreadReadState state) => switch (state) {
+  ThreadReadSeen() => '已看',
+  ThreadReadNewReplies(:final count) => '有 $count 条新回复',
+  ThreadReadUnseen() => null,
+};
+
+/// 元信息行里追加的一项 `+N 新回复`,与其余项同为 Wrap 里的一个 Text,不加分隔符
+Widget newRepliesText(AppTokens t, ThreadReadNewReplies state) => Text(
+  '+${state.count} 新回复',
+  style: AppType.footnote.copyWith(color: t.accent),
+);
+
+/// 行级重绘范围:监听放在每一行内部,一次 markRead 只重建状态真正变化的那一行。
+/// 绝不能挪到 ListView 外层;也不能用裸 ListenableBuilder,
+/// 否则全局索引的每次通知都会让屏上每一行重跑 builder。
+/// [replies] 为空表示回复数未知,只区分未看/已看。
+class ReadStateBuilder extends StatefulWidget {
+  final int tid;
+  final int? replies;
+  final Widget Function(BuildContext context, ThreadReadState state) builder;
+
+  const ReadStateBuilder({
+    super.key,
+    required this.tid,
+    required this.replies,
+    required this.builder,
+  });
+
+  @override
+  State<ReadStateBuilder> createState() => _ReadStateBuilderState();
+}
+
+class _ReadStateBuilderState extends State<ReadStateBuilder> {
+  late ThreadReadState _state = _lookup();
+
+  ThreadReadState _lookup() =>
+      threadReadIndex.stateOf(widget.tid, replies: widget.replies);
+
+  @override
+  void initState() {
+    super.initState();
+    threadReadIndex.addListener(_onIndexChanged);
+  }
+
+  @override
+  void didUpdateWidget(ReadStateBuilder oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _state = _lookup();
+  }
+
+  @override
+  void dispose() {
+    threadReadIndex.removeListener(_onIndexChanged);
+    super.dispose();
+  }
+
+  // 通知是全局的:只有本行状态真的变了才重建,其余行零开销
+  void _onIndexChanged() {
+    final next = _lookup();
+    if (_sameState(_state, next)) return;
+    setState(() => _state = next);
+  }
+
+  static bool _sameState(ThreadReadState a, ThreadReadState b) =>
+      a.runtimeType == b.runtimeType &&
+      (a is! ThreadReadNewReplies ||
+          a.count == (b as ThreadReadNewReplies).count);
+
+  @override
+  Widget build(BuildContext context) => widget.builder(context, _state);
+}
+
 /// 帖子行:眉题(版块或分类)→ 标题 → 元信息。元信息只用间距分开,不用间隔号和图标。
 class ThreadRow extends StatelessWidget {
   final ThreadSummary thread;
@@ -102,6 +180,9 @@ class ThreadRow extends StatelessWidget {
   final bool locked;
   final VoidCallback? onLogin;
 
+  /// 已看/新回复的呈现;已看只降标题色,不加文字不加行高
+  final ThreadReadState readState;
+
   const ThreadRow({
     super.key,
     required this.thread,
@@ -110,6 +191,7 @@ class ThreadRow extends StatelessWidget {
     this.onTap,
     this.locked = false,
     this.onLogin,
+    this.readState = const ThreadReadUnseen(),
   });
 
   @override
@@ -129,65 +211,78 @@ class ThreadRow extends StatelessWidget {
         !(PlainRowScope.maybeOf(context)?.impliesSticky ?? false);
     return PlainRow(
       onTap: onTap,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (sticky || (label?.isNotEmpty ?? false))
-            Padding(
-              padding: const EdgeInsets.only(bottom: 4),
-              child: Wrap(
-                spacing: 8,
-                children: [
-                  if (sticky)
-                    Text('置顶', style: AppType.caption.copyWith(color: t.warn)),
-                  if (label?.isNotEmpty ?? false)
-                    Text(
-                      label!,
-                      style: AppType.caption.copyWith(color: t.accent),
-                    ),
-                ],
+      child: Semantics(
+        label: readSemanticsLabel(readState),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (sticky || (label?.isNotEmpty ?? false))
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Wrap(
+                  spacing: 8,
+                  children: [
+                    if (sticky)
+                      Text(
+                        '置顶',
+                        style: AppType.caption.copyWith(color: t.warn),
+                      ),
+                    if (label?.isNotEmpty ?? false)
+                      Text(
+                        label!,
+                        style: AppType.caption.copyWith(color: t.accent),
+                      ),
+                  ],
+                ),
               ),
-            ),
-          Text(
-            thread.title,
-            maxLines: 3,
-            overflow: TextOverflow.ellipsis,
-            style: AppType.headline.copyWith(color: t.text),
-          ),
-          if ((excerpt ?? thread.snippet) case final String text) ...[
-            const SizedBox(height: 4),
             Text(
-              text,
-              maxLines: 2,
+              thread.title,
+              maxLines: 3,
               overflow: TextOverflow.ellipsis,
-              style: AppType.subhead.copyWith(color: t.text2),
-            ),
-          ],
-          if (meta.isNotEmpty) ...[
-            const SizedBox(height: 6),
-            Wrap(
-              spacing: 12,
-              runSpacing: 4,
-              children: [for (final item in meta) Text(item, style: metaStyle)],
-            ),
-          ],
-          if (locked)
-            Padding(
-              padding: const EdgeInsets.only(top: 6),
-              child: Row(
-                children: [
-                  Text('需登录', style: metaStyle.copyWith(color: t.warn)),
-                  const Spacer(),
-                  AppButton(
-                    label: '登录',
-                    small: true,
-                    variant: AppButtonVariant.tinted,
-                    onPressed: onLogin,
-                  ),
-                ],
+              style: AppType.headline.copyWith(
+                color: readTitleColor(t, readState),
               ),
             ),
-        ],
+            if ((excerpt ?? thread.snippet) case final String text) ...[
+              const SizedBox(height: 4),
+              Text(
+                text,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: AppType.subhead.copyWith(color: t.text2),
+              ),
+            ],
+            if (meta.isNotEmpty || readState is ThreadReadNewReplies) ...[
+              const SizedBox(height: 6),
+              Wrap(
+                spacing: 12,
+                runSpacing: 4,
+                children: [
+                  for (final item in meta) Text(item, style: metaStyle),
+                  // 新回复并入同一行,不另起一行
+                  if (readState case final ThreadReadNewReplies fresh)
+                    newRepliesText(t, fresh),
+                ],
+              ),
+            ],
+            if (locked)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Row(
+                  children: [
+                    Text('需登录', style: metaStyle.copyWith(color: t.warn)),
+                    const Spacer(),
+                    AppButton(
+                      label: '登录',
+                      small: true,
+                      variant: AppButtonVariant.tinted,
+                      onPressed: onLogin,
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -462,6 +557,9 @@ class SearchResultRow extends StatelessWidget {
   final List<String> meta;
   final VoidCallback? onTap;
 
+  /// 已看只降标题基础色;高亮段仍用 accent,与 text2 不同色,依旧可辨
+  final ThreadReadState readState;
+
   const SearchResultRow({
     super.key,
     required this.title,
@@ -469,6 +567,7 @@ class SearchResultRow extends StatelessWidget {
     this.snippet,
     required this.meta,
     this.onTap,
+    this.readState = const ThreadReadUnseen(),
   });
 
   @override
@@ -476,36 +575,46 @@ class SearchResultRow extends StatelessWidget {
     final t = AppTokens.of(context);
     return PlainRow(
       onTap: onTap,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text.rich(
-            highlight(title, query, t.accent),
-            maxLines: 3,
-            overflow: TextOverflow.ellipsis,
-            style: AppType.headline.copyWith(color: t.text),
-          ),
-          if (snippet?.isNotEmpty ?? false) ...[
-            const SizedBox(height: 4),
+      child: Semantics(
+        label: readSemanticsLabel(readState),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
             Text.rich(
-              highlight(snippet!, query, t.accent),
-              maxLines: 2,
+              highlight(title, query, t.accent),
+              maxLines: 3,
               overflow: TextOverflow.ellipsis,
-              style: AppType.subhead.copyWith(color: t.text2),
+              style: AppType.headline.copyWith(
+                color: readTitleColor(t, readState),
+              ),
             ),
+            if (snippet?.isNotEmpty ?? false) ...[
+              const SizedBox(height: 4),
+              Text.rich(
+                highlight(snippet!, query, t.accent),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: AppType.subhead.copyWith(color: t.text2),
+              ),
+            ],
+            if (meta.isNotEmpty || readState is ThreadReadNewReplies) ...[
+              const SizedBox(height: 6),
+              Wrap(
+                spacing: 12,
+                runSpacing: 4,
+                children: [
+                  for (final item in meta)
+                    Text(
+                      item,
+                      style: AppType.footnote.copyWith(color: t.text3),
+                    ),
+                  if (readState case final ThreadReadNewReplies fresh)
+                    newRepliesText(t, fresh),
+                ],
+              ),
+            ],
           ],
-          if (meta.isNotEmpty) ...[
-            const SizedBox(height: 6),
-            Wrap(
-              spacing: 12,
-              runSpacing: 4,
-              children: [
-                for (final item in meta)
-                  Text(item, style: AppType.footnote.copyWith(color: t.text3)),
-              ],
-            ),
-          ],
-        ],
+        ),
       ),
     );
   }

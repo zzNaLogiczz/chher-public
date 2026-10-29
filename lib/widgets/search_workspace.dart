@@ -157,16 +157,22 @@ class SearchResultCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final source = thread.forumName?.trim();
     final author = thread.author.trim();
-    return SearchResultRow(
-      title: thread.title,
-      query: keyword,
-      snippet: thread.snippet?.trim(),
-      meta: [
-        if (source != null && source.isNotEmpty) source,
-        if (author.isNotEmpty) author,
-        '${thread.replies} 回复',
-      ],
-      onTap: onTap,
+    // 监听放在行级:一次 markRead 只重建这一行
+    return ReadStateBuilder(
+      tid: thread.tid,
+      replies: thread.replies,
+      builder: (context, state) => SearchResultRow(
+        title: thread.title,
+        query: keyword,
+        snippet: thread.snippet?.trim(),
+        meta: [
+          if (source != null && source.isNotEmpty) source,
+          if (author.isNotEmpty) author,
+          '${thread.replies} 回复',
+        ],
+        onTap: onTap,
+        readState: state,
+      ),
     );
   }
 }

@@ -159,14 +159,20 @@ class _FeedPageState extends State<FeedPage> {
             );
             return Paged(items: r.threads, page: r.page);
           },
-          itemBuilder: (context, item) => ThreadRow(
-            thread: item,
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => ThreadDetailPage(
-                  tid: item.tid,
-                  title: item.title,
-                  fid: item.forumFid,
+          // 行级监听:一次 markRead 只重建对应一行
+          itemBuilder: (context, item) => ReadStateBuilder(
+            tid: item.tid,
+            replies: item.replies,
+            builder: (context, state) => ThreadRow(
+              thread: item,
+              readState: state,
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => ThreadDetailPage(
+                    tid: item.tid,
+                    title: item.title,
+                    fid: item.forumFid,
+                  ),
                 ),
               ),
             ),

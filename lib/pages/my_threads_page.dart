@@ -11,6 +11,7 @@ import '../design/typography.dart';
 import '../ui/press.dart';
 import '../ui/plain_rows.dart';
 
+import '../data/thread_read_index.dart';
 import '../di.dart';
 import '../data/space_repository.dart';
 import '../widgets/large_title_scaffold.dart';
@@ -77,7 +78,12 @@ class _MyThreadsPageState extends State<MyThreadsPage> {
                     page: page,
                     refresh: refresh,
                   ),
-              itemBuilder: (context, item) => _Row(item: item),
+              // 行级监听:一次 markRead 只重建对应一行;replies 为空时只分已看/未看
+              itemBuilder: (context, item) => ReadStateBuilder(
+                tid: item.tid,
+                replies: item.replies,
+                builder: (context, state) => _Row(item: item, readState: state),
+              ),
             ),
           ),
         ],
@@ -88,7 +94,8 @@ class _MyThreadsPageState extends State<MyThreadsPage> {
 
 class _Row extends StatelessWidget {
   final MyThread item;
-  const _Row({required this.item});
+  final ThreadReadState readState;
+  const _Row({required this.item, required this.readState});
 
   void _openThread(BuildContext context, {MyReplySnippet? snippet}) =>
       Navigator.of(context).push(
@@ -108,48 +115,64 @@ class _Row extends StatelessWidget {
     final t = AppTokens.of(context);
     return PlainRow(
       onTap: () => _openThread(context),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (item.forumName != null) ...[
+      child: Semantics(
+        label: readSemanticsLabel(readState),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (item.forumName != null) ...[
+              Text(
+                item.forumName!,
+                style: AppType.caption.copyWith(color: t.accent),
+              ),
+              const SizedBox(height: 4),
+            ],
             Text(
-              item.forumName!,
-              style: AppType.caption.copyWith(color: t.accent),
+              item.title,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: AppType.headline.copyWith(
+                color: readTitleColor(t, readState),
+              ),
             ),
-            const SizedBox(height: 4),
-          ],
-          Text(
-            item.title,
-            maxLines: 3,
-            overflow: TextOverflow.ellipsis,
-            style: AppType.headline.copyWith(color: t.text),
-          ),
-          const SizedBox(height: 6),
-          Text(_meta(), style: AppType.footnote.copyWith(color: t.text3)),
-          // 可定位的回复摘要:左侧细线,点按直接跳到那一楼
-          for (final snippet in item.replySnippets)
-            Padding(
-              padding: const EdgeInsets.only(top: 10),
-              child: PressHighlight(
-                onTap: () => _openThread(context, snippet: snippet),
-                borderRadius: BorderRadius.circular(AppRadii.xs),
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    border: Border(left: BorderSide(color: t.fill2, width: 3)),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 2, 4, 2),
-                    child: Text(
-                      snippet.text,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppType.subhead.copyWith(color: t.text2),
+            const SizedBox(height: 6),
+            // 新回复并入元信息行,不另起一行
+            Wrap(
+              spacing: 12,
+              runSpacing: 4,
+              children: [
+                Text(_meta(), style: AppType.footnote.copyWith(color: t.text3)),
+                if (readState case final ThreadReadNewReplies fresh)
+                  newRepliesText(t, fresh),
+              ],
+            ),
+            // 可定位的回复摘要:左侧细线,点按直接跳到那一楼
+            for (final snippet in item.replySnippets)
+              Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: PressHighlight(
+                  onTap: () => _openThread(context, snippet: snippet),
+                  borderRadius: BorderRadius.circular(AppRadii.xs),
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      border: Border(
+                        left: BorderSide(color: t.fill2, width: 3),
+                      ),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 2, 4, 2),
+                      child: Text(
+                        snippet.text,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppType.subhead.copyWith(color: t.text2),
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }
