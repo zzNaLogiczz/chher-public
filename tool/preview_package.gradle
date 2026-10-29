@@ -12,6 +12,14 @@ allprojects {
     afterEvaluate { project ->
         if (project.name == 'app' && project.extensions.findByName('android') != null) {
             project.android.defaultConfig.applicationId = 'com.chhreader.chh_app.preview'
+            // 只改构建目录中的清单副本，让测试包在桌面上可辨，保留正式包名称。
+            def sourceManifest = project.file('src/main/AndroidManifest.xml')
+            def previewManifest = new File(project.layout.buildDirectory.get().asFile,
+                    'preview/AndroidManifest.xml')
+            previewManifest.parentFile.mkdirs()
+            previewManifest.setText(sourceManifest.getText('UTF-8').replace(
+                    'android:label="Chher"', 'android:label="Chher-preview"'), 'UTF-8')
+            project.android.sourceSets.main.manifest.srcFile(previewManifest)
         }
     }
 }
