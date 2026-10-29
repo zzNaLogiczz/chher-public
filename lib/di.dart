@@ -17,6 +17,8 @@ import 'core/app_paths.dart';
 import 'core/log_store.dart';
 import 'network/chh_client.dart';
 import 'network/chh_session.dart';
+import 'data/image_disk_cache.dart';
+import 'widgets/cached_net_image.dart';
 
 final ChhClient chhClient = ChhClient.createDefault();
 final ChhSession chhSession = ChhSession(chhClient);
@@ -44,9 +46,20 @@ void setupDependencies() {
   AppLog.i('BOOT', '页头观察已接线');
   // 日志目录靠平台通道异步解析,不能 await 阻塞冷启动;就绪前的日志留在内存缓冲,接线时补写
   unawaited(_attachLogStore());
+  // 图片缓存目录同样异步解析,就绪前图片照常直连下载
+  unawaited(_attachImageCache());
 }
 
 Future<void> _attachLogStore() async {
   final dir = await AppPaths.instance.subdir('logs');
   if (dir != null) AppLog.attachStore(LogStore(dir));
+}
+
+Future<void> _attachImageCache() async {
+  final dir = await AppPaths.instance.subdir('imgcache', inCache: true);
+  if (dir == null) return;
+  final cache = ImageDiskCache(dir);
+  imageDiskCache = cache;
+  // 目录扫描要逐个 stat,提前在后台预热,避免首批图片的 read 为它买单
+  unawaited(cache.totalBytes());
 }

@@ -10,6 +10,7 @@ import '../ui/chrome_button.dart';
 
 import '../design/tokens.dart';
 import 'article_image.dart';
+import 'cached_net_image.dart';
 import 'net_image.dart';
 import 'expressive_controls.dart';
 
@@ -237,7 +238,7 @@ class _ImageViewerPageState extends State<ImageViewerPage>
                     child: Center(
                       child: Image(
                         image: i == _index && _fullResolutionRequested
-                            ? NetworkImage(
+                            ? ChhCachedImage(
                                 widget.urls[i],
                                 headers: chhImageHeaders,
                               )

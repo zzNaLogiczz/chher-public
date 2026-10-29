@@ -5,6 +5,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'cached_net_image.dart';
 import 'expressive_controls.dart';
 
 import '../core/chh_urls.dart';
@@ -27,7 +28,7 @@ ImageProvider<Object> boundedNetworkImage(String url, int decodeWidth) =>
     ResizeImage.resizeIfNeeded(
       decodeWidth,
       null,
-      NetworkImage(url, headers: chhImageHeaders),
+      ChhCachedImage(url, headers: chhImageHeaders),
     );
 
 class NetImage extends StatelessWidget {

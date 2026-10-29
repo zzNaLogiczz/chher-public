@@ -2,6 +2,7 @@ import 'package:chh_app/controllers/article_reader_controller.dart';
 import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/models/models.dart';
 import 'package:chh_app/pages/thread_detail_page.dart';
+import 'package:chh_app/widgets/cached_net_image.dart';
 import 'package:chh_app/widgets/article_image.dart';
 import 'package:chh_app/widgets/image_grid.dart';
 import 'package:chh_app/widgets/net_image.dart';
@@ -121,7 +122,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 80));
       await tester.tap(target);
       await tester.pumpAndSettle();
-      expect(image().image, isA<NetworkImage>());
+      expect(image().image, isA<ChhCachedImage>());
       expect(image().gaplessPlayback, isTrue);
       expect(find.text('双击还原'), findsOneWidget);
       expect(tester.takeException(), isNull);
