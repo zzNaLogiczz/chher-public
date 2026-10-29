@@ -293,4 +293,31 @@ void main() {
       await stalled.close();
     },
   );
+  test(
+    'failed status releases waiters before asynchronous cancel cleanup',
+    () async {
+      final cleanup = Completer<void>();
+      var canceled = false;
+      final source = StreamController<List<int>>(
+        onCancel: () {
+          canceled = true;
+          return cleanup.future;
+        },
+      );
+      client.status = 500;
+      client.chunks = source.stream;
+      await expectLater(
+        load(provider).timeout(const Duration(seconds: 1)),
+        throwsA(isA<HttpException>()),
+      );
+      expect(canceled, isTrue);
+      expect(cleanup.isCompleted, isFalse);
+      client.status = 200;
+      client.chunks = null;
+      await load(provider);
+      expect(downloadCount, 2);
+      cleanup.complete();
+      await source.close();
+    },
+  );
 }

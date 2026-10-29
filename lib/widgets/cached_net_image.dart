@@ -131,7 +131,9 @@ class ChhCachedImage extends ImageProvider<ChhCachedImageKey> {
       if (response.statusCode != HttpStatus.ok) {
         // Headers have completed the request Future: abort alone no longer
         // closes its socket. Cancel the body subscription instead of draining.
-        await response.listen((_) {}).cancel();
+        // Cancellation starts synchronously; cleanup must not delay reporting
+        // an already-known HTTP failure or hold the shared in-flight entry.
+        unawaited(response.listen((_) {}).cancel().catchError((Object _) {}));
         throw HttpException('HTTP ${response.statusCode}', uri: request.uri);
       }
       final builder = BytesBuilder(copy: false);
