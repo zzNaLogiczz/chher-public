@@ -170,6 +170,7 @@ class _FeedPageState extends State<FeedPage> {
                 MaterialPageRoute(
                   builder: (_) => ThreadDetailPage(
                     tid: item.tid,
+                    seenReplies: item.replies,
                     title: item.title,
                     fid: item.forumFid,
                   ),

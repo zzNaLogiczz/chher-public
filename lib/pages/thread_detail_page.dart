@@ -22,6 +22,7 @@ import '../widgets/expressive_controls.dart';
 import '../widgets/post_card.dart';
 import '../widgets/state_view.dart';
 import '../data/thread_conversation_index.dart';
+import '../data/thread_read_index.dart';
 import '../widgets/thread_comment_widgets.dart';
 
 typedef ThreadPageLoader =
@@ -41,6 +42,7 @@ class ThreadDetailPage extends StatefulWidget {
   final String title;
   final int initialPage;
   final int? fid;
+  final int? seenReplies;
   final String? gotoUrl;
   final int? focusPid;
   final bool initialThreaded;
@@ -56,6 +58,7 @@ class ThreadDetailPage extends StatefulWidget {
     required this.title,
     this.initialPage = 1,
     this.fid,
+    this.seenReplies,
     this.gotoUrl,
     this.focusPid,
     this.initialThreaded = true,
@@ -80,11 +83,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
   final _commentsKey = GlobalKey();
 
   /// "回到顶部 / 跳到评论"的弹簧滚动;手指一碰列表就停
-  late final _scrollSpring = SingleMotionController(
-    motion: AppMotion.reveal,
-    vsync: this,
-    initialValue: 0,
-  )..addListener(_followSpring);
+  late final SingleMotionController _scrollSpring;
   bool _springing = false;
   final _collapsedTitle = ValueNotifier<bool>(false);
   final _focusKey = GlobalKey();
@@ -98,6 +97,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
   String? _openingAuthor;
   bool _loading = true;
   bool _hasNext = false;
+  bool _markedRead = false;
   bool _focusDone = false;
   bool _composerOpen = false;
 
@@ -303,6 +303,12 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
   @override
   void initState() {
     super.initState();
+    // 即使首屏加载失败或中途退出,也必须在可用的生命周期里创建 ticker。
+    _scrollSpring = SingleMotionController(
+      motion: AppMotion.reveal,
+      vsync: this,
+      initialValue: 0,
+    )..addListener(_followSpring);
     _scroll.addListener(_handleScroll);
     _sessionLoggedIn = chhSession.loggedIn;
     _sessionUid = chhSession.badges.uid;
@@ -711,6 +717,11 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
         if (refresh) _beforeAuthor = null;
         _resetPages(detail);
       });
+      // 等首次有效加载成功后再通知列表；刷新和分页不推进本次打开的已看计数。
+      if (!_markedRead && widget.seenReplies != null) {
+        _markedRead = true;
+        threadReadIndex.markRead(widget.tid, widget.seenReplies!);
+      }
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _locateFocusedPost();
         _considerAppend();

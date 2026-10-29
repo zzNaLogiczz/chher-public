@@ -374,6 +374,7 @@ class _SearchPageState extends State<SearchPage> {
       MaterialPageRoute(
         builder: (_) => ThreadDetailPage(
           tid: thread.tid,
+          seenReplies: thread.replies,
           title: thread.title,
           fid: thread.forumFid,
         ),

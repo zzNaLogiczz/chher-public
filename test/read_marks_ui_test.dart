@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:chh_app/data/space_repository.dart';
 import 'package:chh_app/data/thread_read_index.dart';
 import 'package:chh_app/network/chh_client.dart';
@@ -5,6 +7,8 @@ import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/design/tokens.dart';
 import 'package:chh_app/models/models.dart';
 import 'package:chh_app/pages/my_threads_page.dart';
+import 'package:chh_app/pages/search_page.dart';
+import 'package:chh_app/pages/thread_detail_page.dart';
 import 'package:chh_app/ui/plain_rows.dart';
 import 'package:chh_app/widgets/search_workspace.dart';
 import 'package:flutter/material.dart';
@@ -31,6 +35,226 @@ TextStyle? styleOf(WidgetTester tester, String text) =>
     tester.widget<Text>(find.text(text)).style;
 
 void main() {
+  ThreadDetail detail(int tid, {int page = 1, bool next = false}) =>
+      ThreadDetail(
+        tid: tid,
+        title: '已读接线测试',
+        posts: [
+          Post(
+            pid: tid + page,
+            floor: page,
+            author: '作者',
+            timeRaw: '2026-10-29',
+            content: [TextBlock(List.filled(25, '测试正文').join('\n'))],
+          ),
+        ],
+        page: PageInfo(current: page, hasNext: next),
+      );
+
+  Future<void> pumpDetail(WidgetTester tester, ThreadDetailPage page) async {
+    await tester.pumpWidget(
+      MaterialApp(theme: buildAppTheme(Brightness.light), home: page),
+    );
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('带 seenReplies 仅在异步首次加载成功后标记,通知不会发生在 build 中', (tester) async {
+    const tid = 9101;
+    final pending = Completer<ThreadDetail>();
+    await tester.pumpWidget(
+      app(
+        Column(
+          children: [
+            ReadStateBuilder(
+              tid: tid,
+              replies: 10,
+              builder: (_, state) =>
+                  Text(state is ThreadReadSeen ? '已看测试' : '未看测试'),
+            ),
+            Expanded(
+              child: ThreadDetailPage(
+                tid: tid,
+                title: '加载测试',
+                seenReplies: 10,
+                loadPage: (_, _, _) => pending.future,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    expect(threadReadIndex.stateOf(tid), isA<ThreadReadUnseen>());
+    pending.complete(detail(tid));
+    await tester.pumpAndSettle();
+    expect(threadReadIndex.stateOf(tid, replies: 10), isA<ThreadReadSeen>());
+    expect(find.text('已看测试'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('不带 seenReplies 成功加载后仍不标记', (tester) async {
+    const tid = 9102;
+    await pumpDetail(
+      tester,
+      ThreadDetailPage(
+        tid: tid,
+        title: '无回复数',
+        loadPage: (_, _, _) async => detail(tid),
+      ),
+    );
+    expect(threadReadIndex.stateOf(tid), isA<ThreadReadUnseen>());
+  });
+
+  testWidgets('加载失败不标记,重试首次成功才标记', (tester) async {
+    const tid = 9103;
+    var calls = 0;
+    await pumpDetail(
+      tester,
+      ThreadDetailPage(
+        tid: tid,
+        title: '失败后加载',
+        seenReplies: 10,
+        loadPage: (_, _, _) async {
+          if (++calls == 1) throw StateError('offline fixture');
+          return detail(tid);
+        },
+      ),
+    );
+    expect(threadReadIndex.stateOf(tid), isA<ThreadReadUnseen>());
+    await tester.tap(find.text('重试').last);
+    await tester.pumpAndSettle();
+    expect(calls, 2);
+    expect(threadReadIndex.stateOf(tid, replies: 10), isA<ThreadReadSeen>());
+  });
+
+  testWidgets('零回复也是有效的已看计数', (tester) async {
+    const tid = 9104;
+    await pumpDetail(
+      tester,
+      ThreadDetailPage(
+        tid: tid,
+        title: '零回复',
+        seenReplies: 0,
+        loadPage: (_, _, _) async => detail(tid),
+      ),
+    );
+    expect(threadReadIndex.stateOf(tid, replies: 0), isA<ThreadReadSeen>());
+    expect(
+      threadReadIndex.stateOf(tid, replies: 1),
+      isA<ThreadReadNewReplies>(),
+    );
+  });
+
+  testWidgets('详情销毁后完成的请求不标记', (tester) async {
+    const tid = 9105;
+    final pending = Completer<ThreadDetail>();
+    await tester.pumpWidget(
+      app(
+        ThreadDetailPage(
+          tid: tid,
+          title: '销毁',
+          seenReplies: 10,
+          loadPage: (_, _, _) => pending.future,
+        ),
+      ),
+    );
+    await tester.pumpWidget(app(const SizedBox()));
+    pending.complete(detail(tid));
+    await tester.pumpAndSettle();
+    expect(threadReadIndex.stateOf(tid), isA<ThreadReadUnseen>());
+  });
+
+  testWidgets('多次翻页及刷新不重复覆盖首次成功后的已看计数', (tester) async {
+    const tid = 9106;
+    final calls = <int>[];
+    var marks = 0;
+    void onMark() {
+      marks++;
+    }
+
+    threadReadIndex.addListener(onMark);
+    addTearDown(() => threadReadIndex.removeListener(onMark));
+    await pumpDetail(
+      tester,
+      ThreadDetailPage(
+        tid: tid,
+        title: '分页',
+        seenReplies: 10,
+        initialThreaded: false,
+        loadPage: (page, _, _) async {
+          calls.add(page);
+          return detail(tid, page: page, next: page < 3);
+        },
+      ),
+    );
+    expect(marks, 1);
+    // 模拟别的入口更新索引;详情页继续读时不能把它改回 10。
+    threadReadIndex.markRead(tid, 12);
+    for (var n = 0; n < 12; n++) {
+      final scroll = tester.state<ScrollableState>(
+        find.byType(Scrollable).first,
+      );
+      scroll.position.jumpTo(scroll.position.maxScrollExtent);
+      await tester.pumpAndSettle();
+    }
+    expect(calls, [1, 2, 3]);
+    expect(marks, 2);
+    final refresh = tester.widget<RefreshIndicator>(
+      find.byType(RefreshIndicator),
+    );
+    await refresh.onRefresh();
+    await tester.pumpAndSettle();
+    expect(calls.length, greaterThan(3));
+    expect(marks, 2);
+    expect(threadReadIndex.stateOf(tid, replies: 12), isA<ThreadReadSeen>());
+  });
+
+  for (final entry in [('未知回复数', 9001, null), ('回复变多的帖', 9002, 8)]) {
+    testWidgets('我的主题入口原样传递回复数 ${entry.$1}', (tester) async {
+      final observer = _ThreadTargetObserver();
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildAppTheme(Brightness.light),
+          navigatorObservers: [observer],
+          home: MyThreadsPage(repository: _FakeSpace()),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(entry.$1));
+      expect(observer.target?.tid, entry.$2);
+      expect(observer.target?.seenReplies, entry.$3);
+      // 只检查真实入口创建的参数,不挂载详情,避免访问真实仓库。
+      expect(find.byType(ThreadDetailPage), findsNothing);
+      await tester.pumpWidget(
+        MaterialApp(key: UniqueKey(), home: const SizedBox()),
+      );
+    });
+  }
+
+  testWidgets('搜索入口传递列表回复数', (tester) async {
+    final observer = _ThreadTargetObserver();
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(Brightness.light),
+        navigatorObservers: [observer],
+        home: SearchPage(
+          initialQuery: '散热',
+          search: (_) async => SearchResultPage(
+            rows: [thread(9110, replies: 14)],
+            page: const PageInfo(current: 1, hasNext: false),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(SearchResultCard));
+    expect(observer.target?.tid, 9110);
+    expect(observer.target?.seenReplies, 14);
+    expect(find.byType(ThreadDetailPage), findsNothing);
+    await tester.pumpWidget(
+      MaterialApp(key: UniqueKey(), home: const SizedBox()),
+    );
+  });
+
   testWidgets('未看过:标题强色,无新回复文字', (tester) async {
     await tester.pumpWidget(app(ThreadRow(thread: thread(1))));
     expect(styleOf(tester, '散热器评测')!.color, tokensOf(tester).text);
@@ -265,4 +489,17 @@ class _FakeSpace extends SpaceRepository {
       MyThread(tid: 9002, title: '回复变多的帖', replies: 8),
     ],
   );
+}
+
+class _ThreadTargetObserver extends NavigatorObserver {
+  ThreadDetailPage? target;
+
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    super.didPush(route, previousRoute);
+    if (previousRoute != null && route is MaterialPageRoute) {
+      final page = route.builder(navigator!.context);
+      if (page is ThreadDetailPage) target = page;
+    }
+  }
 }

@@ -102,6 +102,7 @@ class _Row extends StatelessWidget {
         MaterialPageRoute(
           builder: (_) => ThreadDetailPage(
             tid: item.tid,
+            seenReplies: item.replies,
             fid: item.forumFid,
             title: item.title,
             gotoUrl: snippet?.targetUrl,

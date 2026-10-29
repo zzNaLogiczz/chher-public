@@ -141,6 +141,7 @@ class _ForumThreadsPageState extends State<ForumThreadsPage> {
                     MaterialPageRoute(
                       builder: (_) => ThreadDetailPage(
                         tid: thread.tid,
+                        seenReplies: thread.replies,
                         title: thread.title,
                         fid: widget.fid,
                       ),
