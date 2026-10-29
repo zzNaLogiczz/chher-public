@@ -12,6 +12,7 @@ import '../data/space_repository.dart';
 import '../widgets/large_title_scaffold.dart';
 import '../widgets/expressive_controls.dart';
 import '../models/models.dart';
+import '../ui/feedback.dart';
 import '../ui/grouped.dart';
 import '../widgets/state_view.dart';
 import '../update/update_controller.dart';
@@ -68,8 +69,14 @@ class _SettingsBodyState extends State<SettingsBody> {
   }
 
   Future<void> _refreshCacheSize() async {
-    final bytes = await imageDiskCache.totalBytes();
-    if (mounted) setState(() => _cacheLabel = _formatBytes(bytes));
+    String label;
+    try {
+      label = _formatBytes(await imageDiskCache.totalBytes());
+    } catch (_) {
+      // 统计失败时给中性值,不让占位一直挂着
+      label = '—';
+    }
+    if (mounted) setState(() => _cacheLabel = label);
   }
 
   void _retry() => setState(() => _future = _load());
@@ -248,9 +255,14 @@ class _SettingsBodyState extends State<SettingsBody> {
       ),
     );
     if (ok != true) return;
-    await imageDiskCache.clear();
-    // 清除后重新统计,不显示过期的大小
-    await _refreshCacheSize();
+    try {
+      await imageDiskCache.clear();
+    } catch (_) {
+      if (context.mounted) AppToast.show(context, '清除失败，请稍后重试');
+    } finally {
+      // 无论清除是否成功都重新统计,不显示过期的大小
+      await _refreshCacheSize();
+    }
   }
 
   Future<void> _logout(BuildContext context) async {

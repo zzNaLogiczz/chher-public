@@ -125,4 +125,96 @@ void main() {
     await settleIo(tester);
     expect(find.text('2.0 KB'), findsOneWidget);
   });
+
+  testWidgets('统计失败时显示中性值而不是一直计算中', (tester) async {
+    imageDiskCache = _ThrowingCache(dir, failTotal: true);
+    await pumpSettings(tester);
+    await tester.scrollUntilVisible(
+      find.text('图片缓存'),
+      200,
+      scrollable: find.byType(Scrollable).last,
+    );
+    expect(find.text('计算中'), findsNothing);
+    expect(find.text('—'), findsOneWidget);
+  });
+
+  testWidgets('清除失败时提示并重新统计,不保留过期大小', (tester) async {
+    final cache = _ThrowingCache(dir, failClear: true);
+    imageDiskCache = cache;
+    await tester.runAsync(
+      () => cache.write('https://static.chiphell.com/a.jpg', Uint8List(1536)),
+    );
+    await pumpSettings(tester);
+    await tester.scrollUntilVisible(
+      find.text('图片缓存'),
+      200,
+      scrollable: find.byType(Scrollable).last,
+    );
+    expect(find.text('1.5 KB'), findsOneWidget);
+    // 清除失败期间磁盘内容变了(模拟部分删除),重新统计必须反映出来
+    cache.afterFailedClear = () => File(dir.listSync().first.path).deleteSync();
+
+    await tester.tap(find.text('图片缓存'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('清除'));
+    // 提示是限时的,趁它还在时先断言,再等重新统计完成
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('清除失败，请稍后重试'), findsOneWidget);
+    await settleIo(tester);
+
+    expect(find.text('1.5 KB'), findsNothing);
+    expect(find.text('0 B'), findsOneWidget);
+    await tester.pumpAndSettle(const Duration(seconds: 5));
+  });
+
+  testWidgets('兆字节按一位小数显示', (tester) async {
+    final cache = ImageDiskCache(dir);
+    imageDiskCache = cache;
+    await tester.runAsync(
+      () => cache.write(
+        'https://static.chiphell.com/big.jpg',
+        Uint8List((2.5 * 1024 * 1024).round()),
+      ),
+    );
+    await pumpSettings(tester);
+    await tester.scrollUntilVisible(
+      find.text('图片缓存'),
+      200,
+      scrollable: find.byType(Scrollable).last,
+    );
+    expect(find.text('2.5 MB'), findsOneWidget);
+  });
+}
+
+class _ThrowingCache extends ImageDiskCache {
+  _ThrowingCache(this.root, {this.failTotal = false, this.failClear = false})
+    : super(root);
+
+  final Directory root;
+  final bool failTotal;
+  final bool failClear;
+  void Function()? afterFailedClear;
+  bool _cleared = false;
+
+  @override
+  Future<int> totalBytes() async {
+    if (failTotal) throw const FileSystemException('scan failed');
+    // 清除失败后重新统计:读磁盘真实字节数,而不是内存里的旧值
+    if (_cleared) {
+      return root.listSync().whereType<File>().fold<int>(
+        0,
+        (a, f) => a + f.lengthSync(),
+      );
+    }
+    return super.totalBytes();
+  }
+
+  @override
+  Future<void> clear() async {
+    if (!failClear) return super.clear();
+    _cleared = true;
+    afterFailedClear?.call();
+    throw const FileSystemException('delete failed');
+  }
 }
