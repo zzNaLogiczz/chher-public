@@ -1,6 +1,7 @@
 /// A searchable diagnostic stream; all content stays within the application.
 library;
 
+import 'dart:convert';
 import 'dart:io';
 import '../ui/app_button.dart';
 import '../design/typography.dart';
@@ -164,17 +165,19 @@ class _LogPageState extends State<LogPage> {
     }
   }
 
-  /// 流式写出磁盘历史,10MB 不会一次进内存;没有历史(未接线或读不到)时退回内存缓冲
+  /// 流式写出磁盘历史,10MB 不会一次进内存;仅在未接线时退回内存缓冲
   Future<void> _writeFullLog(File file) async {
     await AppLog.flush();
     final sink = file.openWrite();
-    var lines = 0;
     try {
-      await for (final line in AppLog.history()) {
-        sink.writeln(line);
-        lines++;
+      if (AppLog.hasStore) {
+        // addStream 带背压,磁盘读得再快也不会在写端堆积
+        await sink.addStream(
+          AppLog.history().map((line) => utf8.encode('$line\n')),
+        );
+      } else {
+        sink.write(AppLog.instance.dump());
       }
-      if (lines == 0) sink.write(AppLog.instance.dump());
     } finally {
       await sink.close();
     }

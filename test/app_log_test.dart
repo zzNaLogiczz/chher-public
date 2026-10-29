@@ -34,8 +34,7 @@ void main() {
       AppLog.i('T', '第 $i 条');
     }
     await Future<void>.delayed(Duration.zero);
-    expect(notifications, lessThan(20));
-    expect(notifications, greaterThan(0));
+    expect(notifications, 1);
   });
 
   test('落盘后内存环形缓冲容量仍是硬上限', () {

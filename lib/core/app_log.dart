@@ -92,13 +92,18 @@ class AppLog extends ChangeNotifier {
   /// 把队列里的日志写盘;未接线时立即完成
   static Future<void> flush() => instance._store?.flush() ?? Future.value();
 
+  /// 是否已接线磁盘存储
+  static bool get hasStore => instance._store != null;
+
   /// 已落盘的历史,旧的在前、流式读取;未接线时为空流
   static Stream<String> history() =>
       instance._store?.dump() ?? const Stream.empty();
 
   /// store 按行存取且不检查内容,单行不变式由这里保证:内嵌换行会被读回成多条
+  static final _lineBreak = RegExp(r'\r\n|\r|\n');
+
   static String _singleLine(LogEntry entry) =>
-      entry.toString().replaceAll(RegExp(r'\r\n|\r|\n'), ' \\n ');
+      entry.toString().replaceAll(_lineBreak, ' \\n ');
 
   void _add(LogLevel level, String tag, String message) {
     final entry = LogEntry(DateTime.now(), level, tag, message);
@@ -112,7 +117,7 @@ class AppLog extends ChangeNotifier {
     _scheduleNotify();
   }
 
-  /// 同一帧内的多条日志合并成一次通知,避免日志页每条都重建
+  /// 同一轮事件循环内的多条日志合并成一次通知,避免日志页每条都重建
   void _scheduleNotify() {
     if (_notifyScheduled) return;
     _notifyScheduled = true;
