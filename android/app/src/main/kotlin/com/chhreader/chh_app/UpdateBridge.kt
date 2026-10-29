@@ -87,6 +87,7 @@ internal class UpdateBridge(
             "abis" to Build.SUPPORTED_ABIS.toList(),
             "sdkInt" to Build.VERSION.SDK_INT,
             "filesDir" to activity.filesDir.absolutePath,
+            "cacheDir" to activity.cacheDir.absolutePath,
         )
     }
 

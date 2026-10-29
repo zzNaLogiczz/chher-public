@@ -13,12 +13,14 @@ class AppIdentity {
   final String versionName;
   final String abi;
   final String filesDir;
+  final String cacheDir;
   const AppIdentity({
     required this.packageName,
     required this.versionCode,
     required this.versionName,
     required this.abi,
     required this.filesDir,
+    required this.cacheDir,
   });
 }
 
@@ -84,6 +86,7 @@ class ChannelUpdatePlatform implements UpdatePlatform {
       versionName: (raw['versionName'] as String?) ?? '',
       abi: abis.isEmpty ? 'universal' : abis.first,
       filesDir: raw['filesDir'] as String,
+      cacheDir: raw['cacheDir'] as String,
     );
   }
 

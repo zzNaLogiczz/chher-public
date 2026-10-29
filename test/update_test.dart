@@ -32,6 +32,7 @@ class FakePlatform implements UpdatePlatform {
         versionName: '0.15.${versionCode - 150}',
         abi: 'arm64-v8a',
         filesDir: filesDir,
+        cacheDir: filesDir,
       );
 
   @override
