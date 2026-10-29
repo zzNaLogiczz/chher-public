@@ -17,7 +17,7 @@ class LogStore {
   final int segmentBytes;
   final int maxSegments;
 
-  static final _segmentName = RegExp(r'log-(\d+)\.txt$');
+  static final _segmentName = RegExp(r'[/\\]log-(\d+)\.txt$');
 
   final List<String> _queue = [];
   Future<void> _writes = Future<void>.value();
@@ -36,7 +36,7 @@ class LogStore {
       try {
         yield* segment
             .openRead()
-            .transform(utf8.decoder)
+            .transform(const Utf8Decoder(allowMalformed: true))
             .transform(const LineSplitter());
       } catch (_) {
         // An unreadable segment is skipped.

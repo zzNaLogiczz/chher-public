@@ -59,6 +59,28 @@ void main() {
     expect(lines, ['重启前', '重启后']);
   });
 
+  test('崩溃留下的残缺多字节不会吞掉同段后续行', () async {
+    final store = LogStore(dir);
+    store.enqueue('损坏前');
+    await store.flush();
+    final segment = File('${dir.path}/log-0.txt');
+    // Truncated 3-byte sequence (first two bytes of a CJK char), as left by a crash.
+    await segment.writeAsBytes([0xE4, 0xB8], mode: FileMode.append);
+    final restarted = LogStore(dir);
+    restarted.enqueue('损坏后');
+    await restarted.flush();
+    final lines = await restarted.dump().toList();
+    expect(lines.first, '损坏前');
+    expect(lines.last, endsWith('损坏后'));
+  });
+
+  test('只识别以路径分隔符起头的 log-<n>.txt', () async {
+    await File('${dir.path}/xlog-5.txt').writeAsString('不是段文件\n');
+    final store = LogStore(dir);
+    expect(await store.totalBytes(), 0);
+    expect(await store.dump().toList(), isEmpty);
+  });
+
   test('目录不可写时 enqueue 与 flush 都不抛', () async {
     final store = LogStore(Directory('${dir.path}/gone'));
     store.enqueue('仍然可用');
