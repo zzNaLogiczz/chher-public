@@ -18,7 +18,6 @@ import 'core/log_store.dart';
 import 'network/chh_client.dart';
 import 'network/chh_session.dart';
 import 'data/image_disk_cache.dart';
-import 'widgets/cached_net_image.dart';
 
 final ChhClient chhClient = ChhClient.createDefault();
 final ChhSession chhSession = ChhSession(chhClient);

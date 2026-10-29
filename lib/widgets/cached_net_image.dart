@@ -17,8 +17,8 @@ import 'package:flutter/painting.dart';
 
 import '../data/image_disk_cache.dart';
 
-/// 全局磁盘缓存;目录由 setupDependencies 异步就绪后替换,就绪前是 no-op 实例
-ImageDiskCache imageDiskCache = ImageDiskCache(null);
+/// 与 direct_fetcher 的接收超时一致;卡住的响应体会连带拖住所有共享在途下载的等待者
+const _receiveTimeout = Duration(seconds: 30);
 
 HttpClient Function() _clientFactory = _defaultClient;
 HttpClient? _client;
@@ -77,7 +77,7 @@ class ChhCachedImage extends ImageProvider<ChhCachedImageKey> {
     ChhCachedImageKey key,
     ImageDecoderCallback decode,
   ) {
-    return MultiFrameImageStreamCompleter(
+    final completer = MultiFrameImageStreamCompleter(
       codec: _load(key, decode),
       scale: 1.0,
       debugLabel: key.url,
@@ -86,6 +86,13 @@ class ChhCachedImage extends ImageProvider<ChhCachedImageKey> {
         DiagnosticsProperty<ChhCachedImageKey>('Image key', key),
       ],
     );
+    // 失败后从 ImageCache 驱逐,否则未包 ResizeImage 的满幅路径会永久重放同一个错误
+    completer.addEphemeralErrorListener(
+      (_, _) => scheduleMicrotask(
+        () => PaintingBinding.instance.imageCache.evict(key),
+      ),
+    );
+    return completer;
   }
 
   Future<ui.Codec> _load(
@@ -117,14 +124,16 @@ class ChhCachedImage extends ImageProvider<ChhCachedImageKey> {
       final client = _client ??= _clientFactory();
       final request = await client.getUrl(Uri.parse(key.url));
       key.headers.forEach(request.headers.set);
-      final response = await request.close();
+      final response = await request.close().timeout(_receiveTimeout);
       if (response.statusCode != HttpStatus.ok) {
         await response.drain<void>();
         throw HttpException('HTTP ${response.statusCode}', uri: request.uri);
       }
-      final bytes = await consolidateHttpClientResponseBytes(response);
+      final bytes = await consolidateHttpClientResponseBytes(
+        response,
+      ).timeout(_receiveTimeout);
       if (bytes.isEmpty) throw const HttpException('empty body');
-      // 满幅解码一次仅为验证字节确为图片,验证后立即释放
+      // 仅校验格式与文件头(不解整帧像素),挡住 HTML 错误页等非图片内容;校验后立即释放
       (await ui.instantiateImageCodec(bytes)).dispose();
       await imageDiskCache.write(key.url, bytes);
       return bytes;

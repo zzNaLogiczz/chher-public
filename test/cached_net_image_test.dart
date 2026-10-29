@@ -6,6 +6,8 @@ import 'dart:typed_data';
 import 'package:chh_app/data/image_disk_cache.dart';
 import 'package:chh_app/widgets/cached_net_image.dart';
 import 'package:chh_app/widgets/net_image.dart';
+import 'dart:ui' as ui;
+
 import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -173,5 +175,56 @@ void main() {
     final p = boundedNetworkImage('https://static.chiphell.com/a.jpg', 640);
     expect(p, isA<ResizeImage>());
     expect((p as ResizeImage).width, 640);
+  });
+
+  test('满幅路径失败后不被 ImageCache 钉死,下次 resolve 可成功', () async {
+    // 故意不清 ImageCache:这是区分「已驱逐」与「永久重放错误」的唯一路径
+    Future<ImageInfo> resolveOnce() {
+      final done = Completer<ImageInfo>();
+      final stream = provider.resolve(ImageConfiguration.empty);
+      late ImageStreamListener l;
+      l = ImageStreamListener(
+        (info, _) {
+          stream.removeListener(l);
+          done.complete(info);
+        },
+        onError: (e, s) {
+          stream.removeListener(l);
+          done.completeError(e, s);
+        },
+      );
+      stream.addListener(l);
+      return done.future;
+    }
+
+    client.status = 500;
+    await expectLater(resolveOnce(), throwsA(isA<HttpException>()));
+    await Future<void>.delayed(Duration.zero); // let the eviction microtask run
+    client.status = 200;
+    final info = await resolveOnce();
+    expect(info.image.width, 1);
+    expect(downloadCount, 2);
+    info.dispose();
+  });
+
+  test('ResizeImage 的 decode 宽度上限对缓存 provider 生效', () async {
+    // 需要一张比目标宽的图:用 PictureRecorder 生成 8x8 PNG
+    final recorder = ui.PictureRecorder();
+    ui.Canvas(recorder).drawRect(
+      const ui.Rect.fromLTWH(0, 0, 8, 8),
+      ui.Paint()..color = const ui.Color(0xFF336699),
+    );
+    final big = await recorder.endRecording().toImage(8, 8);
+    final data = await big.toByteData(format: ui.ImageByteFormat.png);
+    client.body = data!.buffer.asUint8List();
+
+    final done = Completer<ImageInfo>();
+    ResizeImage(provider, width: 2)
+        .resolve(ImageConfiguration.empty)
+        .addListener(ImageStreamListener((i, _) => done.complete(i)));
+    final info = await done.future;
+    expect(info.image.width, 2);
+    expect(info.image.height, 2);
+    info.dispose();
   });
 }

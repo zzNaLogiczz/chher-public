@@ -212,3 +212,6 @@ class ImageDiskCache {
     return '${hex(h1)}${hex(h2)}$_suffix';
   }
 }
+
+/// 全局磁盘缓存;目录由 setupDependencies 异步就绪后替换,就绪前是 no-op 实例
+ImageDiskCache imageDiskCache = ImageDiskCache(null);
