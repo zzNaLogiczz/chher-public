@@ -157,10 +157,26 @@ class _LogPageState extends State<LogPage> {
       final file = File(
         '${Directory.systemTemp.path}/chh-log-${DateTime.now().millisecondsSinceEpoch}.txt',
       );
-      await file.writeAsString(AppLog.instance.dump());
+      await _writeFullLog(file);
       if (mounted) _toast('已导出 ${file.path}');
     } catch (_) {
       if (mounted) _toast('日志导出失败，请稍后重试');
+    }
+  }
+
+  /// 流式写出磁盘历史,10MB 不会一次进内存;没有历史(未接线或读不到)时退回内存缓冲
+  Future<void> _writeFullLog(File file) async {
+    await AppLog.flush();
+    final sink = file.openWrite();
+    var lines = 0;
+    try {
+      await for (final line in AppLog.history()) {
+        sink.writeln(line);
+        lines++;
+      }
+      if (lines == 0) sink.write(AppLog.instance.dump());
+    } finally {
+      await sink.close();
     }
   }
 

@@ -4,6 +4,8 @@
 /// 离线开发:flutter run --dart-define=chh_source=file(读 test_data 样本)
 library;
 
+import 'dart:async';
+
 import 'data/forum_repository.dart';
 import 'data/link_preview_repository.dart';
 import 'data/message_repository.dart';
@@ -11,6 +13,8 @@ import 'data/portal_repository.dart';
 import 'data/post_repository.dart';
 import 'data/space_repository.dart';
 import 'core/app_log.dart';
+import 'core/app_paths.dart';
+import 'core/log_store.dart';
 import 'network/chh_client.dart';
 import 'network/chh_session.dart';
 
@@ -38,4 +42,11 @@ void setupDependencies() {
   // 让会话顺带观察每次页面响应,从页头取账号与未读计数,不额外发请求
   chhClient.htmlObserver = chhSession.observeHtml;
   AppLog.i('BOOT', '页头观察已接线');
+  // 日志目录靠平台通道异步解析,不能 await 阻塞冷启动;就绪前的日志留在内存缓冲,接线时补写
+  unawaited(_attachLogStore());
+}
+
+Future<void> _attachLogStore() async {
+  final dir = await AppPaths.instance.subdir('logs');
+  if (dir != null) AppLog.attachStore(LogStore(dir));
 }

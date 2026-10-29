@@ -6,7 +6,11 @@
 /// 涉及敏感字段只记名称与长度,够定位问题就行。
 library;
 
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
+
+import 'log_store.dart';
 
 enum LogLevel { info, warn, error }
 
@@ -57,6 +61,45 @@ class AppLog extends ChangeNotifier {
   static void e(String tag, String message) =>
       instance._add(LogLevel.error, tag, message);
 
+  LogStore? _store;
+  Timer? _flushTimer;
+  bool _notifyScheduled = false;
+
+  /// 接线磁盘存储
+  ///
+  /// 路径解析是异步的,就绪前的日志只在内存环形缓冲里;这里把当前缓冲逐条补写进 store,
+  /// 启动最早期的排障现场不丢。定时器只在接线后才存在,未接线(含测试)不留任何 Timer。
+  static void attachStore(
+    LogStore store, {
+    Duration flushInterval = const Duration(seconds: 1),
+  }) {
+    final self = instance;
+    self._flushTimer?.cancel();
+    self._store = store;
+    for (final entry in self._entries) {
+      store.enqueue(_singleLine(entry));
+    }
+    self._flushTimer = Timer.periodic(flushInterval, (_) => store.flush());
+  }
+
+  @visibleForTesting
+  static void detachStoreForTesting() {
+    instance._flushTimer?.cancel();
+    instance._flushTimer = null;
+    instance._store = null;
+  }
+
+  /// 把队列里的日志写盘;未接线时立即完成
+  static Future<void> flush() => instance._store?.flush() ?? Future.value();
+
+  /// 已落盘的历史,旧的在前、流式读取;未接线时为空流
+  static Stream<String> history() =>
+      instance._store?.dump() ?? const Stream.empty();
+
+  /// store 按行存取且不检查内容,单行不变式由这里保证:内嵌换行会被读回成多条
+  static String _singleLine(LogEntry entry) =>
+      entry.toString().replaceAll(RegExp(r'\r\n|\r|\n'), ' \\n ');
+
   void _add(LogLevel level, String tag, String message) {
     final entry = LogEntry(DateTime.now(), level, tag, message);
     // 测试包同时打到系统日志,连着电脑时可以实时看;正式包只留在应用内
@@ -65,12 +108,25 @@ class AppLog extends ChangeNotifier {
     if (_entries.length > capacity) {
       _entries.removeRange(0, _entries.length - capacity);
     }
-    notifyListeners();
+    _store?.enqueue(_singleLine(entry));
+    _scheduleNotify();
   }
 
+  /// 同一帧内的多条日志合并成一次通知,避免日志页每条都重建
+  void _scheduleNotify() {
+    if (_notifyScheduled) return;
+    _notifyScheduled = true;
+    scheduleMicrotask(() {
+      _notifyScheduled = false;
+      notifyListeners();
+    });
+  }
+
+  /// 同时清内存与磁盘
   void clear() {
     _entries.clear();
-    notifyListeners();
+    _store?.clear();
+    _scheduleNotify();
   }
 
   /// 导出成纯文本,新的在下面,直接可以贴给别人
