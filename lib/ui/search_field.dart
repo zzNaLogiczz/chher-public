@@ -42,11 +42,11 @@ class SearchCapsule extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
     final style = AppType.callout.copyWith(color: t.text);
-    final visualHeight =
+    final lineHeight =
         (MediaQuery.textScalerOf(context).scale(style.fontSize!) *
-                    style.height! +
-                8)
-            .clamp(40.0, double.infinity);
+                style.height!)
+            .ceilToDouble();
+    final visualHeight = (lineHeight + 8).clamp(40.0, double.infinity);
     return SizedBox(
       height: visualHeight + 4,
       child: Stack(
@@ -66,6 +66,7 @@ class SearchCapsule extends StatelessWidget {
             ),
           ),
           Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Padding(
                 padding: const EdgeInsets.only(left: 12, right: 8),
@@ -86,6 +87,7 @@ class SearchCapsule extends StatelessWidget {
                     onChanged: onChanged,
                     onSubmitted: onSubmitted,
                     maxLines: 1,
+                    textAlignVertical: TextAlignVertical.center,
                     cursorColor: t.accent,
                     style: style,
                     decoration: InputDecoration(
@@ -93,7 +95,9 @@ class SearchCapsule extends StatelessWidget {
                       hintStyle: style.copyWith(color: t.text3),
                       filled: false,
                       isDense: true,
-                      contentPadding: EdgeInsets.zero,
+                      contentPadding: EdgeInsets.symmetric(
+                        vertical: (visualHeight + 4 - lineHeight) / 2,
+                      ),
                       border: InputBorder.none,
                       enabledBorder: InputBorder.none,
                       focusedBorder: InputBorder.none,
@@ -120,7 +124,7 @@ class SearchCapsule extends StatelessWidget {
                 builder: (context, value, _) => ExpressiveVisibility(
                   visible: value.text.isNotEmpty,
                   axis: Axis.horizontal,
-                  child: SearchClearButton(onTap: onClear),
+                  child: Center(child: SearchClearButton(onTap: onClear)),
                 ),
               ),
             ],

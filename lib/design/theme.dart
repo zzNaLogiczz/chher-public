@@ -58,7 +58,9 @@ ThemeData buildAppTheme(Brightness brightness) {
     appBarTheme: _appBarTheme(t, textTheme),
     cardTheme: _cardTheme(t),
     dialogTheme: DialogThemeData(
-      backgroundColor: t.surface,
+      backgroundColor: brightness == Brightness.dark
+          ? Radix.slate2Dark
+          : Radix.whiteA12,
       surfaceTintColor: Colors.transparent,
       titleTextStyle: AppType.headline.copyWith(color: t.text),
       contentTextStyle: AppType.callout.copyWith(color: t.text2),

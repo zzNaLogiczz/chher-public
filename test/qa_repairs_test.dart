@@ -6,6 +6,7 @@ import 'dart:convert';
 import 'dart:ui' as ui;
 
 import 'package:chh_app/design/theme.dart';
+import 'package:chh_app/design/tokens.dart';
 import 'package:chh_app/di.dart';
 import 'package:chh_app/models/models.dart';
 import 'package:chh_app/pages/forum_index_view.dart';
@@ -166,6 +167,10 @@ void main() {
             find.descendant(of: dialog, matching: find.byType(Material)).first,
           );
           expect(
+            material.color,
+            brightness == Brightness.dark ? Radix.slate2Dark : Radix.whiteA12,
+          );
+          expect(
             material.color!.a,
             1,
             reason: 'Actual M3 dialog surface must obscure the underlying page',
@@ -301,6 +306,10 @@ void main() {
           final rect = tester.getRect(clear);
           expect(rect.bottom, lessThan(height - 300));
           expect(rect.shortestSide, greaterThanOrEqualTo(44));
+          expect(
+            rect.center.dy,
+            closeTo(tester.getRect(find.byType(SearchCapsule)).center.dy, .01),
+          );
           expect(tester.widget<EditableText>(field).focusNode.hasFocus, isTrue);
           expect(
             tester.widget<EditableText>(field).controller.selection,

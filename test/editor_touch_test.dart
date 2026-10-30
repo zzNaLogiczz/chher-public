@@ -1,6 +1,9 @@
 import 'dart:async';
 
 import 'package:chh_app/core/app_log.dart';
+import 'package:chh_app/design/theme.dart';
+import 'package:chh_app/pages/forum_index_view.dart';
+import 'package:chh_app/widgets/large_title_scaffold.dart';
 import 'package:chh_app/models/models.dart';
 import 'package:chh_app/pages/search_page.dart';
 import 'package:chh_app/ui/app_button.dart';
@@ -285,6 +288,129 @@ void main() {
     await tester.pumpAndSettle();
     expect(calls, hasLength(1));
   });
+
+  for (final browse in [false, true]) {
+    for (final scale in [1.0, 2.0]) {
+      _platformTest(
+        'search editor edges focus and notify Android browse=$browse scale=$scale',
+        (tester) async {
+          tester.view.devicePixelRatio = 1;
+          tester.view.physicalSize = Size(scale == 2 ? 320 : 390, 844);
+          tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+          addTearDown(tester.view.reset);
+          await tester.pumpWidget(
+            MaterialApp(
+              theme: buildAppTheme(Brightness.light),
+              builder: (context, child) => MediaQuery(
+                data: MediaQuery.of(
+                  context,
+                ).copyWith(textScaler: TextScaler.linear(scale)),
+                child: child!,
+              ),
+              home: browse
+                  ? LargeTitleScaffold(
+                      title: '版块',
+                      showBack: false,
+                      body: ForumIndexView(
+                        loadForums: (_) async => const [
+                          ForumCategory(
+                            name: '交流区',
+                            forums: [Forum(fid: 1, name: '电脑')],
+                          ),
+                        ],
+                      ),
+                    )
+                  : const SearchPage(),
+            ),
+          );
+          await tester.pumpAndSettle();
+          final field = find.byType(EditableText);
+          final editable = tester.widget<EditableText>(field);
+          final node = editable.focusNode;
+          final controller = editable.controller;
+          for (final height in [700.0, 844.0]) {
+            tester.view.physicalSize = Size(
+              tester.view.physicalSize.width,
+              height,
+            );
+            await tester.pumpAndSettle();
+            for (final top in [true, false]) {
+              node.unfocus();
+              await tester.pumpAndSettle();
+              calls.clear();
+              final capsule = tester.getRect(find.byType(SearchCapsule));
+              final x = tester.getRect(field).center.dx;
+              await tester.tapAt(
+                Offset(x, top ? capsule.top + 1 : capsule.bottom - 1),
+              );
+              await tester.pumpAndSettle();
+              expect(
+                node.hasFocus,
+                isTrue,
+                reason:
+                    'The entire editor height must accept capsule edge taps',
+              );
+              expect(calls.map((call) => call.method), ['editorTapped']);
+              expect(calls.single.arguments, isNull);
+            }
+            expect(
+              tester.getSize(find.byType(TextField)).height,
+              greaterThanOrEqualTo(44),
+            );
+            expect(
+              tester.getRect(find.byType(TextField)).bottom,
+              lessThan(height - 300),
+            );
+            final render = tester
+                .state<EditableTextState>(field)
+                .renderEditable;
+            expect(
+              render.size.height,
+              greaterThanOrEqualTo(render.preferredLineHeight),
+            );
+            final caret = render.getLocalRectForCaret(
+              const TextPosition(offset: 0),
+            );
+            final caretCenter = render.localToGlobal(caret.center);
+            expect(
+              caretCenter.dy,
+              closeTo(tester.getRect(find.byType(SearchCapsule)).center.dy, 2),
+              reason:
+                  'The editable line stays vertically centered in the visual capsule',
+            );
+            if (scale == 1) {
+              expect(
+                tester.getSize(find.byKey(SearchCapsule.surfaceKey)).height,
+                40,
+              );
+            }
+            expect(tester.widget<EditableText>(field).focusNode, same(node));
+            expect(
+              tester.widget<EditableText>(field).controller,
+              same(controller),
+            );
+            controller.value = const TextEditingValue(
+              text: 'draft',
+              selection: TextSelection(baseOffset: 1, extentOffset: 4),
+            );
+            tester.view.viewInsets = const FakeViewPadding(bottom: 280);
+            await tester.pumpAndSettle();
+            expect(
+              controller.value,
+              const TextEditingValue(
+                text: 'draft',
+                selection: TextSelection(baseOffset: 1, extentOffset: 4),
+              ),
+            );
+            expect(node.hasFocus, isTrue);
+            tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+            await tester.pumpAndSettle();
+          }
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
+  }
 
   _platformTest('disabled guard consumes entry without replaying on editable', (
     tester,
