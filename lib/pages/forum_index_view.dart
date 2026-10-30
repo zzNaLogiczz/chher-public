@@ -38,7 +38,9 @@ class _ForumIndexViewState extends State<ForumIndexView> {
   }
 
   Future<void> _refresh() async {
-    setState(() => _future = _load(true));
+    setState(() {
+      _future = _load(true);
+    });
     await _future;
   }
 
@@ -86,128 +88,133 @@ class _ForumIndexViewState extends State<ForumIndexView> {
         return ExpressivePageReveal(
           active: true,
           animateOnMount: true,
-          child: RefreshIndicator(
-            onRefresh: _refresh,
-            child: CustomScrollView(
-              primary: true,
-              physics: const AlwaysScrollableScrollPhysics(),
-              slivers: [
-                SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(24, 8, 24, 16),
-                  sliver: SliverToBoxAdapter(
-                    child: BrowseSearchField(
-                      controller: _search,
-                      hint: '查找版块',
-                      onChanged: (_) => setState(() {}),
-                      onSubmitted: (_) =>
-                          FocusManager.instance.primaryFocus?.unfocus(),
-                      onClear: () => setState(() => _search.clear()),
-                    ),
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 8, 24, 16),
+                child: BrowseSearchField(
+                  controller: _search,
+                  hint: '查找版块',
+                  onChanged: (_) => setState(() {}),
+                  onSubmitted: (_) =>
+                      FocusManager.instance.primaryFocus?.unfocus(),
+                  onClear: () => setState(() => _search.clear()),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpace.screen - 4,
+                  0,
+                  AppSpace.screen,
+                  4,
+                ),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: PickerButton<int>(
+                    sheetTitle: '选择分区',
+                    options: [
+                      PickerOption(
+                        value: -1,
+                        label: '全部分区',
+                        detail:
+                            '${categories.fold<int>(0, (n, c) => n + c.forums.length)} 个版块',
+                        wide: true,
+                      ),
+                      for (var i = 0; i < categories.length; i++)
+                        PickerOption(
+                          value: i,
+                          label: _navigationLabel(categories, i),
+                          detail: '${categories[i].forums.length} 个版块',
+                        ),
+                    ],
+                    value: _category,
+                    onChanged: (value) {
+                      FocusManager.instance.primaryFocus?.unfocus();
+                      if (value != _category) {
+                        setState(() => _category = value);
+                      }
+                    },
                   ),
                 ),
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(
-                      AppSpace.screen - 4,
-                      0,
-                      AppSpace.screen,
-                      4,
-                    ),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: PickerButton<int>(
-                        sheetTitle: '选择分区',
-                        options: [
-                          PickerOption(
-                            value: -1,
-                            label: '全部分区',
-                            detail:
-                                '${categories.fold<int>(0, (n, c) => n + c.forums.length)} 个版块',
-                            wide: true,
-                          ),
-                          for (var i = 0; i < categories.length; i++)
-                            PickerOption(
-                              value: i,
-                              label: _navigationLabel(categories, i),
-                              detail: '${categories[i].forums.length} 个版块',
+              ),
+              Expanded(
+                child: RefreshIndicator(
+                  onRefresh: _refresh,
+                  child: CustomScrollView(
+                    primary: true,
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    slivers: [
+                      if (visible.isEmpty)
+                        SliverToBoxAdapter(
+                          child: SizedBox(
+                            height: 300,
+                            child: StateView.empty(
+                              message: keyword.isEmpty ? '这里还没有版块' : '没有找到相关版块',
                             ),
-                        ],
-                        value: _category,
-                        onChanged: (value) {
-                          FocusManager.instance.primaryFocus?.unfocus();
-                          if (value != _category) {
-                            setState(() => _category = value);
-                          }
-                        },
-                      ),
-                    ),
-                  ),
-                ),
-                if (visible.isEmpty)
-                  SliverToBoxAdapter(
-                    child: SizedBox(
-                      height: 300,
-                      child: StateView.empty(
-                        message: keyword.isEmpty ? '这里还没有版块' : '没有找到相关版块',
-                      ),
-                    ),
-                  ),
-                for (final category in visible) ...[
-                  SliverPadding(
-                    // 分组标题:分区短名 + 版块数;源站长说明只在这里出现一次
-                    padding: const EdgeInsets.fromLTRB(32, 20, 32, 7),
-                    sliver: SliverToBoxAdapter(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  _categoryName(category.name).title,
-                                  style: AppType.footnote.copyWith(
-                                    color: t.text3,
-                                    fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      for (final category in visible) ...[
+                        SliverPadding(
+                          // 分组标题:分区短名 + 版块数;源站长说明只在这里出现一次
+                          padding: const EdgeInsets.fromLTRB(32, 20, 32, 7),
+                          sliver: SliverToBoxAdapter(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        _categoryName(category.name).title,
+                                        style: AppType.footnote.copyWith(
+                                          color: t.text3,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                    Text(
+                                      '${category.forums.length}',
+                                      semanticsLabel:
+                                          '${category.forums.length}个版块',
+                                      style: AppType.footnote.copyWith(
+                                        color: t.text3,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                if (_categoryName(category.name).description
+                                    case final String description)
+                                  Text(
+                                    description,
+                                    style: AppType.footnote.copyWith(
+                                      color: t.text3,
+                                    ),
                                   ),
-                                ),
-                              ),
-                              Text(
-                                '${category.forums.length}',
-                                semanticsLabel: '${category.forums.length}个版块',
-                                style: AppType.footnote.copyWith(
-                                  color: t.text3,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ],
-                          ),
-                          if (_categoryName(category.name).description
-                              case final String description)
-                            Text(
-                              description,
-                              style: AppType.footnote.copyWith(color: t.text3),
+                              ],
                             ),
-                        ],
-                      ),
-                    ),
+                          ),
+                        ),
+                        SliverPadding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: AppSpace.groupInset,
+                          ),
+                          sliver: SliverList.builder(
+                            itemCount: category.forums.length,
+                            itemBuilder: (context, i) => _ForumRow(
+                              forum: category.forums[i],
+                              first: i == 0,
+                              last: i == category.forums.length - 1,
+                            ),
+                          ),
+                        ),
+                      ],
+                      const SliverToBoxAdapter(child: SizedBox(height: 100)),
+                    ],
                   ),
-                  SliverPadding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: AppSpace.groupInset,
-                    ),
-                    sliver: SliverList.builder(
-                      itemCount: category.forums.length,
-                      itemBuilder: (context, i) => _ForumRow(
-                        forum: category.forums[i],
-                        first: i == 0,
-                        last: i == category.forums.length - 1,
-                      ),
-                    ),
-                  ),
-                ],
-                const SliverToBoxAdapter(child: SizedBox(height: 100)),
-              ],
-            ),
+                ),
+              ),
+            ],
           ),
         );
       },

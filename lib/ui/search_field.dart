@@ -42,80 +42,96 @@ class SearchCapsule extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
     final style = AppType.callout.copyWith(color: t.text);
-    return DecoratedBox(
-      key: surfaceKey,
-      decoration: BoxDecoration(
-        color: t.fill,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: SizedBox(
-        height: 40,
-        child: Row(
-          children: [
-            Padding(
-              padding: const EdgeInsets.only(left: 12, right: 8),
-              child: Icon(AppIcons.search, size: 18, color: t.text3),
-            ),
-            Expanded(
-              child: EditorTouchGuard(
-                focusNode: focusNode,
-                notifyOnUserEntry: autofocus,
-                builder: (context, editorFocus, onEditorTap) => TextField(
-                  focusNode: editorFocus,
-                  onTapAlwaysCalled: true,
-                  onTap: onEditorTap,
-                  controller: controller,
-
-                  autofocus: autofocus,
-                  textInputAction: TextInputAction.search,
-                  onChanged: onChanged,
-                  onSubmitted: onSubmitted,
-                  maxLines: 1,
-                  cursorColor: t.accent,
-                  style: style,
-                  decoration: InputDecoration(
-                    hintText: hint,
-                    hintStyle: style.copyWith(color: t.text3),
-                    filled: false,
-                    isDense: true,
-                    contentPadding: EdgeInsets.zero,
-                    border: InputBorder.none,
-                    enabledBorder: InputBorder.none,
-                    focusedBorder: InputBorder.none,
-                  ),
-                ),
+    final visualHeight =
+        (MediaQuery.textScalerOf(context).scale(style.fontSize!) *
+                    style.height! +
+                8)
+            .clamp(40.0, double.infinity);
+    return SizedBox(
+      height: visualHeight + 4,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Positioned(
+            top: 2,
+            bottom: 2,
+            left: 0,
+            right: 0,
+            child: DecoratedBox(
+              key: surfaceKey,
+              decoration: BoxDecoration(
+                color: t.fill,
+                borderRadius: BorderRadius.circular(20),
               ),
             ),
-            // 检索中显示小转圈;清除钮始终可用,进行中的检索也能随时清掉
-            if (busy)
-              SizedBox.square(
-                dimension: 24,
-                child: Center(
-                  child: SizedBox.square(
-                    dimension: 16,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: t.text3,
+          ),
+          Row(
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(left: 12, right: 8),
+                child: Icon(AppIcons.search, size: 18, color: t.text3),
+              ),
+              Expanded(
+                child: EditorTouchGuard(
+                  focusNode: focusNode,
+                  notifyOnUserEntry: autofocus,
+                  builder: (context, editorFocus, onEditorTap) => TextField(
+                    focusNode: editorFocus,
+                    onTapAlwaysCalled: true,
+                    onTap: onEditorTap,
+                    controller: controller,
+
+                    autofocus: autofocus,
+                    textInputAction: TextInputAction.search,
+                    onChanged: onChanged,
+                    onSubmitted: onSubmitted,
+                    maxLines: 1,
+                    cursorColor: t.accent,
+                    style: style,
+                    decoration: InputDecoration(
+                      hintText: hint,
+                      hintStyle: style.copyWith(color: t.text3),
+                      filled: false,
+                      isDense: true,
+                      contentPadding: EdgeInsets.zero,
+                      border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
                     ),
                   ),
                 ),
               ),
-            ValueListenableBuilder<TextEditingValue>(
-              valueListenable: controller,
-              builder: (context, value, _) => ExpressiveVisibility(
-                visible: value.text.isNotEmpty,
-                axis: Axis.horizontal,
-                child: SearchClearButton(onTap: onClear),
+              // 检索中显示小转圈;清除钮始终可用,进行中的检索也能随时清掉
+              if (busy)
+                SizedBox.square(
+                  dimension: 24,
+                  child: Center(
+                    child: SizedBox.square(
+                      dimension: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: t.text3,
+                      ),
+                    ),
+                  ),
+                ),
+              ValueListenableBuilder<TextEditingValue>(
+                valueListenable: controller,
+                builder: (context, value, _) => ExpressiveVisibility(
+                  visible: value.text.isNotEmpty,
+                  axis: Axis.horizontal,
+                  child: SearchClearButton(onTap: onClear),
+                ),
               ),
-            ),
-          ],
-        ),
+            ],
+          ),
+        ],
       ),
     );
   }
 }
 
-/// 22dp 圆形清除钮,命中区 40
+/// 22dp 圆形清除钮,命中区 44
 class SearchClearButton extends StatelessWidget {
   final VoidCallback onTap;
   const SearchClearButton({super.key, required this.onTap});
@@ -129,7 +145,7 @@ class SearchClearButton extends StatelessWidget {
         onTap: onTap,
         semanticLabel: '清除搜索',
         child: SizedBox.square(
-          dimension: 40,
+          dimension: 44,
           child: Center(
             child: DecoratedBox(
               decoration: BoxDecoration(color: t.text3, shape: BoxShape.circle),

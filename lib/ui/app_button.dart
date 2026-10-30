@@ -64,7 +64,10 @@ class AppButton extends StatelessWidget {
             AppButtonVariant.primary => t.onAccent,
             AppButtonVariant.tinted || AppButtonVariant.plain => t.accent,
             AppButtonVariant.quiet => t.text2,
-            AppButtonVariant.destructive => t.red,
+            AppButtonVariant.destructive =>
+              Theme.of(context).brightness == Brightness.dark
+                  ? Radix.red11Dark
+                  : Radix.red11Light,
           };
     final textStyle =
         (small ||
@@ -177,7 +180,7 @@ class AppButton extends StatelessWidget {
       onTap: state == AppButtonState.idle ? onPressed : null,
       semanticLabel: label,
       child: ConstrainedBox(
-        constraints: const BoxConstraints(minHeight: 44),
+        constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
         child: Center(widthFactor: 1, heightFactor: 1, child: surface),
       ),
     );

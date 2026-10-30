@@ -57,6 +57,15 @@ ThemeData buildAppTheme(Brightness brightness) {
     ),
     appBarTheme: _appBarTheme(t, textTheme),
     cardTheme: _cardTheme(t),
+    dialogTheme: DialogThemeData(
+      backgroundColor: t.surface,
+      surfaceTintColor: Colors.transparent,
+      titleTextStyle: AppType.headline.copyWith(color: t.text),
+      contentTextStyle: AppType.callout.copyWith(color: t.text2),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppRadii.lg),
+      ),
+    ),
     listTileTheme: ListTileThemeData(
       textColor: t.text,
       iconColor: t.text3,

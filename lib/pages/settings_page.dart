@@ -278,7 +278,7 @@ class _SettingsBodyState extends State<SettingsBody> {
           ),
           AppButton(
             label: '退出',
-            variant: AppButtonVariant.plain,
+            variant: AppButtonVariant.destructive,
             onPressed: () => Navigator.pop(context, true),
           ),
         ],

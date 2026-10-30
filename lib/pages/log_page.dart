@@ -177,7 +177,7 @@ class _LogPageState extends State<LogPage> {
           ),
           AppButton(
             label: '清空',
-            variant: AppButtonVariant.plain,
+            variant: AppButtonVariant.destructive,
             onPressed: () => Navigator.pop(context, true),
           ),
         ],
