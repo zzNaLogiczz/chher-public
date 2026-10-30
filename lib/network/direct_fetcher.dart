@@ -9,6 +9,7 @@ import 'package:dio/dio.dart';
 
 import 'chh_fetcher.dart';
 import 'cookie_jar.dart';
+import '../core/app_log.dart';
 import '../core/chh_urls.dart';
 
 class DirectFetcher implements ChhFetcher {
@@ -23,27 +24,29 @@ class DirectFetcher implements ChhFetcher {
   /// 提交时只带 formhash 不带会话,被站点判成 CSRF 并拒绝。
   final CookieJar jar = CookieJar();
 
-  DirectFetcher()
-    : _dio = Dio(
-        BaseOptions(
-          connectTimeout: const Duration(seconds: 15),
-          receiveTimeout: const Duration(seconds: 30),
-          followRedirects: true,
-          // 567 拦截页也要拿到 body 供判定
-          validateStatus: (_) => true,
-          headers: {
-            'User-Agent': ChhUrls.chromeUa,
-            'Accept': 'text/html,application/xhtml+xml,*/*;q=0.8',
-            'Accept-Language': 'zh-CN,zh;q=0.9',
-            // 客户端提示必须与桌面 UA 自洽。实测站点的 EdgeOne 防护按请求头分流:
-            // 提示说 Android 就回机器人挑战页,说 macOS 才放行到 PHP。
-            // 这也是 WebView 做不到的事 —— Chromium 的提示由真实平台生成,改不掉。
-            'sec-ch-ua': '"Chromium";v="155", "Not=A?Brand";v="24"',
-            'sec-ch-ua-mobile': '?0',
-            'sec-ch-ua-platform': '"macOS"',
-          },
-        ),
-      );
+  DirectFetcher({Dio? dio})
+    : _dio =
+          dio ??
+          Dio(
+            BaseOptions(
+              connectTimeout: const Duration(seconds: 15),
+              receiveTimeout: const Duration(seconds: 30),
+              followRedirects: true,
+              // 567 拦截页也要拿到 body 供判定
+              validateStatus: (_) => true,
+              headers: {
+                'User-Agent': ChhUrls.chromeUa,
+                'Accept': 'text/html,application/xhtml+xml,*/*;q=0.8',
+                'Accept-Language': 'zh-CN,zh;q=0.9',
+                // 客户端提示必须与桌面 UA 自洽。实测站点的 EdgeOne 防护按请求头分流:
+                // 提示说 Android 就回机器人挑战页,说 macOS 才放行到 PHP。
+                // 这也是 WebView 做不到的事 —— Chromium 的提示由真实平台生成,改不掉。
+                'sec-ch-ua': '"Chromium";v="155", "Not=A?Brand";v="24"',
+                'sec-ch-ua-mobile': '?0',
+                'sec-ch-ua-platform': '"macOS"',
+              },
+            ),
+          );
 
   @override
   String get name => 'direct';
@@ -61,8 +64,8 @@ class DirectFetcher implements ChhFetcher {
       final set = r.headers.map['set-cookie'] ?? const <String>[];
       jar.absorb(set);
       return ChhResponse(r.statusCode ?? 0, r.data ?? '', setCookies: set);
-    } on DioException {
-      return const ChhResponse(-1, '');
+    } on DioException catch (e) {
+      return ChhResponse(-1, '', error: _failureReason(e));
     }
   }
 
@@ -95,11 +98,16 @@ class DirectFetcher implements ChhFetcher {
 
       final status = r.statusCode ?? 0;
       if (status >= 300 && status < 400) {
-        return _followRedirect(url, r.headers.value('location'), set);
+        return await _followRedirect(
+          url,
+          r.headers.value('location'),
+          set,
+          status,
+        );
       }
       return ChhResponse(status, r.data ?? '', setCookies: set);
-    } on DioException {
-      return const ChhResponse(-1, '');
+    } on DioException catch (e) {
+      return ChhResponse(-1, '', error: _failureReason(e));
     }
   }
 
@@ -134,9 +142,37 @@ class DirectFetcher implements ChhFetcher {
       final set = r.headers.map['set-cookie'] ?? const <String>[];
       jar.absorb(set);
       return ChhResponse(r.statusCode ?? 0, r.data ?? '', setCookies: set);
-    } on DioException {
-      return const ChhResponse(-1, '');
+    } on DioException catch (e) {
+      return ChhResponse(-1, '', error: _failureReason(e));
     }
+  }
+
+  String _failureReason(DioException e) {
+    // 不调用 DioException.toString,它可能包含请求头与表单。
+    var reason = '${e.type.name}: ${e.error ?? e.message}';
+    final secrets = <String>{...jar.all.values, ...?sessionCookies?.values};
+    for (final header in e.requestOptions.headers.entries) {
+      if (header.key.toLowerCase() == 'cookie') {
+        final cookie = header.value.toString();
+        secrets.add(cookie);
+        for (final entry in cookie.split(';')) {
+          final equal = entry.indexOf('=');
+          if (equal >= 0) secrets.add(entry.substring(equal + 1).trim());
+        }
+      }
+    }
+    final data = e.requestOptions.data;
+    if (data is Map) secrets.addAll(data.values.map((value) => '$value'));
+    if (data is FormData) {
+      secrets.addAll(data.fields.map((entry) => entry.value));
+    }
+    // 先替换长值,避免子串替换留下敏感值的后半截。
+    final ordered = secrets.where((value) => value.isNotEmpty).toList()
+      ..sort((a, b) => b.length.compareTo(a.length));
+    for (final value in ordered) {
+      reason = reason.replaceAll(value, '<redacted>');
+    }
+    return AppLog.failureReason(reason);
   }
 
   /// 跟随写操作后的跳转,把落地页当作这次提交的结果
@@ -146,18 +182,30 @@ class DirectFetcher implements ChhFetcher {
     Uri origin,
     String? location,
     List<String> set,
+    int acceptedStatus,
   ) async {
     if (location == null || location.isEmpty) {
       // 有跳转但没给地址:已被受理,只是拿不到落地页
-      return ChhResponse(302, '', setCookies: set);
+      return ChhResponse(acceptedStatus, '', setCookies: set);
     }
     final target = origin.resolve(location);
     final h = <String, String>{'Referer': origin.toString()};
     _attachCookies(h);
-    final r = await _dio.get<String>(
-      target.toString(),
-      options: Options(headers: h),
-    );
+    final Response<String> r;
+    try {
+      r = await _dio.get<String>(
+        target.toString(),
+        options: Options(headers: h),
+      );
+    } on DioException catch (e) {
+      // POST 已被受理,落地 GET 失败不能触发换通道重复提交。
+      return ChhResponse(
+        acceptedStatus,
+        '',
+        setCookies: set,
+        error: _failureReason(e),
+      );
+    }
     final more = r.headers.map['set-cookie'] ?? const <String>[];
     jar.absorb(more);
     return ChhResponse(

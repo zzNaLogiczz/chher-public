@@ -21,6 +21,10 @@ class ChhSession extends ChangeNotifier {
   bool loggedIn = false;
   Map<String, String> cookies = const {};
   int _epoch = 0;
+  bool _initialRefreshComplete = false;
+
+  /// 首次 Cookie 恢复与后续显式登录使用不同的收藏同步时机。
+  bool get initialRefreshComplete => _initialRefreshComplete;
   static const _channel = MethodChannel('chh/session');
 
   /// 页头给出的未读计数
@@ -112,6 +116,41 @@ class ChhSession extends ChangeNotifier {
     } else {
       cookies = map;
     }
+    _initialRefreshComplete = true;
+  }
+
+  /// 只从已知站点 Cookie 推断前缀，未建会话时不猜。
+  String? get cookiePrefix {
+    for (final suffix in ['saltkey', 'auth']) {
+      for (final name in cookies.keys) {
+        if (name.endsWith(suffix) && name.length > suffix.length) {
+          return name.substring(0, name.length - suffix.length);
+        }
+      }
+    }
+    return null;
+  }
+
+  /// 解锁 Cookie 与登录共用持久仓，写入后立即同步到直连通道。
+  Future<void> setSiteCookie(String name, String value) async {
+    final epoch = _epoch;
+    final written = await CookieManager.instance().setCookie(
+      url: WebUri(ChhUrls.base),
+      name: name,
+      value: value,
+      path: '/',
+      expiresDate: DateTime.now()
+          .add(const Duration(days: 30))
+          .millisecondsSinceEpoch,
+      isSecure: true,
+    );
+    if (!written || epoch != _epoch) {
+      throw StateError('Cookie 未写入');
+    }
+    await _flushCookies();
+    if (epoch != _epoch) throw StateError('会话已改变');
+    client.clearCache();
+    await refresh();
   }
 
   Future<void> _flushCookies() async {

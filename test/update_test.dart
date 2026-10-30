@@ -189,6 +189,7 @@ void main() {
       retryDelay: Duration.zero,
     ),
     builtInEndpoints: endpoints ?? [server.base],
+    isRelease: true,
     now: () => clock,
   );
 
@@ -243,19 +244,19 @@ void main() {
   test(
     'server-pushed endpoints persist, and only newer pushes apply',
     () async {
-      server.offer(endpoints: ['http://198.51.100.2:9000'], issuedAt: 1000);
+      server.offer(endpoints: ['http://127.0.0.1:1'], issuedAt: 1000);
       final c = controller();
       await c.checkManually();
-      expect(c.endpoints, contains('http://198.51.100.2:9000'));
+      expect(c.endpoints, contains('http://127.0.0.1:1'));
 
       // 新进程:读回保存的地址;更旧的下发(重放)不能覆盖
-      server.offer(endpoints: ['http://203.0.113.9:1'], issuedAt: 999);
+      server.offer(endpoints: ['http://127.0.0.1:2'], issuedAt: 999);
       final next = controller();
       await next.checkManually();
-      expect(next.endpoints, contains('http://198.51.100.2:9000'));
-      expect(next.endpoints, isNot(contains('http://203.0.113.9:1')));
+      expect(next.endpoints, contains('http://127.0.0.1:1'));
+      expect(next.endpoints, isNot(contains('http://127.0.0.1:2')));
       final saved = await UpdateStore.inDirectory(tmp.path).load();
-      expect(saved.endpoints, ['http://198.51.100.2:9000']);
+      expect(saved.endpoints, ['http://127.0.0.1:1']);
       expect(saved.checkIntervalHours, 12);
     },
   );

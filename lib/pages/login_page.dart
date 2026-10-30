@@ -14,6 +14,7 @@ import '../design/tokens.dart';
 import '../di.dart';
 import '../network/login_preferences.dart';
 import '../widgets/state_view.dart';
+import '../network/webview_trust.dart';
 import '../widgets/expressive_controls.dart';
 
 class LoginPage extends StatefulWidget {
@@ -154,6 +155,8 @@ class _LoginPageState extends State<LoginPage> {
                       forMainFrameOnly: true,
                     ),
                   ]),
+                  onReceivedServerTrustAuthRequest: (_, challenge) =>
+                      handleServerTrustChallenge(challenge),
                   onWebViewCreated: (controller) => _controller = controller,
                   onLoadStart: (_, _) {
                     if (mounted) {

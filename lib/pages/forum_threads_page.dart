@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 
 import '../di.dart';
 import '../data/forum_repository.dart';
+import '../data/favorite_index.dart';
+import '../ui/favorite_action.dart';
 import '../models/models.dart';
 import '../models/thread_sort.dart';
 import '../widgets/browse_controls.dart';
@@ -12,6 +14,7 @@ import '../design/tokens.dart';
 import '../ui/chrome_button.dart';
 import '../ui/picker.dart';
 import '../widgets/browse_thread_list.dart';
+import '../widgets/password_sheet.dart';
 import '../ui/plain_rows.dart';
 import '../widgets/expressive_controls.dart';
 import 'new_thread_page.dart';
@@ -94,28 +97,41 @@ class _ForumThreadsPageState extends State<ForumThreadsPage> {
     return BrowseScaffold(
       title: widget.title,
       actions: [
-        ChromeGroup(
-          items: [
-            ChromeGroupItem(
-              tooltip: '排序',
-              icon: AppIcons.sort,
-              selected: _sort != ThreadSort.fallback,
-              onPressed: _pickSort,
-            ),
-            ChromeGroupItem(
-              tooltip: '搜索帖子',
-              icon: AppIcons.search,
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const SearchPage()),
+        FavoriteActionBuilder(
+          target: FavoriteTarget(
+            type: FavoriteType.forum,
+            targetId: widget.fid,
+            title: widget.title,
+          ),
+          builder: (context, favorited, busy, toggle) => ChromeGroup(
+            items: [
+              ChromeGroupItem(
+                tooltip: '排序',
+                icon: AppIcons.sort,
+                selected: _sort != ThreadSort.fallback,
+                onPressed: _pickSort,
               ),
-            ),
-            ChromeGroupItem(
-              tooltip: '发主题',
-              icon: AppIcons.compose,
-              onPressed: _openNewThread,
-            ),
-          ],
+              ChromeGroupItem(
+                tooltip: '搜索帖子',
+                icon: AppIcons.search,
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const SearchPage()),
+                ),
+              ),
+              ChromeGroupItem(
+                tooltip: '发主题',
+                icon: AppIcons.compose,
+                onPressed: _openNewThread,
+              ),
+              ChromeGroupItem(
+                tooltip: favorited ? '取消收藏版块' : '收藏版块',
+                icon: favorited ? AppIcons.bookmarkFilled : AppIcons.bookmark,
+                selected: favorited,
+                onPressed: busy ? null : toggle,
+              ),
+            ],
+          ),
         ),
       ],
       body: Column(
@@ -155,6 +171,15 @@ class _ForumThreadsPageState extends State<ForumThreadsPage> {
                   refresh: refresh,
                 );
                 return Paged(items: result.threads, page: result.page);
+              },
+              onPassword: (fid) async {
+                final success = await showForumPasswordUnlock(
+                  context,
+                  fid,
+                  repository: _repository,
+                );
+                if (success && mounted) await _loadTypes();
+                return success;
               },
               emptyMessage: '这个分类还没有帖子',
               collapsePinned: true,

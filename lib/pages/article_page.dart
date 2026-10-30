@@ -14,6 +14,8 @@ import '../data/editorial_cover_cache.dart';
 import '../design/tokens.dart';
 import '../design/typography.dart';
 import '../ui/reading_bar.dart';
+import '../ui/favorite_action.dart';
+import '../data/favorite_index.dart';
 import '../ui/nav_bar.dart';
 import '../ui/chrome_button.dart';
 import '../models/models.dart';
@@ -584,11 +586,21 @@ class _ArticlePageState extends State<ArticlePage> {
   }
 
   /// 底部阅读工具栏:与帖子页同一套;门户文章的评论在弹层里,圆钮直接打开它
-  Widget _readingToolbar(AppTokens t) => ReadingBar(
-    placeholder: '写评论…',
-    onCompose: _openDiscussion,
-    inComments: false,
-    onShowComments: _openDiscussion,
-    onBackToTop: () {},
+  Widget _readingToolbar(AppTokens t) => FavoriteActionBuilder(
+    target: FavoriteTarget(
+      type: FavoriteType.article,
+      targetId: widget.aid,
+      title: widget.title,
+    ),
+    builder: (context, favorited, busy, toggle) => ReadingBar(
+      placeholder: '写评论…',
+      onCompose: _openDiscussion,
+      inComments: false,
+      onShowComments: _openDiscussion,
+      onBackToTop: () {},
+      favorited: favorited,
+      favoriteBusy: busy,
+      onToggleFavorite: toggle,
+    ),
   );
 }

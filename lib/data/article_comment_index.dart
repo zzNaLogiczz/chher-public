@@ -88,7 +88,10 @@ class ArticleCommentIndex {
     ArticleComment comment,
     List<ArticleComment> items,
   ) {
-    final quote = comment.content.whereType<QuoteBlock>().firstOrNull;
+    final quote = comment.content
+        .whereType<QuoteBlock>()
+        .where((block) => !block.isNotice)
+        .firstOrNull;
     if (quote == null) return null;
     final quoted = _plain(quote.children);
     final colon = quoted.indexOf(':');
@@ -114,7 +117,9 @@ class ArticleCommentIndex {
   static String bodyText(ArticleComment comment) {
     if (comment.content.isEmpty) return comment.text;
     return _plain(
-      comment.content.where((block) => block is! QuoteBlock).toList(),
+      comment.content
+          .where((block) => block is! QuoteBlock || block.isNotice)
+          .toList(),
     );
   }
 

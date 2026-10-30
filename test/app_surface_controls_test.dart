@@ -31,9 +31,9 @@ void main() {
               children: [
                 AppSegmented<int>(
                   options: const [
-                    PickerOption(value: 0, label: '基本资料'),
-                    PickerOption(value: 1, label: '论坛信息'),
-                    PickerOption(value: 2, label: '隐私'),
+                    PickerOption(value: 0, label: '全部主题'),
+                    PickerOption(value: 1, label: '关注版块'),
+                    PickerOption(value: 2, label: '收藏'),
                   ],
                   value: selected,
                   onChanged: (i) => setState(() {
@@ -48,23 +48,23 @@ void main() {
       );
       // 2 倍字号 + 320dp:分段放不下,按规格降级为选择按钮,选中态在面板里
       expect(find.byType(PickerButton<int>), findsOneWidget);
-      await tester.tap(find.text('基本资料'));
+      await tester.tap(find.text('全部主题'));
       await tester.pumpAndSettle();
       expect(
         tester
-                .getSemantics(find.text('基本资料').last)
+                .getSemantics(find.text('全部主题').last)
                 .flagsCollection
                 .isSelected ==
             Tristate.isTrue,
         isTrue,
       );
-      await tester.tap(find.text('基本资料').last);
+      await tester.tap(find.text('全部主题').last);
       await tester.pump(const Duration(milliseconds: 200));
       await tester.pumpAndSettle();
       expect(changes, 0);
-      await tester.tap(find.text('基本资料'));
+      await tester.tap(find.text('全部主题'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('隐私'));
+      await tester.tap(find.text('收藏'));
       await tester.pump(const Duration(milliseconds: 200));
       await tester.pumpAndSettle();
       expect(changes, 1);

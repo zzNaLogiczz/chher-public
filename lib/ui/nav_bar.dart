@@ -4,6 +4,8 @@
 /// 让滚上来的内容自然淡出,而不是被一条直线切断。
 library;
 
+import 'dart:math' as math;
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:motor/motor.dart';
@@ -34,7 +36,7 @@ class NavOverlay extends StatefulWidget {
   final double collapseAt;
   final Color background;
 
-  /// 居中小标题左右让出的宽度;右侧放了较宽的操作时调大,避免标题压到按钮下
+  /// 小标题左右的最小留白;控件更宽时按实际宽度避让。
   final double titleInset;
 
   /// 正文已固定在顶栏下方时,不再把渐隐遮罩画到工具栏上。
@@ -106,6 +108,11 @@ class _NavOverlayState extends State<NavOverlay>
     final top = MediaQuery.paddingOf(context).top;
     final solid = top + NavOverlay.barHeight;
     final height = solid + (widget.fadeBelowBar ? NavOverlay.fadeBand : 0);
+    const edgeInset = 10.0;
+    const middleSpacing = 8.0;
+    final sideConstraints = BoxConstraints(
+      minWidth: math.max(0, widget.titleInset - edgeInset - middleSpacing),
+    );
     return SizedBox(
       height: height,
       child: Stack(
@@ -141,34 +148,41 @@ class _NavOverlayState extends State<NavOverlay>
             left: 0,
             right: 0,
             height: NavOverlay.barHeight,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                Padding(
-                  padding: EdgeInsets.symmetric(horizontal: widget.titleInset),
-                  child: IgnorePointer(
-                    child: AnimatedBuilder(
-                      animation: _title,
-                      builder: (_, child) => Opacity(
-                        key: NavOverlay.inlineTitleKey,
-                        opacity: _title.value.clamp(0.0, 1.0),
-                        child: child,
-                      ),
-                      child: Text(
-                        widget.inlineTitle,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppType.headline.copyWith(color: t.text),
-                      ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: edgeInset),
+              child: NavigationToolbar(
+                centerMiddle: true,
+                middleSpacing: middleSpacing,
+                leading: ConstrainedBox(
+                  constraints: sideConstraints,
+                  child: Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    widthFactor: 1,
+                    child: widget.leading,
+                  ),
+                ),
+                middle: IgnorePointer(
+                  child: AnimatedBuilder(
+                    animation: _title,
+                    builder: (_, child) => Opacity(
+                      key: NavOverlay.inlineTitleKey,
+                      opacity: _title.value.clamp(0.0, 1.0),
+                      child: child,
+                    ),
+                    child: Text(
+                      widget.inlineTitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppType.headline.copyWith(color: t.text),
                     ),
                   ),
                 ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                trailing: ConstrainedBox(
+                  constraints: sideConstraints,
                   child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.end,
                     children: [
-                      ?widget.leading,
-                      const Spacer(),
                       for (var i = 0; i < widget.actions.length; i++) ...[
                         if (i > 0) const SizedBox(width: 6),
                         widget.actions[i],
@@ -176,7 +190,7 @@ class _NavOverlayState extends State<NavOverlay>
                     ],
                   ),
                 ),
-              ],
+              ),
             ),
           ),
         ],

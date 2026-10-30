@@ -9,11 +9,12 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
 import '../core/chh_urls.dart';
 import '../design/icons.dart';
-import '../design/motion.dart';
 import '../design/tokens.dart';
 import '../design/typography.dart';
 import '../ui/chrome_button.dart';
+import '../ui/side_drawer.dart';
 import '../widgets/state_view.dart';
+import '../network/webview_trust.dart';
 
 /// 帖子的手机版原页面
 Uri threadSourceUrl(int tid, {int page = 1}) => Uri.parse(
@@ -25,33 +26,11 @@ Uri articleSourceUrl(int aid, {int page = 1}) => Uri.parse(
   '${ChhUrls.base}/portal.php?mod=view&aid=$aid&page=$page&mobile=2',
 );
 
-Future<void> showSourcePage(BuildContext context, Uri url) {
-  final t = AppTokens.of(context);
-  final reduced = MediaQuery.disableAnimationsOf(context);
-  return Navigator.of(context).push(
-    PageRouteBuilder<void>(
-      opaque: false,
-      barrierColor: t.scrim,
-      barrierDismissible: true,
-      barrierLabel: '关闭原页面',
-      transitionDuration: reduced ? Duration.zero : AppMotion.sheetDuration,
-      reverseTransitionDuration: reduced
-          ? Duration.zero
-          : AppMotion.revealDuration,
-      pageBuilder: (_, _, _) => SourcePageDrawer(url: url),
-      transitionsBuilder: (_, animation, _, child) => SlideTransition(
-        position: Tween(begin: const Offset(1, 0), end: Offset.zero).animate(
-          CurvedAnimation(
-            parent: animation,
-            curve: AppMotion.sheetCurve,
-            reverseCurve: Curves.easeInCubic,
-          ),
-        ),
-        child: child,
-      ),
-    ),
-  );
-}
+Future<void> showSourcePage(BuildContext context, Uri url) => pushSideDrawer(
+  context,
+  builder: (_) => SourcePageDrawer(url: url),
+  barrierLabel: '关闭原页面',
+);
 
 class SourcePageDrawer extends StatefulWidget {
   final Uri url;
@@ -175,6 +154,8 @@ class _SourcePageDrawerState extends State<SourcePageDrawer> {
                           preferredContentMode: UserPreferredContentMode.MOBILE,
                           useShouldOverrideUrlLoading: true,
                         ),
+                        onReceivedServerTrustAuthRequest: (_, challenge) =>
+                            handleServerTrustChallenge(challenge),
                         onWebViewCreated: (c) =>
                             setState(() => _controller = c),
                         // 页面里拉起其他 App 的协议链接直接拦下,免得出现无法打开的错误页

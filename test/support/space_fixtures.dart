@@ -9,14 +9,23 @@ class FixtureSpace extends SpaceRepository {
   FixtureSpace() : super(ChhClient(fetchers: []));
   final favoriteRequests = <FavoriteType>[];
   final threadRequests = <String?>[];
-  final settingRequests = <String?>[];
   @override
   Future<UserProfile> profile(String uid, {bool refresh = false}) async =>
       UserProfile(
         uid: uid,
         name: '装机爱好者',
-        stats: const {'主题': '128', '回复': '3600'},
-        profile: const {'个人签名': '记录日常装机与使用体验，交流真实感受', '所在地': '上海'},
+        group: '权天使',
+        onlineHours: 2845,
+        credits: 2329,
+        nextLevelCredits: 171,
+        evil: 1583,
+        threads: 128,
+        replies: 3600,
+        friends: 15,
+        registeredAt: '2013-6-1 21:59',
+        lastVisitAt: '2026-10-30 11:43',
+        lastPostAt: '2026-10-29 22:46',
+        portalArticles: 0,
       );
   @override
   Future<Paged<FavoriteItem>> favorites({
@@ -97,19 +106,4 @@ class FixtureSpace extends SpaceRepository {
       description: '持续分享有价值的原创内容，与大家交流使用心得。',
     ),
   ];
-  @override
-  Future<SettingsForm> settings({
-    String ac = 'profile',
-    String? op,
-    bool refresh = false,
-  }) async {
-    settingRequests.add(op);
-    return const SettingsForm(
-      title: '账号资料',
-      fields: [
-        SettingField(name: 'bio', label: '个人签名', value: '分享真实体验，记录每一次升级'),
-        SettingField(name: 'place', label: '所在地', value: '上海'),
-      ],
-    );
-  }
 }

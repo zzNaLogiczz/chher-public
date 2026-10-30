@@ -1,4 +1,6 @@
 import 'package:chh_app/design/theme.dart';
+import 'package:chh_app/design/icons.dart';
+import 'package:chh_app/ui/press.dart';
 import 'package:chh_app/design/tokens.dart';
 import 'package:chh_app/ui/quote.dart';
 import 'package:chh_app/ui/reading_bar.dart';
@@ -23,6 +25,96 @@ Widget app(Widget child, {double textScale = 1}) => MaterialApp(
 
 void main() {
   postCardTests();
+  testWidgets(
+    'favorite circle precedes compose and leaves right action fixed',
+    (tester) async {
+      Widget bar({bool? favorited, bool busy = false, VoidCallback? toggle}) =>
+          app(
+            ReadingBar(
+              placeholder: '写回复…',
+              onCompose: () {},
+              count: 9,
+              inComments: false,
+              onShowComments: () {},
+              onBackToTop: () {},
+              favorited: favorited,
+              favoriteBusy: busy,
+              onToggleFavorite: toggle,
+            ),
+          );
+      await tester.pumpWidget(bar());
+      final originalRight = tester.getRect(find.byKey(ReadingBar.actionKey));
+      expect(find.byKey(ReadingBar.favoriteKey), findsNothing);
+      var tapped = 0;
+      await tester.pumpWidget(bar(favorited: false, toggle: () => tapped++));
+      await tester.pumpAndSettle();
+      final favorite = tester.getRect(find.byKey(ReadingBar.favoriteKey));
+      final compose = tester.getRect(find.byType(ComposeCapsule));
+      expect(favorite.size, const Size(44, 44));
+      expect(favorite.right, lessThan(compose.left));
+      expect(compose.right, lessThan(originalRight.left));
+      expect(tester.getRect(find.byKey(ReadingBar.actionKey)), originalRight);
+      expect(find.byTooltip('收藏'), findsOneWidget);
+      await tester.tap(find.byKey(ReadingBar.favoriteKey));
+      expect(tapped, 1);
+      await tester.pumpWidget(
+        bar(favorited: true, busy: true, toggle: () => tapped++),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('取消收藏'), findsOneWidget);
+      expect(
+        tester.widget<PressScale>(find.byKey(ReadingBar.favoriteKey)).onTap,
+        isNull,
+      );
+      final filled = find.byIcon(AppIcons.bookmarkFilled);
+      expect(filled, findsOneWidget);
+      expect(tester.widget<Icon>(filled).color, AppTokens.light.accent);
+      await tester.tap(find.byKey(ReadingBar.favoriteKey));
+      expect(tapped, 1);
+    },
+  );
+
+  testWidgets('favorite icons change immediately with reduced motion', (
+    tester,
+  ) async {
+    var favorited = false;
+    late StateSetter rebuild;
+    await tester.pumpWidget(
+      app(
+        MediaQuery(
+          data: const MediaQueryData(disableAnimations: true),
+          child: StatefulBuilder(
+            builder: (context, setState) {
+              rebuild = setState;
+              return ReadingBar(
+                placeholder: '写回复…',
+                onCompose: () {},
+                inComments: false,
+                onShowComments: () {},
+                onBackToTop: () {},
+                favorited: favorited,
+              );
+            },
+          ),
+        ),
+      ),
+    );
+    double opacity(IconData icon) => tester
+        .widget<Opacity>(
+          find
+              .ancestor(of: find.byIcon(icon), matching: find.byType(Opacity))
+              .first,
+        )
+        .opacity;
+    expect(opacity(AppIcons.bookmark), 1);
+    expect(opacity(AppIcons.bookmarkFilled), 0);
+    rebuild(() => favorited = true);
+    await tester.pump();
+    expect(opacity(AppIcons.bookmark), 0);
+    expect(opacity(AppIcons.bookmarkFilled), 1);
+    expect(tester.binding.transientCallbackCount, 0);
+  });
+
   testWidgets(
     'circle shows the count in the body and back-to-top in comments',
     (tester) async {
@@ -62,6 +154,8 @@ void main() {
         ReadingBar(
           placeholder: '写评论…',
           onCompose: () {},
+          favorited: false,
+          onToggleFavorite: () {},
           count: 1234,
           inComments: false,
           onShowComments: () {},

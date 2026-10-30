@@ -3,6 +3,7 @@ import 'package:chh_app/models/models.dart';
 import 'package:chh_app/pages/thread_detail_page.dart';
 import 'package:chh_app/widgets/post_card.dart';
 import 'package:chh_app/ui/segmented.dart';
+import 'package:chh_app/ui/favorite_action.dart';
 import 'package:chh_app/widgets/thread_comment_widgets.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -63,6 +64,23 @@ Future<ThreadViewMode> currentViewMode(WidgetTester tester) async {
 }
 
 void main() {
+  for (final title in ['', '链接中的旧标题']) {
+    testWidgets('收藏使用已加载的帖子标题,入口标题为「$title」', (tester) async {
+      await _pump(
+        tester,
+        ThreadDetailPage(
+          tid: 123,
+          title: title,
+          loadPage: (_, _, _) async => _page(1),
+        ),
+      );
+      final action = tester.widget<FavoriteActionBuilder>(
+        find.byType(FavoriteActionBuilder),
+      );
+      expect(action.target.title, '连续讨论');
+    });
+  }
+
   testWidgets('scroll appends the next page and suppresses duplicate pids', (
     tester,
   ) async {

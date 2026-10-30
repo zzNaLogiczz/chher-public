@@ -13,6 +13,7 @@ import '../ui/quote.dart';
 import '../design/typography.dart';
 import 'expressive_controls.dart';
 import '../models/models.dart';
+import '../pages/user_drawer.dart';
 import 'article_image.dart';
 import 'image_grid.dart';
 import 'net_image.dart';
@@ -36,6 +37,7 @@ class PostCard extends StatelessWidget {
 
   /// 回复这一楼。给每层一个明确入口,长按引用不够显眼。
   final VoidCallback? onReply;
+  final VoidCallback? onUnlock;
   final Widget? replyContext;
   final Widget? discussionAction;
   final _PostPart _part;
@@ -51,6 +53,7 @@ class PostCard extends StatelessWidget {
     this.commentStyle = false,
     this.replyToAuthor,
     this.onReply,
+    this.onUnlock,
     this.replyContext,
     this.discussionAction,
   }) : _part = _PostPart.whole,
@@ -67,6 +70,7 @@ class PostCard extends StatelessWidget {
     this.commentStyle = false,
     this.replyToAuthor,
     this.onReply,
+    this.onUnlock,
     this.replyContext,
     this.discussionAction,
   }) : _part = _PostPart.header,
@@ -84,6 +88,7 @@ class PostCard extends StatelessWidget {
     this.isAuthor = false,
     this.commentStyle = false,
     this.replyToAuthor,
+    this.onUnlock,
   }) : _part = _PostPart.block,
        onReply = null,
        replyContext = null,
@@ -97,6 +102,7 @@ class PostCard extends StatelessWidget {
     this.commentStyle = false,
     this.replyToAuthor,
     this.onReply,
+    this.onUnlock,
     this.replyContext,
     this.discussionAction,
   }) : _part = _PostPart.footer,
@@ -147,8 +153,14 @@ class PostCard extends StatelessWidget {
     child: Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _avatar(t, 28),
-        const SizedBox(width: 10),
+        _profileLink(
+          context,
+          key: ValueKey('post-avatar-${post.pid}'),
+          child: Padding(
+            padding: const EdgeInsets.only(right: 10),
+            child: _avatar(t, 28),
+          ),
+        ),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -156,14 +168,18 @@ class PostCard extends StatelessWidget {
               Row(
                 children: [
                   Flexible(
-                    child: Text(
-                      post.author,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: AppType.sizeFootnote,
-                        fontWeight: FontWeight.w600,
-                        color: t.text2,
+                    child: _profileLink(
+                      context,
+                      key: ValueKey('post-author-${post.pid}'),
+                      child: Text(
+                        post.author,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: AppType.sizeFootnote,
+                          fontWeight: FontWeight.w600,
+                          color: t.text2,
+                        ),
                       ),
                     ),
                   ),
@@ -228,6 +244,54 @@ class PostCard extends StatelessWidget {
     ),
   );
 
+  Widget _profileLink(
+    BuildContext context, {
+    required Widget child,
+    Key? key,
+  }) => PressScale(
+    key: key,
+    semanticLabel: '查看${post.author}的主页',
+    onTap: post.authorUid == null
+        ? null
+        : () => showUserDrawer(context, post.authorUid!),
+    child: child,
+  );
+
+  Widget _lockBlock(AppTokens t) {
+    final lock = post.lock!;
+    return Container(
+      key: ValueKey('post-lock-${post.pid}'),
+      padding: const EdgeInsets.all(14),
+      margin: const EdgeInsets.only(bottom: 6),
+      decoration: BoxDecoration(
+        color: t.fill,
+        borderRadius: BorderRadius.circular(AppRadii.sm),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(AppIcons.lock, color: t.text2, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  lock.text,
+                  style: AppType.body.copyWith(color: t.text2),
+                ),
+              ),
+            ],
+          ),
+          if (lock.needsPassword) ...[
+            const SizedBox(height: 8),
+            AppButton(label: '输入密码', onPressed: onUnlock),
+          ],
+        ],
+      ),
+    );
+  }
+
   Widget _buildPart(BuildContext context, AppTokens t) {
     final content = switch (_part) {
       _PostPart.header => Column(
@@ -237,6 +301,7 @@ class PostCard extends StatelessWidget {
           ?replyContext,
           const SizedBox(height: 16),
           ..._notes(context, t, PostNoteKind.edited),
+          if (post.lock != null) _lockBlock(t),
         ],
       ),
       _PostPart.footer => Column(
@@ -311,35 +376,45 @@ class PostCard extends StatelessWidget {
     final size = isOpening ? 38.0 : 32.0;
     return Row(
       children: [
-        _avatar(t, size),
-        const SizedBox(width: 10),
         Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Flexible(
-                    child: Text(
-                      post.author,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppType.subhead.copyWith(
-                        fontWeight: FontWeight.w600,
-                        color: t.text,
+          child: _profileLink(
+            context,
+            key: ValueKey('post-profile-${post.pid}'),
+            child: Row(
+              children: [
+                _avatar(t, size),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              post.author,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppType.subhead.copyWith(
+                                fontWeight: FontWeight.w600,
+                                color: t.text,
+                              ),
+                            ),
+                          ),
+                          // 楼主小标签紧跟名字,不再单独占右侧
+                          if (isOpening || isAuthor) _ownerBadge(t),
+                        ],
                       ),
-                    ),
+                      if (post.timeRaw.isNotEmpty)
+                        Text(
+                          post.timeRaw,
+                          style: AppType.footnote.copyWith(color: t.text3),
+                        ),
+                    ],
                   ),
-                  // 楼主小标签紧跟名字,不再单独占右侧
-                  if (isOpening || isAuthor) _ownerBadge(t),
-                ],
-              ),
-              if (post.timeRaw.isNotEmpty)
-                Text(
-                  post.timeRaw,
-                  style: AppType.footnote.copyWith(color: t.text3),
                 ),
-            ],
+              ],
+            ),
           ),
         ),
         // 首楼的 #1 没有意义;其余楼层保留楼层号便于对照原帖
@@ -356,6 +431,7 @@ class PostCard extends StatelessWidget {
 
   /// 把内容块渲染成组件,并把相邻图片合并成一个宫格
   List<Widget> _blocks(BuildContext context, AppTokens t) {
+    if (post.lock != null) return [_lockBlock(t)];
     final out = <Widget>[];
     final pendingImages = <String>[];
     var prefix = _replyPrefix;
@@ -376,6 +452,7 @@ class PostCard extends StatelessWidget {
 
     for (final block in post.content) {
       if (block is QuoteBlock &&
+          !block.isNotice &&
           (commentStyle || (!isOpening && replyContext != null))) {
         continue;
       }

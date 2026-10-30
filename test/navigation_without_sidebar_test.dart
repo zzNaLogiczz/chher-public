@@ -65,9 +65,8 @@ void main() {
       scrollable: find.byType(Scrollable).first,
     );
     expect(find.widgetWithText(GroupedRow, '设置'), findsOneWidget);
-    final application =
-        const ChhApp().build(tester.element(find.byType(MeBody)))
-            as MaterialApp;
+    await tester.pumpWidget(const ChhApp());
+    final application = tester.widget<MaterialApp>(find.byType(MaterialApp));
     expect(
       application.routes?.keys,
       containsAll(['/favorites', '/settings', '/logs']),

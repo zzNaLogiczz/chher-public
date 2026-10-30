@@ -104,6 +104,33 @@ void main() {
   );
 
   test(
+    'initial restoration and later login expose distinct sync phases',
+    () async {
+      messenger.setMockMethodCallHandler(channel, (_) async => null);
+      jar.values = [];
+      final session = ChhSession(ChhClient(fetchers: []));
+      final phases = <bool>[];
+      session.addListener(() => phases.add(session.initialRefreshComplete));
+      await session.refresh();
+      expect(session.initialRefreshComplete, isTrue);
+      jar.values = [Cookie(name: 'test_auth', value: 'local-fixture')];
+      await session.refresh();
+      expect(phases, [true]);
+
+      final restored = ChhSession(ChhClient(fetchers: []));
+      final restorePhases = <bool>[];
+      restored.addListener(
+        () => restorePhases.add(restored.initialRefreshComplete),
+      );
+      await restored.refresh();
+      expect(restorePhases, [false]);
+      expect(restored.initialRefreshComplete, isTrue);
+      session.dispose();
+      restored.dispose();
+    },
+  );
+
+  test(
     'a pending cookie read cannot resurrect an explicitly logged-out session',
     () async {
       messenger.setMockMethodCallHandler(channel, (_) async => null);

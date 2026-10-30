@@ -8,28 +8,111 @@ import '../core/chh_urls.dart';
 import '../models/models.dart';
 import 'dom_utils.dart';
 
-/// 用户主页:.u_profile 资料、#pbbs 论坛统计、#psts 帖子统计
-///
-/// 自己的页头与操作项不保证与他人空间相同,所以字段按页面实际存在性收集。
+/// 用户主页:按源站字段解析,缺少或隐藏的资料保持为空。
 UserProfile parseUserProfile(String html, {required String uid}) {
   final doc = html_parser.parse(html);
   throwIfMessagePage(doc);
 
-  final name = cleanText(doc.querySelector('h2.mbn, #uhd h2')?.text);
-  final avatar = doc.querySelector('.avt img, #uhd img')?.attributes['src'];
+  final root = doc.querySelector('.u_profile');
+  final heading =
+      root?.querySelector('h2.mbn') ?? doc.querySelector('#uhd h2, h2.mbn');
+  final name = heading == null ? '' : textWithout(heading, ['.xw0']);
+  final profile = _definitionPairs(root);
+  final stats = {
+    ..._definitionPairs(doc.querySelector('#psts')),
+    ..._definitionPairs(doc.querySelector('#pbbs')),
+  };
+  final fields = {...profile, ...stats};
+
+  dom.Element? activity;
+  for (final title in root?.querySelectorAll('h2') ?? <dom.Element>[]) {
+    if (cleanText(title.text) == '活跃概况') {
+      activity = title.parent;
+      break;
+    }
+  }
+  dom.Element? groupRow;
+  for (final li in activity?.querySelectorAll('li') ?? <dom.Element>[]) {
+    if (cleanText(li.querySelector('em')?.text) == '用户组') {
+      groupRow = li;
+      break;
+    }
+  }
+  final groupLink = groupRow?.querySelector('a');
+  final group = cleanText(groupLink?.text);
+  final groupId = int.tryParse(
+    Uri.tryParse(groupLink?.attributes['href'] ?? '')?.queryParameters['gid'] ??
+        '',
+  );
+  final tip = groupRow?.querySelector('[tip]')?.attributes['tip'];
+  final nextLevel = RegExp(r'距离下一级还需\s*([\d,\s]+)\s*积分').firstMatch(tip ?? '');
+
+  final counts = <String, int>{};
+  for (final li in root?.querySelectorAll('li') ?? <dom.Element>[]) {
+    if (cleanText(li.querySelector('em')?.text) != '统计信息') continue;
+    for (final link in li.querySelectorAll('a')) {
+      final text = cleanText(link.text);
+      for (final prefix in ['好友数', '回帖数', '主题数']) {
+        if (!text.startsWith(prefix)) continue;
+        final count = _profileNumber(text.substring(prefix.length));
+        if (count != null) counts[prefix] = count;
+      }
+    }
+  }
 
   return UserProfile(
     uid: uid,
     name: name.isEmpty ? '用户 $uid' : name,
-    avatarUrl: (avatar == null || avatar.isEmpty)
-        ? null
-        : ChhUrls.absolutize(avatar),
-    profile: _definitionPairs(doc.querySelector('.u_profile')),
-    stats: {
-      ..._definitionPairs(doc.querySelector('#psts')),
-      ..._definitionPairs(doc.querySelector('#pbbs')),
-    },
+    avatarUrl: ChhUrls.avatar(uid, size: 'big'),
+    group: group.isEmpty ? null : group,
+    groupId: groupId != null && groupId > 0 ? groupId : null,
+    nextLevelCredits: _profileNumber(nextLevel?.group(1)),
+    onlineHours: _profileNumber(fields['在线时间']),
+    credits: _profileNumber(fields['积分']),
+    evil: _profileNumber(fields['邪恶指数']),
+    threads: counts['主题数'],
+    replies: counts['回帖数'],
+    friends: counts['好友数'],
+    registeredAt: fields['注册时间'],
+    lastVisitAt: fields['最后访问'],
+    lastPostAt: fields['上次发表时间'],
+    portalArticles: _profileNumber(fields['门户文章']),
+    profile: profile,
+    stats: stats,
   );
+}
+
+/// 只取目标用户组,缺资料或遇到登录/消息页时不给字典写入未知值。
+({String name, int lowerCredits})? parseUserGroupLevel(String html) {
+  try {
+    final doc = html_parser.parse(html);
+    throwIfMessagePage(doc);
+    if (doc.querySelector('#loginform, form[action*="logging"]') != null) {
+      return null;
+    }
+    final heading = cleanText(doc.querySelector('#tba li#c2')?.text);
+    final name = heading.replaceFirst(RegExp(r'^晋级用户组\s*-\s*'), '').trim();
+    if (name.isEmpty) return null;
+    final pattern = RegExp(r'积分下限\s*(-?\d+)');
+    RegExpMatch? match;
+    for (final notice in doc.querySelectorAll('.tscr span.notice')) {
+      match = pattern.firstMatch(cleanText(notice.text));
+      if (match != null) break;
+    }
+    match ??= pattern.firstMatch(cleanText(doc.body?.text));
+    final lowerCredits = int.tryParse(match?.group(1) ?? '');
+    return lowerCredits == null
+        ? null
+        : (name: name, lowerCredits: lowerCredits);
+  } catch (_) {
+    return null;
+  }
+}
+
+/// 站点数字可能带千分位、空白和单位,不把未知文本补成零。
+int? _profileNumber(String? value) {
+  final number = RegExp(r'^\s*(\d[\d,\s]*)').firstMatch(value ?? '');
+  return int.tryParse(number?.group(1)?.replaceAll(RegExp(r'[,\s]'), '') ?? '');
 }
 
 /// Discuz 资料区是 li > em(标签) + 值 的结构,按实际字段收集,不补造
@@ -71,14 +154,27 @@ Paged<FavoriteItem> parseFavorites(String html) {
     if (favid.isEmpty || href.isEmpty || title.isEmpty) continue;
 
     final url = ChhUrls.absolutize(href);
+    final fallback = FavoriteItem(favid: favid, title: title, url: url);
+    final type = switch (li.querySelector('img.t')?.attributes['alt']) {
+      'thread' => FavoriteType.thread,
+      'forum' => FavoriteType.forum,
+      'article' => FavoriteType.article,
+      _ => fallback.type,
+    };
+    final vid = int.tryParse(
+      li.querySelector('input[vid]')?.attributes['vid'] ?? '',
+    );
+    final targetId = vid != null && vid > 0 ? vid : fallback.targetId;
     items.add(
       FavoriteItem(
         favid: favid,
         title: title,
         url: url,
         timeRaw: cleanText(li.querySelector('span.xg1')?.text),
-        tid: ChhUrls.tidFromUrl(url),
-        fid: ChhUrls.fidFromUrl(url),
+        type: type,
+        targetId: targetId,
+        tid: type == FavoriteType.thread ? targetId : null,
+        fid: type == FavoriteType.forum ? targetId : null,
         portalKind: url.contains('article-') || url.contains('aid=')
             ? PortalItemKind.article
             : PortalItemKind.thread,

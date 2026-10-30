@@ -12,6 +12,7 @@ import 'package:html/dom.dart' as dom;
 import '../core/chh_urls.dart';
 import '../core/link_target.dart';
 import '../models/models.dart';
+import 'dom_utils.dart';
 
 const _skipTags = {'script', 'style', 'svg', 'button'};
 const _skipClasses = {
@@ -170,6 +171,14 @@ class _BlockWalker {
     // 页面上隐藏的内容一律不进正文
     if (_isHidden(node)) return;
 
+    if (tag == 'div' && node.classes.contains('locked')) {
+      _flush();
+      final text = cleanLockedText(node);
+      if (text.isNotEmpty) {
+        out.add(QuoteBlock([TextBlock(text)], isNotice: true));
+      }
+      return;
+    }
     if (tag == 'img') return _walkImage(node);
     if (_isQuote(node)) return _walkQuote(node, tag);
     if (tag == 'a' && !insideQuote && _walkAnchor(node)) return;

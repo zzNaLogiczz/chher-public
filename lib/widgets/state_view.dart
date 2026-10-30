@@ -40,13 +40,23 @@ class StateView extends StatelessWidget {
       StateView(icon: AppIcons.inbox, message: message);
 
   /// 站点消息页按语义分流为不同状态(PAGE_SPEC §二.3)
-  static Widget forMessage(PageMessage m, {VoidCallback? onLogin}) {
+  static Widget forMessage(
+    PageMessage m, {
+    VoidCallback? onLogin,
+    VoidCallback? onPassword,
+  }) {
     return switch (m.kind) {
       PageMessageKind.loginRequired => StateView(
         icon: AppIcons.lock,
         message: '需登录',
         actionLabel: '登录',
         onAction: onLogin,
+      ),
+      PageMessageKind.forumPassword => StateView(
+        icon: AppIcons.lock,
+        message: '本版块需要密码',
+        actionLabel: '输入密码',
+        onAction: onPassword,
       ),
       PageMessageKind.permissionDenied => const StateView(
         icon: AppIcons.forbidden,
@@ -64,10 +74,13 @@ class StateView extends StatelessWidget {
   }
 
   static Widget error(Object e, {VoidCallback? onRetry}) {
-    final blocked = e is ChhAllBlockedError;
+    final networkFailure = e is ChhAllBlockedError;
+    final blocked = networkFailure && !e.isConnectionFailure;
     return StateView(
       icon: blocked ? AppIcons.verified : AppIcons.warning,
-      message: blocked ? '网络被拦截,请稍后重试' : '加载失败',
+      message: networkFailure
+          ? (blocked ? '网络被拦截，请稍后重试' : '无法连接论坛，请稍后重试')
+          : '加载失败',
       actionLabel: onRetry == null ? null : '重试',
       onAction: onRetry,
     );

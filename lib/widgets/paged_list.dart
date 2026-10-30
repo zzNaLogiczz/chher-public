@@ -12,6 +12,7 @@ import '../models/models.dart';
 import 'browse_controls.dart';
 import 'expressive_controls.dart';
 import 'state_view.dart';
+import 'password_sheet.dart';
 
 /// 加载一页。实现方负责把各自的响应类型适配成 `Paged<T>`。
 typedef PageLoader<T> = Future<Paged<T>> Function(int page, {bool refresh});
@@ -29,6 +30,7 @@ class PagedList<T> extends StatefulWidget {
   /// 列表顶部附加内容,例如门户头图或筛选条
   final Widget? header;
   final String emptyMessage;
+  final Future<bool> Function(int fid)? onPassword;
   final EdgeInsetsGeometry padding;
 
   const PagedList({
@@ -38,6 +40,7 @@ class PagedList<T> extends StatefulWidget {
     this.groupBuilder,
     this.header,
     this.emptyMessage = '这里还没有内容',
+    this.onPassword,
     this.padding = const EdgeInsets.fromLTRB(
       AppSpace.screen,
       0,
@@ -60,6 +63,21 @@ class PagedListState<T> extends State<PagedList<T>> {
   int? _failedPage;
   bool _firstLoadDone = false;
   int _contentRevision = 0;
+  bool _unlocking = false;
+
+  Future<void> _unlock(PageMessage message) async {
+    final fid = message.fid;
+    if (_unlocking || fid == null) return;
+    _unlocking = true;
+    try {
+      final success =
+          await (widget.onPassword?.call(fid) ??
+              showForumPasswordUnlock(context, fid));
+      if (mounted && success) await refresh();
+    } finally {
+      _unlocking = false;
+    }
+  }
 
   @override
   void initState() {
@@ -140,6 +158,7 @@ class PagedListState<T> extends State<PagedList<T>> {
                 } else if (err is PageMessage) {
                   state = StateView.forMessage(
                     err,
+                    onPassword: () => _unlock(err),
                     onLogin: () async {
                       await Navigator.of(context).pushNamed('/login');
                       if (mounted) await refresh();

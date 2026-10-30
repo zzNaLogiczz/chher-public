@@ -1,4 +1,4 @@
-/// 其余读页面:标签页、版块分类、积分 / 用户组 / 权限、勋章、设置只读
+/// 其余读页面:标签页、版块分类、积分 / 用户组 / 权限、勋章
 ///
 /// 这些页面结构各自独立,但都只做只读展示,所以集中在一个解析器里,
 /// 共用 dom_utils 的表格与分页工具。
@@ -135,56 +135,4 @@ List<MedalItem> parseMedals(String html) {
     );
   }
   return out;
-}
-
-/// 设置页只读展示:按控件实际存在性生成,不能因为 Discuz 有某字段就补造
-///
-/// select 读 selected,checkbox 读 checked,两者不能只读 value。
-SettingsForm parseSettingsForm(String html) {
-  final doc = html_parser.parse(html);
-  throwIfMessagePage(doc);
-
-  final title = cleanText(doc.querySelector('#ct h1, .ptm h1, h1.mt')?.text);
-  final fields = <SettingField>[];
-  final root = doc.querySelector('#profilelist') ?? doc.querySelector('#ct');
-  if (root == null) return SettingsForm(title: title, fields: fields);
-
-  for (final row in root.querySelectorAll('tr, li, .rfm')) {
-    final label = cleanText(
-      row.querySelector('th, em, label')?.text,
-    ).replaceAll(':', '');
-
-    for (final sel in row.querySelectorAll('select')) {
-      final name = sel.attributes['name'] ?? '';
-      if (name.isEmpty) continue;
-      final options = sel.querySelectorAll('option');
-      final selected = options
-          .where((o) => o.attributes.containsKey('selected'))
-          .firstOrNull;
-      fields.add(
-        SettingField(
-          name: name,
-          label: label.isEmpty ? name : label,
-          value: cleanText(selected?.text),
-          options: options.map((o) => cleanText(o.text)).toList(),
-        ),
-      );
-    }
-
-    for (final input in row.querySelectorAll('input')) {
-      final name = input.attributes['name'] ?? '';
-      final type = input.attributes['type'] ?? 'text';
-      if (name.isEmpty || type == 'hidden' || type == 'submit') continue;
-      fields.add(
-        SettingField(
-          name: name,
-          label: label.isEmpty ? name : label,
-          value: input.attributes['value'],
-          checked: input.attributes.containsKey('checked'),
-        ),
-      );
-    }
-  }
-
-  return SettingsForm(title: title.isEmpty ? '设置' : title, fields: fields);
 }

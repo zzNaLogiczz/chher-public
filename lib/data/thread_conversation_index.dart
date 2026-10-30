@@ -103,7 +103,7 @@ class ThreadConversationIndex {
       var quoteCount = 0;
       // Nested quotations are historical context, not another direct reply.
       for (final block in post.content) {
-        if (block is! QuoteBlock) continue;
+        if (block is! QuoteBlock || block.isNotice) continue;
         quoteCount++;
         quotation = block;
         if (quoteCount > 1) break;

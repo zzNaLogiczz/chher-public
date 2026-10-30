@@ -44,13 +44,13 @@ class ChhResponse {
   }
 
   /// CHH WAF 拦截页特征:自定义 567 状态码,或拦截页里的 remote_addr / .a1{ 样式
-  bool get isBlocked =>
+  bool get hasWafFeatures =>
       status == 567 ||
-      status <= 0 ||
-      body.isEmpty ||
       body.contains('remote_addr') ||
       body.contains('Invalid Request') ||
       body.contains('.a1{margin:0');
+
+  bool get isBlocked => status <= 0 || body.isEmpty || hasWafFeatures;
 }
 
 abstract class ChhFetcher {
@@ -94,8 +94,9 @@ class UploadFile {
 
 class ChhAllBlockedError implements Exception {
   final String url;
-  ChhAllBlockedError(this.url);
+  final bool isConnectionFailure;
+  ChhAllBlockedError(this.url, {this.isConnectionFailure = false});
 
   @override
-  String toString() => '所有获取器均被拦/失败: $url';
+  String toString() => '${isConnectionFailure ? '无法连接论坛' : '所有获取器均被拦'}: $url';
 }

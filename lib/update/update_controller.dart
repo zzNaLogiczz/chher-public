@@ -33,20 +33,26 @@ final UpdateController appUpdater = UpdateController();
 class UpdateController extends ChangeNotifier {
   final UpdatePlatform _platform;
   final UpdateClient _client;
+  final List<String> _injectedEndpoints;
   final List<String> _builtInEndpoints;
+  final bool _isRelease;
   final DateTime Function() _now;
   final UpdateStore Function(AppIdentity identity) _storeFor;
 
   UpdateController({
     UpdatePlatform? platform,
     UpdateClient? client,
+    List<String>? injectedEndpoints,
     List<String>? builtInEndpoints,
+    bool isRelease = kReleaseMode,
     DateTime Function()? now,
     UpdateStore Function(AppIdentity identity)? storeFor,
   }) : this._(
          platform ?? ChannelUpdatePlatform(),
          client,
+         injectedEndpoints,
          builtInEndpoints,
+         isRelease,
          now,
          storeFor,
        );
@@ -54,12 +60,16 @@ class UpdateController extends ChangeNotifier {
   UpdateController._(
     UpdatePlatform platform,
     UpdateClient? client,
+    List<String>? injectedEndpoints,
     List<String>? builtInEndpoints,
+    bool isRelease,
     DateTime Function()? now,
     UpdateStore Function(AppIdentity identity)? storeFor,
   ) : _platform = platform,
       _client = client ?? UpdateClient(platform: platform),
+      _injectedEndpoints = injectedEndpoints ?? injectedUpdateEndpoints,
       _builtInEndpoints = builtInEndpoints ?? builtInUpdateEndpoints,
+      _isRelease = isRelease,
       _now = now ?? DateTime.now,
       _storeFor = storeFor ?? ((id) => UpdateStore.inDirectory(id.filesDir));
 
@@ -81,7 +91,7 @@ class UpdateController extends ChangeNotifier {
   String? _justUpdatedFrom;
 
   /// 拿不到本机信息(非 Android、通道未注册)时整个功能静默停用
-  bool get available => identity != null && _loaded;
+  bool get available => identity != null && _loaded && endpoints.isNotEmpty;
   bool _loaded = false;
 
   /// 已知有比当前更新的版本:本次检查拿到的,或上次检查记下、还没装上的
@@ -123,12 +133,24 @@ class UpdateController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 服务器下发的地址优先,内置地址兜底;刚应答过的地址排最前
-  List<String> get endpoints => normalizeEndpoints([
-    ?_respondingEndpoint,
-    if (available) ..._state.endpoints,
-    ..._builtInEndpoints,
-  ]);
+  ({bool isOfficial, List<String> endpoints}) get _channel =>
+      resolveUpdateChannel(
+        packageName: identity?.packageName,
+        isRelease: _isRelease,
+        injectedEndpoints: _injectedEndpoints,
+        storedEndpoints: _loaded ? _state.endpoints : const [],
+        builtInEndpoints: _builtInEndpoints,
+      );
+
+  /// 包名与存储就绪后才开放地址;正式通道仍优先使用刚应答的地址
+  List<String> get endpoints {
+    if (!_loaded) return const [];
+    final channel = _channel;
+    return normalizeEndpoints([
+      if (channel.isOfficial) ?_respondingEndpoint,
+      ...channel.endpoints,
+    ]);
+  }
 
   bool get busy => const {
     UpdatePhase.checking,
@@ -212,6 +234,7 @@ class UpdateController extends ChangeNotifier {
 
   /// 只接受比已保存的更新的地址下发,旧响应被重放也不会把地址改回去
   void _applyServerConfig(UpdateCheck check) {
+    if (!_channel.isOfficial) return;
     final config = check.config;
     if (config.endpoints.isEmpty ||
         check.issuedAt <= _state.endpointsIssuedAt) {
@@ -227,6 +250,11 @@ class UpdateController extends ChangeNotifier {
   /// 下载并在完成后直接进入安装
   Future<void> download() async {
     await _ready;
+    if (!available) {
+      failure = UpdateFailure.notConfigured;
+      _set(UpdatePhase.failed);
+      return;
+    }
     final target = release;
     if (target == null || busy) return;
     _cancel = CancelToken();

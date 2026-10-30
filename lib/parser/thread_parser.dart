@@ -29,6 +29,7 @@ ThreadDetail parseThread(
   int fallbackPage = 1,
 }) {
   final doc = html_parser.parse(html);
+  throwIfMessagePage(doc);
 
   final title =
       (doc.getElementById('thread_subject')?.text.trim().isNotEmpty ?? false)
@@ -75,6 +76,7 @@ ThreadDetail parseThread(
     final floor = floorIsKnown ? parsedFloor : posts.length + 1;
 
     final message = table.querySelector('td[id^="postmessage_"]');
+    final locked = message == null ? table.querySelector('.pct .locked') : null;
 
     posts.add(
       Post(
@@ -89,6 +91,13 @@ ThreadDetail parseThread(
         content: message == null
             ? const []
             : parseContentBlocks(message, threadId: tid),
+        lock: locked == null
+            ? null
+            : PostLock(
+                text: cleanLockedText(locked),
+                needsPassword:
+                    locked.querySelector('input[id^="postpw_"]') != null,
+              ),
         notes: _notesIn(message),
         // 评分与点评挂在楼层容器上,不在正文单元格里
         rating: _ratingOf(doc, pid),
@@ -99,6 +108,9 @@ ThreadDetail parseThread(
 
   return ThreadDetail(
     tid: tid,
+    cookiePrefix: RegExp(
+      r"cookiepre\s*=\s*'([^']*)'",
+    ).firstMatch(html)?.group(1),
     fid: _forumId(doc, tid),
     forumName: _forumName(doc),
     title: title,

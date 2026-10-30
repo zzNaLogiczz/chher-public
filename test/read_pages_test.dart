@@ -337,7 +337,7 @@ void main() {
     });
   });
 
-  group('表格与设置', () {
+  group('表格与勋章', () {
     test('表格按实际表头取列,不固定列序', () {
       final table = parseSiteTable(
         _page('''
@@ -348,26 +348,6 @@ void main() {
       );
       expect(table.headers, ['操作', '积分变更', '变更时间']);
       expect(table.rows.single[1], '威望 +2');
-    });
-
-    test('设置项区分 select 当前值与 checkbox 勾选态', () {
-      final form = parseSettingsForm(
-        _page('''
-<div id="profilelist"><table>
-  <tr><th>时区</th><td>
-    <select name="timeoffset">
-      <option value="9999">系统默认</option>
-      <option value="8" selected>UTC+8</option>
-    </select></td></tr>
-  <tr><th>接受好友请求</th><td>
-    <input type="checkbox" name="allowasfriend" checked></td></tr>
-</table></div>'''),
-      );
-      final tz = form.fields.firstWhere((f) => f.name == 'timeoffset');
-      expect(tz.value, 'UTC+8');
-      expect(tz.options.length, 2);
-      final friend = form.fields.firstWhere((f) => f.name == 'allowasfriend');
-      expect(friend.checked, isTrue);
     });
 
     test('勋章排除 _menu 节点,避免重复计数', () {

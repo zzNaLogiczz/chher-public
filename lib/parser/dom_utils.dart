@@ -24,6 +24,19 @@ String textWithout(dom.Element? el, List<String> dropSelectors) {
   return cleanText(clone.text);
 }
 
+/// 锁定提示只留站点文案，不把表单操作混进正文。
+String cleanLockedText(dom.Element locked) =>
+    textWithout(locked, [
+          'input',
+          'button',
+          'select',
+          'textarea',
+          'script',
+          'style',
+        ])
+        .replaceFirst(RegExp(r'^提示\s*[:：]\s*'), '')
+        .replaceAllMapped(RegExp(r'\s+([，。！？；：、])'), (match) => match[1]!);
+
 /// 标准分页器:div.pg 里 strong 是当前页,a.nxt 是下一页
 ///
 /// 个人帖子页实测可能只有「下一页」而没有 strong,所以当前页允许回退到 [fallbackPage]。
@@ -94,6 +107,19 @@ SiteTable parseTable(dom.Element? table) {
 /// 标题含「提示信息」或存在 #messagetext 只说明这是消息页,不能直接判为掉线。
 /// 必须结合正文与 #messagelogin 分类(PAGE_SPEC §二.3)。
 PageMessage? detectPageMessage(dom.Document doc) {
+  final passwordForm = doc.querySelector('form[action*="action=pwverify"]');
+  if (passwordForm != null) {
+    final action = Uri.tryParse(passwordForm.attributes['action'] ?? '');
+    return PageMessage(
+      PageMessageKind.forumPassword,
+      cleanText(
+        passwordForm.parent?.parent?.querySelector('h3')?.text ??
+            doc.querySelector('#ct h3')?.text ??
+            '本版块需要密码',
+      ),
+      fid: int.tryParse(action?.queryParameters['fid'] ?? ''),
+    );
+  }
   final box = doc.querySelector('#messagetext');
   final title = cleanText(doc.querySelector('title')?.text);
   if (box == null && !title.contains('提示信息')) return null;

@@ -7,8 +7,6 @@ import 'package:chh_app/pages/settings_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'support/space_fixtures.dart';
-
 void main() {
   late Directory dir;
   late ImageDiskCache original;
@@ -41,7 +39,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: buildAppTheme(Brightness.light),
-        home: SettingsPage(repository: FixtureSpace()),
+        home: const SettingsPage(),
       ),
     );
     // totalBytes 走真实文件 IO,需放到真实异步里等它算完
@@ -64,6 +62,8 @@ void main() {
     );
     expect(find.text('1.5 KB'), findsOneWidget);
 
+    await tester.ensureVisible(row);
+    await tester.pumpAndSettle();
     await tester.tap(row);
     await tester.pumpAndSettle();
     expect(find.byType(AlertDialog), findsOneWidget);
@@ -90,6 +90,8 @@ void main() {
       200,
       scrollable: find.byType(Scrollable).last,
     );
+    await tester.ensureVisible(find.text('图片缓存'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('图片缓存'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('取消'));
@@ -109,7 +111,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: buildAppTheme(Brightness.light),
-        home: SettingsPage(repository: FixtureSpace()),
+        home: const SettingsPage(),
       ),
     );
     await tester.pumpAndSettle();
@@ -154,6 +156,8 @@ void main() {
     // 清除失败期间磁盘内容变了(模拟部分删除),重新统计必须反映出来
     cache.afterFailedClear = () => File(dir.listSync().first.path).deleteSync();
 
+    await tester.ensureVisible(find.text('图片缓存'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('图片缓存'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('清除'));

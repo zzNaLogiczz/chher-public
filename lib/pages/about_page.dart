@@ -26,13 +26,6 @@ Uri feedbackMailUri() => Uri(
   query: 'subject=${Uri.encodeComponent('Chher 反馈（${AppInfo.version}）')}',
 );
 
-/// 构建时间 yyyyMMddHHmm 排成 yyyy-MM-dd HH:mm;不是这个形态就原样显示
-String buildTimeLabel(String stamp) {
-  final m = RegExp(r'^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})$').firstMatch(stamp);
-  if (m == null) return stamp;
-  return '${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}';
-}
-
 class AboutPage extends StatelessWidget {
   const AboutPage({super.key});
 
@@ -98,11 +91,6 @@ class AboutPage extends StatelessWidget {
                   const SizedBox(width: 6),
                   const UpdateCheckLink(),
                 ],
-              ),
-              Text(
-                '构建于 ${buildTimeLabel(AppInfo.buildStamp)}',
-                textAlign: TextAlign.center,
-                style: AppType.caption.copyWith(color: t.text3),
               ),
               const SizedBox(height: 28),
               GroupedSection(

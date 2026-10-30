@@ -1,4 +1,4 @@
-/// 个人中心域读操作:资料、我的帖子、收藏、积分、权限、勋章、设置
+/// 个人中心域读操作:资料、我的帖子、收藏、积分、权限、勋章
 library;
 
 import '../core/chh_urls.dart';
@@ -79,20 +79,6 @@ class SpaceRepository {
   }) async {
     return parseMedals(
       await client.getHtml(ChhUrls.medal(mine: mine), refresh: refresh),
-    );
-  }
-
-  /// 设置页只读展示。写操作不在本期范围,所以只解析控件与当前值。
-  Future<SettingsForm> settings({
-    String ac = 'profile',
-    String? op,
-    bool refresh = false,
-  }) async {
-    return parseSettingsForm(
-      await client.getHtml(
-        ChhUrls.spacecp(ac: ac, op: op),
-        refresh: refresh,
-      ),
     );
   }
 }

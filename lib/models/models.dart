@@ -183,7 +183,22 @@ class QuoteBlock extends ContentBlock {
   final List<ContentBlock> children;
   final PostReference? reference;
 
-  const QuoteBlock(this.children, {this.source, this.reference});
+  /// 站点拦截提示复用引用样式，但不能参与回复关联或随引文折叠。
+  final bool isNotice;
+
+  const QuoteBlock(
+    this.children, {
+    this.source,
+    this.reference,
+    this.isNotice = false,
+  });
+}
+
+class PostLock {
+  final String text;
+  final bool needsPassword;
+
+  const PostLock({required this.text, required this.needsPassword});
 }
 
 class Post {
@@ -198,6 +213,7 @@ class Post {
   final String timeRaw;
   final DateTime? time;
   final List<ContentBlock> content;
+  final PostLock? lock;
 
   /// 编辑说明与补充内容,从正文里摘出来单独展示
   final List<PostNote> notes;
@@ -218,6 +234,7 @@ class Post {
     required this.timeRaw,
     this.time,
     required this.content,
+    this.lock,
     this.notes = const [],
     this.rating,
     this.comments = const [],
@@ -226,6 +243,7 @@ class Post {
 
 class ThreadDetail {
   final int tid;
+  final String? cookiePrefix;
 
   /// 详情页自己的回复表单或面包屑给出的所属版块。
   /// 门户、搜索、提醒等入口未必提前知道 fid。
@@ -239,6 +257,7 @@ class ThreadDetail {
 
   const ThreadDetail({
     required this.tid,
+    this.cookiePrefix,
     this.fid,
     this.forumName,
     required this.title,
@@ -254,6 +273,7 @@ class ThreadDetail {
 /// 标题含「提示信息」或存在 #messagetext 只能判定为消息页,不能直接判为掉线,
 /// 必须结合正文与 #messagelogin 分流。
 enum PageMessageKind {
+  forumPassword,
   loginRequired,
   permissionDenied,
   featureUnavailable,
@@ -264,7 +284,9 @@ class PageMessage implements Exception {
   final PageMessageKind kind;
   final String text;
 
-  const PageMessage(this.kind, this.text);
+  final int? fid;
+
+  const PageMessage(this.kind, this.text, {this.fid});
 
   bool get isLoginWall => kind == PageMessageKind.loginRequired;
 
@@ -355,6 +377,19 @@ class UserProfile {
   final String uid;
   final String name;
   final String? avatarUrl;
+  final String? group;
+  final int? groupId;
+  final int? nextLevelCredits;
+  final int? onlineHours;
+  final int? credits;
+  final int? evil;
+  final int? threads;
+  final int? replies;
+  final int? friends;
+  final String? registeredAt;
+  final String? lastVisitAt;
+  final String? lastPostAt;
+  final int? portalArticles;
 
   /// 资料区的键值对,按页面实际字段保留,不补造
   final Map<String, String> profile;
@@ -366,6 +401,19 @@ class UserProfile {
     required this.uid,
     required this.name,
     this.avatarUrl,
+    this.group,
+    this.groupId,
+    this.nextLevelCredits,
+    this.onlineHours,
+    this.credits,
+    this.evil,
+    this.threads,
+    this.replies,
+    this.friends,
+    this.registeredAt,
+    this.lastVisitAt,
+    this.lastPostAt,
+    this.portalArticles,
     this.profile = const {},
     this.stats = const {},
   });
@@ -467,7 +515,38 @@ class FavoriteItem {
   final String url;
   final String? timeRaw;
 
-  /// 按目标 URL 判定的对象类型
+  final FavoriteType? _type;
+  final int? _targetId;
+
+  /// 兼容旧条目,缺少类型元数据时按目标 URL 判断。
+  FavoriteType get type =>
+      _type ??
+      (fid != null || url.contains('forum-') || url.contains('fid=')
+          ? FavoriteType.forum
+          : url.contains('article-') || url.contains('aid=')
+          ? FavoriteType.article
+          : FavoriteType.thread);
+
+  int? get targetId =>
+      _targetId ??
+      (type == FavoriteType.thread
+          ? tid
+          : type == FavoriteType.forum
+          ? fid
+          : null) ??
+      int.tryParse(
+        (switch (type) {
+                  FavoriteType.thread => RegExp(r'thread-(\d+)-|[?&]tid=(\d+)'),
+                  FavoriteType.forum => RegExp(r'forum-(\d+)-|[?&]fid=(\d+)'),
+                  _ => RegExp(r'article-(\d+)-|[?&]aid=(\d+)'),
+                })
+                .firstMatch(url)
+                ?.groups([1, 2])
+                .whereType<String>()
+                .firstOrNull ??
+            '',
+      );
+
   final PortalItemKind? portalKind;
   final int? tid;
   final int? fid;
@@ -480,7 +559,13 @@ class FavoriteItem {
     this.portalKind,
     this.tid,
     this.fid,
-  });
+    FavoriteType? type,
+    int? targetId,
+    // 公开参数名需与私有存储分开,保留旧条目的 URL 回退。
+    // ignore: prefer_initializing_formals
+  }) : _type = type,
+       // ignore: prefer_initializing_formals
+       _targetId = targetId;
 }
 
 // ---------- 我的帖子 ----------
@@ -567,33 +652,6 @@ class MedalItem {
     this.description,
     this.imageUrl,
   });
-}
-
-// ---------- 设置(只读展示) ----------
-
-class SettingField {
-  final String name;
-  final String label;
-
-  /// 当前值:select 读 selected,checkbox 读 checked
-  final String? value;
-  final List<String> options;
-  final bool checked;
-
-  const SettingField({
-    required this.name,
-    required this.label,
-    this.value,
-    this.options = const [],
-    this.checked = false,
-  });
-}
-
-class SettingsForm {
-  final String title;
-  final List<SettingField> fields;
-
-  const SettingsForm({required this.title, required this.fields});
 }
 
 // ---------- 写操作:发帖与回帖 ----------

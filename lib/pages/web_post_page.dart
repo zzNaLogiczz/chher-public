@@ -22,6 +22,7 @@ import '../models/models.dart';
 import '../parser/post_form_parser.dart';
 import '../ui/app_button.dart';
 import '../widgets/state_view.dart';
+import '../network/webview_trust.dart';
 
 /// 结果需要验证时转到真实页面完成;否则原样返回
 Future<PostResult> completeOnWeb(
@@ -233,6 +234,8 @@ class _WebPostPageState extends State<WebPostPage> {
                 incognito: false,
                 preferredContentMode: UserPreferredContentMode.MOBILE,
               ),
+              onReceivedServerTrustAuthRequest: (_, challenge) =>
+                  handleServerTrustChallenge(challenge),
               onWebViewCreated: (c) => _controller = c,
               onLoadStop: _onLoaded,
               onConsoleMessage: (_, message) {

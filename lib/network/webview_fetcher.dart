@@ -9,13 +9,44 @@ import 'dart:async';
 
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
+import '../core/app_log.dart';
 import 'chh_fetcher.dart';
+import 'serial_queue.dart';
+import 'webview_trust.dart';
 
 class WebViewFetcher implements ChhFetcher {
   HeadlessInAppWebView? _headless;
   InAppWebViewController? _controller;
   Completer<void>? _loadCompleter;
   bool _disposed = false;
+  final _queue = SerialQueue();
+  String? _lastError;
+  ChhResponse? _lastBlockedResponse;
+  bool _navigationFailed = false;
+
+  void _recordError(String reason) {
+    _lastError = AppLog.failureReason(reason);
+    AppLog.w('WEBVIEW', _lastError!);
+  }
+
+  /// 原因只属于当前队列任务，不能把上一次加载的失败带给下一次。
+  Future<ChhResponse> _enqueue(Future<ChhResponse> Function() task) =>
+      _queue.run(() async {
+        _lastError = null;
+        _lastBlockedResponse = null;
+        _navigationFailed = false;
+        try {
+          return await task();
+        } finally {
+          _loadCompleter = null;
+        }
+      });
+
+  ChhResponse _failedResponse() => ChhResponse(
+    _lastBlockedResponse?.status ?? -1,
+    _lastBlockedResponse?.body ?? '',
+    error: _lastError ?? '未能加载页面',
+  );
 
   @override
   String get name => 'webview';
@@ -43,6 +74,22 @@ class WebViewFetcher implements ChhFetcher {
         final c = _loadCompleter;
         if (c != null && !c.isCompleted) c.complete();
       },
+      onReceivedError: (_, request, error) {
+        if (request.isForMainFrame == false) return;
+        _navigationFailed = true;
+        _recordError('${error.type}: ${error.description}');
+        final c = _loadCompleter;
+        if (c != null && !c.isCompleted) c.complete();
+      },
+      onReceivedHttpError: (_, request, response) {
+        if (request.isForMainFrame == false) return;
+        _recordError('HTTP ${response.statusCode}');
+        if (response.statusCode == 567) {
+          _lastBlockedResponse = const ChhResponse(567, '');
+        }
+      },
+      onReceivedServerTrustAuthRequest: (_, challenge) =>
+          handleServerTrustChallenge(challenge, onResult: _recordError),
     );
     _headless = headless;
     await headless.run();
@@ -50,17 +97,23 @@ class WebViewFetcher implements ChhFetcher {
   }
 
   @override
-  Future<ChhResponse> getHtml(Uri url, {Map<String, String>? headers}) async {
+  Future<ChhResponse> getHtml(Uri url, {Map<String, String>? headers}) =>
+      _enqueue(() => _getHtml(url));
+
+  Future<ChhResponse> _getHtml(Uri url) async {
     final controller = await _ensure();
 
     for (var attempt = 0; attempt < 2; attempt++) {
+      _navigationFailed = false;
       _loadCompleter = Completer<void>();
       await controller.loadUrl(urlRequest: URLRequest(url: WebUri.uri(url)));
       try {
         await _loadCompleter!.future.timeout(const Duration(seconds: 30));
       } on TimeoutException {
+        _recordError('页面加载超时');
         continue;
       }
+      if (_navigationFailed) return _failedResponse();
 
       // WAF 质询页(标题"Loading …"/"请求已被拦截")会自动跳转,轮询等待稳定
       for (var i = 0; i < 6; i++) {
@@ -69,21 +122,23 @@ class WebViewFetcher implements ChhFetcher {
               source: 'document.title',
             ))?.toString() ??
             '';
+        final html =
+            (await controller.evaluateJavascript(
+              source: 'document.documentElement.outerHTML',
+            ))?.toString() ??
+            '';
+        final resp = ChhResponse(200, html);
+        // 质询标题本身不够判定拦截，仍须保留页面里的 WAF 特征。
+        if (resp.hasWafFeatures) _lastBlockedResponse = resp;
         if (title.isNotEmpty &&
             !title.toLowerCase().contains('loading') &&
             !title.contains('拦截')) {
-          final html =
-              (await controller.evaluateJavascript(
-                source: 'document.documentElement.outerHTML',
-              ))?.toString() ??
-              '';
-          final resp = ChhResponse(200, html);
           if (!resp.isBlocked) return resp;
         }
         await Future<void>.delayed(const Duration(milliseconds: 1500));
       }
     }
-    return const ChhResponse(-1, '');
+    return _failedResponse();
   }
 
   /// 把隐藏 WebView 的文档落到目标站点域上
@@ -106,6 +161,7 @@ class WebViewFetcher implements ChhFetcher {
     try {
       await _loadCompleter!.future.timeout(const Duration(seconds: 30));
     } on TimeoutException {
+      _recordError('页面加载超时');
       // 落不到站点域就让 fetch 自己报错,错误原因会带回调用方
     }
   }
@@ -121,9 +177,13 @@ class WebViewFetcher implements ChhFetcher {
   }
 
   @override
-  Future<ChhResponse> postForm(Uri url, Map<String, String> form) async {
+  Future<ChhResponse> postForm(Uri url, Map<String, String> form) =>
+      _enqueue(() => _postForm(url, form));
+
+  Future<ChhResponse> _postForm(Uri url, Map<String, String> form) async {
     final controller = await _ensure();
     await _ensureOrigin(controller, url);
+    if (_navigationFailed) return _failedResponse();
 
     // 用真表单提交到隐藏 iframe,而不是 fetch
     //
@@ -184,15 +244,14 @@ class WebViewFetcher implements ChhFetcher {
       if (text.isNotEmpty) {
         return ChhResponse((value['status'] as num?)?.toInt() ?? 200, text);
       }
-      return const ChhResponse(-1, '', error: '提交后没有读到响应文档');
+      _lastError ??= '提交后没有读到响应文档';
+      return _failedResponse();
     }
     // 引擎内异常要把原文带回去,不能吞成空响应
     final err = result?.error;
-    return ChhResponse(
-      -1,
-      '',
-      error: (err == null || err.isEmpty) ? '引擎未返回响应' : err,
-    );
+    if (err != null && err.isNotEmpty) _recordError(err);
+    _lastError ??= '引擎未返回响应';
+    return _failedResponse();
   }
 
   @override

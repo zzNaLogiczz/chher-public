@@ -167,20 +167,25 @@ internal class ImageBridge(
                 // 交给 BitmapFactory 再试一次
             }
         }
-        return try {
-            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-            var sample = 1
-            while (max(bounds.outWidth, bounds.outHeight) / (sample * 2) >= MAX_SIDE) sample *= 2
-            val options = BitmapFactory.Options().apply {
-                inSampleSize = sample
-                inPreferredConfig = Bitmap.Config.ARGB_8888
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        var sample = 1
+        while (max(bounds.outWidth, bounds.outHeight) / (sample * 2) >= MAX_SIDE) sample *= 2
+        // Android 8 之前位图像素占 Java 堆，相机原图按原尺寸解码会超出单应用堆上限；
+        // 内存不足时加大采样再试，宁可分辨率降一档也不让选图失败
+        repeat(OOM_RETRIES) {
+            try {
+                val options = BitmapFactory.Options().apply {
+                    inSampleSize = sample
+                    inPreferredConfig = Bitmap.Config.ARGB_8888
+                }
+                val decoded = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options) ?: return null
+                return upright(decoded, bytes)
+            } catch (_: OutOfMemoryError) {
+                sample *= 2
             }
-            val decoded = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options) ?: return null
-            upright(decoded, bytes)
-        } catch (_: OutOfMemoryError) {
-            null
         }
+        return null
     }
 
     /** BitmapFactory 不处理 EXIF 方向，这里按标签旋转或翻转 */
@@ -294,6 +299,7 @@ internal class ImageBridge(
     companion object {
         private const val REQUEST_PICK = 0x4348
         private const val MAX_SIDE = 4096
+        private const val OOM_RETRIES = 3
 
         /** 按文件头识别格式，不看扩展名 */
         fun sniff(bytes: ByteArray): String {

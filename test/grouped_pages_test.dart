@@ -15,12 +15,20 @@ import 'support/space_fixtures.dart';
 Widget app(Widget home) =>
     MaterialApp(theme: buildAppTheme(Brightness.light), home: home);
 
-class _ManyStats extends FixtureSpace {
-  final Map<String, String> stats;
-  _ManyStats(this.stats);
+class _ProfileStats extends FixtureSpace {
+  final int? onlineHours;
+  final int? credits;
+  final int? evil;
+  _ProfileStats({this.onlineHours, this.credits, this.evil});
   @override
   Future<UserProfile> profile(String uid, {bool refresh = false}) async =>
-      UserProfile(uid: uid, name: '装机爱好者', stats: stats, profile: const {});
+      UserProfile(
+        uid: uid,
+        name: '装机爱好者',
+        onlineHours: onlineHours,
+        credits: credits,
+        evil: evil,
+      );
 }
 
 class _SignedCredits extends FixtureSpace {
@@ -61,46 +69,108 @@ void main() {
     expect(tester.widget<GroupedRow>(row).leading, isNull);
   });
 
-  testWidgets('user stats show at most three columns, the rest as rows', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      app(
-        UserPage(
-          uid: '42',
-          repository: _ManyStats(const {
-            '主题': '128',
-            '回复': '3600',
-            '积分': '900',
-            '金钱': '12',
-            '威望': '3',
-          }),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    final bar = find.byKey(UserPage.statsKey);
-    expect(bar, findsOneWidget);
-    for (final value in ['128', '3600', '900']) {
-      expect(
-        find.descendant(of: bar, matching: find.text(value)),
-        findsOneWidget,
+  testWidgets(
+    'user statistics share one neutral surface with three equal columns',
+    (tester) async {
+      await tester.pumpWidget(
+        app(UserPage(uid: '42', repository: FixtureSpace())),
       );
-    }
-    expect(find.descendant(of: bar, matching: find.text('12')), findsNothing);
-    expect(find.widgetWithText(GroupedRow, '金钱'), findsOneWidget);
-    expect(find.widgetWithText(GroupedRow, '威望'), findsOneWidget);
-  });
+      await tester.pumpAndSettle();
+      final cards = find.byKey(UserPage.statsKey);
+      expect(cards, findsOneWidget);
+      final online = find.descendant(of: cards, matching: find.text('在线时长'));
+      final credits = find.descendant(of: cards, matching: find.text('积分'));
+      final evil = find.descendant(of: cards, matching: find.text('邪恶指数'));
+      expect(credits, findsOneWidget);
+      expect(evil, findsOneWidget);
+      expect(tester.getTopLeft(credits).dy, tester.getTopLeft(evil).dy);
+      final surfaces = find.descendant(
+        of: cards,
+        matching: find.byWidgetPredicate(
+          (widget) =>
+              widget is DecoratedBox && widget.decoration is ShapeDecoration,
+        ),
+      );
+      expect(surfaces, findsOneWidget);
+      expect(tester.getTopLeft(online).dy, tester.getTopLeft(credits).dy);
+      final columns = find.descendant(
+        of: cards,
+        matching: find.byType(Expanded),
+      );
+      expect(columns, findsNWidgets(3));
+      for (var i = 1; i < 3; i++) {
+        expect(tester.getSize(columns.at(i)), tester.getSize(columns.first));
+      }
+      expect(
+        find.descendant(of: cards, matching: find.byType(VerticalDivider)),
+        findsNWidgets(2),
+      );
+      expect(find.text('差 171 积分'), findsOneWidget);
+      expect(
+        find.descendant(of: cards, matching: find.byKey(UserPage.progressKey)),
+        findsNothing,
+      );
+      expect(find.widgetWithText(GroupedRow, '金钱'), findsNothing);
+      expect(find.widgetWithText(GroupedRow, '威望'), findsNothing);
+    },
+  );
 
-  testWidgets('user page hides the stats bar when the source gives none', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      app(UserPage(uid: '42', repository: _ManyStats(const {}))),
+  for (var mask = 0; mask < 8; mask++) {
+    final onlineHours = mask & 1 != 0 ? 12 : null;
+    final credits = mask & 2 != 0 ? 900 : null;
+    final evil = mask & 4 != 0 ? 800 : null;
+    final count = [onlineHours, credits, evil].whereType<int>().length;
+    testWidgets(
+      'user statistics omit missing columns, hours=$onlineHours, credits=$credits, evil=$evil',
+      (tester) async {
+        await tester.pumpWidget(
+          app(
+            UserPage(
+              uid: '42',
+              repository: _ProfileStats(
+                onlineHours: onlineHours,
+                credits: credits,
+                evil: evil,
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(UserPage.statsKey),
+          count == 0 ? findsNothing : findsOneWidget,
+        );
+        expect(
+          find.text('在线时长'),
+          onlineHours == null ? findsNothing : findsOneWidget,
+        );
+        expect(find.text('邪恶指数'), evil == null ? findsNothing : findsOneWidget);
+        expect(
+          find.text('积分'),
+          credits == null ? findsNothing : findsOneWidget,
+        );
+        if (count > 0) {
+          final cards = find.byKey(UserPage.statsKey);
+          expect(tester.getSize(cards).width, 800 - AppSpace.groupInset * 2);
+          final columns = find.descendant(
+            of: cards,
+            matching: find.byType(Expanded),
+          );
+          expect(columns, findsNWidgets(count));
+          for (var i = 1; i < count; i++) {
+            expect(
+              tester.getSize(columns.at(i)),
+              tester.getSize(columns.first),
+            );
+          }
+          expect(
+            find.descendant(of: cards, matching: find.byType(VerticalDivider)),
+            findsNWidgets(count - 1),
+          );
+        }
+      },
     );
-    await tester.pumpAndSettle();
-    expect(find.byKey(UserPage.statsKey), findsNothing);
-  });
+  }
 
   testWidgets('credit amounts keep their sign and are colored by direction', (
     tester,

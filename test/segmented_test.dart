@@ -8,9 +8,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 const three = [
-  PickerOption(value: 0, label: '基本资料'),
-  PickerOption(value: 1, label: '论坛信息'),
-  PickerOption(value: 2, label: '隐私'),
+  PickerOption(value: 0, label: '全部主题'),
+  PickerOption(value: 1, label: '关注版块'),
+  PickerOption(value: 2, label: '收藏'),
 ];
 
 Widget app(Widget child, {double textScale = 1, bool reduced = false}) =>
@@ -64,28 +64,28 @@ void main() {
   testWidgets('thumb settles under the selected segment', (tester) async {
     final log = <int>[];
     await tester.pumpWidget(controlled(log));
-    expect(thumbCenter(tester), closeTo(labelCenter(tester, '基本资料'), 1));
-    await tester.tap(find.text('隐私'));
+    expect(thumbCenter(tester), closeTo(labelCenter(tester, '全部主题'), 1));
+    await tester.tap(find.text('收藏'));
     await tester.pumpAndSettle();
-    expect(thumbCenter(tester), closeTo(labelCenter(tester, '隐私'), 1));
+    expect(thumbCenter(tester), closeTo(labelCenter(tester, '收藏'), 1));
     expect(log, [2]);
   });
 
   testWidgets('retargeting mid-slide ends on the last tap', (tester) async {
     final log = <int>[];
     await tester.pumpWidget(controlled(log));
-    await tester.tap(find.text('论坛信息'));
+    await tester.tap(find.text('关注版块'));
     await tester.pump(const Duration(milliseconds: 60));
-    await tester.tap(find.text('隐私'));
+    await tester.tap(find.text('收藏'));
     await tester.pumpAndSettle();
-    expect(thumbCenter(tester), closeTo(labelCenter(tester, '隐私'), 1));
+    expect(thumbCenter(tester), closeTo(labelCenter(tester, '收藏'), 1));
     expect(log, [1, 2]);
   });
 
   testWidgets('tapping the selected segment does nothing', (tester) async {
     final log = <int>[];
     await tester.pumpWidget(controlled(log));
-    await tester.tap(find.text('基本资料'));
+    await tester.tap(find.text('全部主题'));
     await tester.pumpAndSettle();
     expect(log, isEmpty);
   });
@@ -102,7 +102,7 @@ void main() {
       },
     );
     await tester.pumpWidget(controlled([]));
-    await tester.tap(find.text('论坛信息'));
+    await tester.tap(find.text('关注版块'));
     await tester.pumpAndSettle();
     expect(haptics, ['HapticFeedbackType.selectionClick']);
   });
@@ -162,8 +162,8 @@ void main() {
     tester,
   ) async {
     await tester.pumpWidget(controlled([], reduced: true));
-    await tester.tap(find.text('隐私'));
+    await tester.tap(find.text('收藏'));
     await tester.pump();
-    expect(thumbCenter(tester), closeTo(labelCenter(tester, '隐私'), 1));
+    expect(thumbCenter(tester), closeTo(labelCenter(tester, '收藏'), 1));
   });
 }

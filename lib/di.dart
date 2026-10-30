@@ -17,20 +17,33 @@ import 'data/post_repository.dart';
 import 'data/space_repository.dart';
 import 'core/app_log.dart';
 import 'core/app_paths.dart';
+import 'core/appearance.dart';
 import 'core/log_store.dart';
 import 'network/chh_client.dart';
 import 'network/chh_session.dart';
 import 'data/image_disk_cache.dart';
 import 'data/thread_read_index.dart';
+import 'data/favorite_repository.dart';
+import 'data/user_group_levels.dart';
 
 final ChhClient chhClient = ChhClient.createDefault();
 final ChhSession chhSession = ChhSession(chhClient);
+final AppearanceController appearance = AppearanceController();
 
-final ForumRepository forumRepo = ForumRepository(chhClient);
+final ForumRepository forumRepo = ForumRepository(
+  chhClient,
+  session: chhSession,
+);
 final PortalRepository portalRepo = PortalRepository(chhClient);
 final MessageRepository messageRepo = MessageRepository(chhClient);
 final SpaceRepository spaceRepo = SpaceRepository(chhClient);
+final UserGroupLevels userGroupLevels = UserGroupLevels(chhClient);
 final PostRepository postRepo = PostRepository(chhClient);
+final FavoriteIndex favoriteIndex = FavoriteIndex(null);
+final FavoriteRepository favoriteRepo = FavoriteRepository(
+  chhClient,
+  favoriteIndex,
+);
 
 /// 正文站内卡片的标题与时间;全局一份,翻页、换楼层都能复用缓存
 final LinkPreviewRepository linkPreviewRepo = LinkPreviewRepository.live(
@@ -56,6 +69,55 @@ void setupDependencies() {
   unawaited(_attachImageCache());
   // 已读账本放在 filesDir(系统不得回收),同样异步解析;就绪前的标记留在内存,接线时补写
   unawaited(_attachReadIndex());
+  unawaited(_attachGroupLevels());
+  chhSession.addListener(_favoriteSessionChanged);
+  _favoriteStorage = _attachFavoriteIndex();
+  _favoriteSessionChanged();
+}
+
+Future<void> _favoriteStorage = Future<void>.value();
+int? _favoriteUid;
+bool? _favoriteStartup;
+
+Future<void> _attachFavoriteIndex() async {
+  final dir = await AppPaths.instance.subdir('favorites');
+  if (dir != null) {
+    await favoriteIndex.attach(File('${dir.path}/index-v1.json'));
+  }
+}
+
+void _favoriteSessionChanged() {
+  // uid 常由登录后的首个页头补齐,沿用 Cookie 恢复时的判定。
+  if (!chhSession.loggedIn) {
+    _favoriteStartup = null;
+  } else {
+    _favoriteStartup ??= !chhSession.initialRefreshComplete;
+  }
+  final uid = chhSession.loggedIn
+      ? int.tryParse(chhSession.badges.uid ?? '')
+      : null;
+  if (uid == _favoriteUid) return;
+  final startup = _favoriteStartup ?? false;
+  _favoriteUid = uid;
+  favoriteIndex.setUid(uid);
+  if (uid == null) return;
+  _favoriteStartup = false;
+  unawaited(_syncFavoritesForSession(favoriteIndex.epoch, startup: startup));
+}
+
+Future<void> _syncFavoritesForSession(
+  int epoch, {
+  required bool startup,
+}) async {
+  await _favoriteStorage;
+  await favoriteIndex.load();
+  if (epoch != favoriteIndex.epoch || !chhSession.loggedIn) return;
+  final last = favoriteIndex.lastSyncedAt;
+  if (!startup ||
+      last == null ||
+      DateTime.now().difference(last) > const Duration(hours: 6)) {
+    await favoriteRepo.sync();
+  }
 }
 
 Future<void> _attachLogStore() async {
@@ -78,6 +140,11 @@ Future<void> _attachReadIndex() async {
   await threadReadIndex.attach(File('${dir.path}/threads-v1.json'));
 }
 
+Future<void> _attachGroupLevels() async {
+  final dir = await AppPaths.instance.subdir('groups');
+  if (dir != null) await userGroupLevels.attach(dir);
+}
+
 final _lifecycleFlusher = LifecycleFlusher();
 
 /// Flushes the read ledger and the log when the app leaves the foreground.
@@ -89,6 +156,7 @@ class LifecycleFlusher with WidgetsBindingObserver {
         state == AppLifecycleState.hidden ||
         state == AppLifecycleState.detached) {
       unawaited(threadReadIndex.flush());
+      unawaited(favoriteIndex.flush());
       unawaited(AppLog.flush());
     }
   }

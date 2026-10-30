@@ -34,7 +34,7 @@ void main() {
       FavoritesPage(repository: repo),
       MyThreadsPage(repository: repo),
       UserPage(uid: '42', repository: repo),
-      SettingsPage(repository: repo),
+      const SettingsPage(),
       CreditLogPage(repository: repo),
       MedalsPage(repository: repo),
     ]) {

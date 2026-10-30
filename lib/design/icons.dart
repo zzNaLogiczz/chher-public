@@ -23,10 +23,12 @@ abstract final class AppIcons {
   static const refresh = SolarIconsOutline.refresh;
   static const article = SolarIconsOutline.documentText;
   static const bookmark = SolarIconsOutline.bookmark;
+  static const bookmarkFilled = SolarIconsBold.bookmark;
   static const settings = SolarIconsOutline.settings;
   static const logout = SolarIconsOutline.logout;
   static const medal = SolarIconsOutline.medalStar;
   static const credits = SolarIconsOutline.walletMoney;
+  static const crownStar = SolarIconsOutline.crownStar;
   static const log = SolarIconsOutline.document;
   static const update = SolarIconsOutline.downloadMinimalistic;
   static const compose = SolarIconsOutline.penNewSquare;

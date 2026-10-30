@@ -56,7 +56,12 @@ class _ForumIndexViewState extends State<ForumIndexView> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: Listenable.merge([favoriteIndex, chhSession]),
+    builder: (context, _) => _directory(context),
+  );
+
+  Widget _directory(BuildContext context) {
     final t = AppTokens.of(context);
     return FutureBuilder<List<ForumCategory>>(
       future: _future,
@@ -71,6 +76,21 @@ class _ForumIndexViewState extends State<ForumIndexView> {
         final categories = snapshot.data ?? const <ForumCategory>[];
         final keyword = _search.text.trim().toLowerCase();
         final visible = <ForumCategory>[];
+        if (_category == -1 && chhSession.loggedIn) {
+          final favorites = favoriteIndex.items
+              .where(
+                (item) =>
+                    item.type == FavoriteType.forum &&
+                    item.targetId != null &&
+                    (keyword.isEmpty ||
+                        '收藏 ${item.title}'.toLowerCase().contains(keyword)),
+              )
+              .map((item) => Forum(fid: item.targetId!, name: item.title))
+              .toList();
+          if (favorites.isNotEmpty) {
+            visible.add(ForumCategory(name: '收藏', forums: favorites));
+          }
+        }
         for (var i = 0; i < categories.length; i++) {
           if (_category != -1 && i != _category) continue;
           final c = categories[i];

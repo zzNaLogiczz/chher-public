@@ -69,6 +69,8 @@ class ChhClient {
         return c.html;
       }
     }
+    final failures = <String>[];
+    var wafDetected = false;
     for (final f in fallback ? fetchers : fetchers.take(1)) {
       final resp = await f.getHtml(url, headers: {'Referer': ChhUrls.base});
       if (!resp.isBlocked) {
@@ -82,14 +84,20 @@ class ChhClient {
         htmlObserver?.call(resp.body);
         return resp.body;
       }
+      wafDetected = wafDetected || resp.hasWafFeatures;
+      final reason = resp.error == null ? '' : AppLog.failureReason(resp.error);
+      failures.add('${f.name} status=${resp.status} error=$reason');
       AppLog.w(
         'GET',
         '${f.name} 被拦 ${AppLog.url(url)} '
-            '${AppLog.response(resp.status, resp.body, head: 80)}',
+            '${AppLog.response(resp.status, resp.body, head: 80)} error=$reason',
       );
     }
-    AppLog.e('GET', '所有通道都被拦 ${AppLog.url(url)}');
-    throw ChhAllBlockedError(AppLog.url(url));
+    AppLog.e('GET', '所有通道失败 ${AppLog.url(url)} ${failures.join('; ')}');
+    throw ChhAllBlockedError(
+      AppLog.url(url),
+      isConnectionFailure: !wafDetected,
+    );
   }
 
   /// 表单提交:直连优先,被拦再降级 WebView

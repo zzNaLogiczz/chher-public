@@ -121,7 +121,9 @@ class ArticleCommentTile extends StatelessWidget {
                 DiscussionCommentContent(
                   blocks: hideQuotes
                       ? comment.content
-                            .where((block) => block is! QuoteBlock)
+                            .where(
+                              (block) => block is! QuoteBlock || block.isNotice,
+                            )
                             .toList()
                       : comment.content,
                   fallback: comment.text,

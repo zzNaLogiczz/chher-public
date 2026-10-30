@@ -1,7 +1,13 @@
 import 'dart:io';
 
+import 'package:chh_app/data/forum_repository.dart';
 import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/design/tokens.dart';
+import 'package:chh_app/models/models.dart';
+import 'package:chh_app/network/chh_client.dart';
+import 'package:chh_app/pages/forum_threads_page.dart';
+import 'package:chh_app/pages/thread_detail_page.dart';
+import 'package:chh_app/ui/chrome_button.dart';
 import 'package:chh_app/ui/nav_bar.dart';
 import 'package:chh_app/widgets/app_shell.dart';
 import 'package:chh_app/widgets/large_title_scaffold.dart';
@@ -19,7 +25,125 @@ Widget rows() => ListView.builder(
 double opacityOf(WidgetTester tester, Key key) =>
     tester.widget<Opacity>(find.byKey(key)).opacity;
 
+class _Forums extends ForumRepository {
+  _Forums() : super(ChhClient(fetchers: []));
+
+  @override
+  Future<List<ThreadType>> threadTypes(int fid, {bool refresh = false}) async =>
+      const [];
+
+  @override
+  Future<ThreadListPage> threadList(
+    int fid, {
+    int page = 1,
+    int? typeid,
+    String? filter,
+    String? orderby,
+    bool refresh = false,
+  }) async => ThreadListPage(
+    threads: [
+      for (var i = 0; i < 30; i++)
+        ThreadSummary(
+          tid: 9000 + i,
+          title: '本地主题 $i',
+          author: '读者',
+          replies: 2,
+          views: 10,
+        ),
+    ],
+    page: const PageInfo(current: 1, hasNext: false),
+  );
+}
+
 void main() {
+  for (final width in [320.0, 360.0]) {
+    testWidgets(
+      'forum inline title avoids all navigation controls at ${width}dp',
+      (tester) async {
+        await tester.binding.setSurfaceSize(Size(width, 844));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        await tester.pumpWidget(
+          app(
+            ForumThreadsPage(
+              fid: 80,
+              title: '自由水世界2024',
+              repository: _Forums(),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          tester.widget<ChromeGroup>(find.byType(ChromeGroup)).items,
+          hasLength(4),
+        );
+
+        final outer = tester
+            .state<NestedScrollViewState>(find.byType(NestedScrollView))
+            .outerController;
+        outer.jumpTo(outer.position.maxScrollExtent);
+        await tester.pumpAndSettle();
+        expect(opacityOf(tester, NavOverlay.inlineTitleKey), 1);
+        final title = tester.getRect(find.byKey(NavOverlay.inlineTitleKey));
+        final actions = tester.getRect(find.byType(ChromeGroup));
+        final back = tester.getRect(find.byTooltip('返回'));
+        expect(title.width, greaterThan(0));
+        expect(title.overlaps(actions), isFalse);
+        expect(title.overlaps(back), isFalse);
+        expect(back.left, closeTo(10, 0.01));
+        expect(actions.right, closeTo(width - 10, 0.01));
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  testWidgets('thread inline title remains centered between single circles', (
+    tester,
+  ) async {
+    const width = 360.0;
+    await tester.binding.setSurfaceSize(const Size(width, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      app(
+        ThreadDetailPage(
+          tid: 123,
+          title: '帖子标题',
+          loadPage: (_, _, _) async => ThreadDetail(
+            tid: 123,
+            fid: 80,
+            title: '帖子标题',
+            posts: [
+              Post(
+                pid: 1,
+                floor: 1,
+                author: '作者',
+                timeRaw: '2026-10-30',
+                content: [
+                  for (var i = 0; i < 50; i++) TextBlock('本地正文内容第 $i 段'),
+                ],
+              ),
+            ],
+            page: const PageInfo(current: 1, hasNext: false),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final nav = find.byType(NavOverlay);
+    expect(
+      find.descendant(of: nav, matching: find.byType(ChromeButton)),
+      findsNWidgets(2),
+    );
+    final scroll = tester.state<ScrollableState>(find.byType(Scrollable).first);
+    scroll.position.jumpTo(200);
+    await tester.pumpAndSettle();
+    expect(opacityOf(tester, NavOverlay.inlineTitleKey), 1);
+    final title = tester.getRect(find.byKey(NavOverlay.inlineTitleKey));
+    expect(title.center.dx, closeTo(width / 2, 1));
+    expect(title.overlaps(tester.getRect(find.byTooltip('返回'))), isFalse);
+    expect(title.overlaps(tester.getRect(find.byTooltip('查看原页面'))), isFalse);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
     'root destinations never show back even when the navigator can pop',
     (tester) async {

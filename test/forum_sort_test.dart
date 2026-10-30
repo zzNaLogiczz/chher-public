@@ -124,7 +124,7 @@ void main() {
           .widget<ChromeGroup>(find.byType(ChromeGroup))
           .items
           .map((i) => i.tooltip),
-      ['排序', '搜索帖子', '发主题'],
+      ['排序', '搜索帖子', '发主题', '收藏版块'],
     );
     expect(repo.requests.single.orderby, isNull);
   });
@@ -265,7 +265,7 @@ void main() {
     '320dp at 2x keeps all four labels readable and actions at least 44dp',
     (tester) async {
       await _mount(tester, _Forums(), 1110, narrow: true);
-      for (final tooltip in ['排序', '搜索帖子', '发主题']) {
+      for (final tooltip in ['排序', '搜索帖子', '发主题', '收藏版块']) {
         final size = tester.getSize(find.byTooltip(tooltip));
         expect(size.width, greaterThanOrEqualTo(44));
         expect(size.height, greaterThanOrEqualTo(44));

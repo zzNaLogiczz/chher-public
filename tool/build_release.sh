@@ -2,8 +2,8 @@
 # 构建正式通用包，保留 ARM64、ARMv7 和 x86_64，供全部客户端统一更新。
 #
 # 用法（在仓库根目录执行）：
-#   tool/build_release.sh 1.0.4
-#   tool/build_release.sh 1.0.4 --universal # 兼容旧命令，结果相同
+#   tool/build_release.sh 1.0.5
+#   tool/build_release.sh 1.0.5 --universal # 兼容旧命令，结果相同
 #
 # 输出 build/release/<版本>/chher-<版本>.apk；symbols/ 中的符号用于崩溃解析。
 # CHH_UPDATE_ENDPOINTS 可覆盖内置更新地址（逗号分隔）。
@@ -14,7 +14,7 @@ usage() { sed -n '2,8p' "$0"; exit 2; }
 [[ $# -ge 1 && $# -le 2 ]] || usage
 [[ $# -lt 2 || $2 == --universal ]] || usage
 NAME=$1
-[[ $NAME =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] || { echo "版本号格式应为 主.次.修订，例如 1.0.4" >&2; exit 2; }
+[[ $NAME =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] || { echo "版本号格式应为 主.次.修订，例如 1.0.5" >&2; exit 2; }
 (( BASH_REMATCH[2] < 100 && BASH_REMATCH[3] < 100 )) || { echo "次版本和修订号都必须小于 100" >&2; exit 2; }
 CODE=$(( BASH_REMATCH[1] * 10000 + BASH_REMATCH[2] * 100 + BASH_REMATCH[3] ))
 [[ -f android/key.properties ]] || { echo "缺少 android/key.properties，无法用正式签名打包" >&2; exit 1; }

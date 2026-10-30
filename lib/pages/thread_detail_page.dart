@@ -11,6 +11,8 @@ import '../design/tokens.dart';
 import 'package:motor/motor.dart';
 import '../design/motion.dart';
 import '../ui/reading_bar.dart';
+import '../ui/favorite_action.dart';
+import '../data/favorite_index.dart';
 import '../ui/chrome_button.dart';
 import '../ui/nav_bar.dart';
 import '../di.dart';
@@ -22,6 +24,8 @@ import '../widgets/expressive_controls.dart';
 import '../widgets/post_card.dart';
 import '../widgets/state_view.dart';
 import '../data/thread_conversation_index.dart';
+import '../data/forum_repository.dart';
+import '../widgets/password_sheet.dart';
 import '../data/thread_read_index.dart';
 import '../widgets/thread_comment_widgets.dart';
 
@@ -51,6 +55,7 @@ class ThreadDetailPage extends StatefulWidget {
   final ThreadPageLoader? loadPage;
   final ThreadGotoLoader? loadGoto;
   final ThreadReplySubmitter? submitReply;
+  final ForumRepository? repository;
 
   const ThreadDetailPage({
     super.key,
@@ -65,6 +70,7 @@ class ThreadDetailPage extends StatefulWidget {
     this.loadPage,
     this.loadGoto,
     this.submitReply,
+    this.repository,
   });
 
   @override
@@ -100,6 +106,9 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
   bool _markedRead = false;
   bool _focusDone = false;
   bool _composerOpen = false;
+  final _unlocking = <int>{};
+  bool _forumPasswordOpen = false;
+  ForumRepository get _repository => widget.repository ?? forumRepo;
 
   /// 回复里的图片,与文字草稿一样按回复目标保留,发送成功后清掉
   final _replyImages = <String, AttachmentController>{};
@@ -263,10 +272,13 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
         !postIsOpening(post) &&
         (_grouped || _index.directTargetFor(post.pid) != null);
     final blocks = hideQuotes
-        ? post.content.where((block) => block is! QuoteBlock).toList()
+        ? post.content
+              .where((block) => block is! QuoteBlock || block.isNotice)
+              .toList()
         : post.content;
     final images = blocks.whereType<ImageBlock>().map((b) => b.url).toList();
-    if (!postIsOpening(post) && images.length <= 3 && blocks.length <= 12) {
+    if (post.lock != null ||
+        (!postIsOpening(post) && images.length <= 3 && blocks.length <= 12)) {
       _entries.add(
         _ThreadReadEntry(post, _ThreadEntryKind.whole, nested: nested),
       );
@@ -677,12 +689,80 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     bool refresh = false,
   }) =>
       widget.loadPage?.call(page, author, refresh) ??
-      forumRepo.thread(
+      _repository.thread(
         widget.tid,
         page: page,
         authorUid: author,
         refresh: refresh,
       );
+
+  Future<void> _unlockPost(Post post) async {
+    if (!_unlocking.add(post.pid)) return;
+    final generation = _generation;
+    final page = _postPages[post.pid];
+    try {
+      final password = await showPasswordSheet(context, title: '输入帖子密码');
+      if (!mounted ||
+          password == null ||
+          generation != _generation ||
+          page == null) {
+        return;
+      }
+      final pagePrefix = _pages[page]?.cookiePrefix;
+      final prefix = pagePrefix != null && pagePrefix.isNotEmpty
+          ? pagePrefix
+          : _repository.cookiePrefix;
+      if (prefix == null || prefix.isEmpty) throw StateError('缺少 Cookie 前缀');
+      await _repository.unlockPost(
+        pid: post.pid,
+        password: password,
+        cookiePrefix: prefix,
+      );
+      if (!mounted || generation != _generation) return;
+      final detail = await _read(page, refresh: true);
+      if (!mounted || generation != _generation) return;
+      final unlocked = detail.posts.where((p) => p.pid == post.pid).firstOrNull;
+      if (detail.page.current != page || unlocked == null) {
+        throw StateError('目标楼层未返回');
+      }
+      if (unlocked.lock?.needsPassword == true) {
+        AppToast.show(context, '密码不正确');
+        return;
+      }
+      final offset = _scroll.hasClients ? _scroll.offset : null;
+      _update(() {
+        _remember(detail);
+        _beforeAuthor = _beforeAuthor?.withPost(unlocked);
+      });
+      // 局部替换只更新条目；展开数量、查看方式与其他已读页均保留。
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && offset != null && _scroll.hasClients) {
+          _scroll.jumpTo(offset.clamp(0.0, _scroll.position.maxScrollExtent));
+        }
+      });
+    } catch (_) {
+      if (mounted && generation == _generation) {
+        AppToast.show(context, '解锁未完成，请重试');
+      }
+    } finally {
+      _unlocking.remove(post.pid);
+    }
+  }
+
+  Future<void> _unlockForum(int fid) async {
+    if (_forumPasswordOpen) return;
+    _forumPasswordOpen = true;
+    try {
+      final success = await showForumPasswordUnlock(
+        context,
+        fid,
+        repository: _repository,
+      );
+      if (mounted && success) await _loadInitial(useGoto: true, refresh: true);
+    } finally {
+      _forumPasswordOpen = false;
+    }
+  }
 
   void _remember(ThreadDetail detail) {
     _loadedDetail = detail;
@@ -710,7 +790,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
       final detail = goto == null
           ? await _read(page ?? widget.initialPage, refresh: refresh)
           : await (widget.loadGoto?.call(goto) ??
-                forumRepo.threadAtUrl(goto, tid: widget.tid));
+                _repository.threadAtUrl(goto, tid: widget.tid));
       if (!mounted || generation != _generation) return;
       _update(() {
         // 主动刷新后,进入只看楼主前的旧楼层不再可信
@@ -740,6 +820,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
         _expandingRoot != null ||
         _pendingMode != null ||
         _composerOpen ||
+        _unlocking.isNotEmpty ||
         _loading ||
         _tailError != null ||
         !_hasNext ||
@@ -1207,6 +1288,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
                               replyToAuthor: _replyToAuthor(post),
                               isAuthor: author,
                               onReply: onReply,
+                              onUnlock: () => _unlockPost(post),
                               replyContext: _referenceContext(post),
                             ),
                             _ThreadEntryKind.header => PostCard.header(
@@ -1215,6 +1297,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
                               commentStyle: _grouped && !postIsOpening(post),
                               isAuthor: author,
                               onReply: onReply,
+                              onUnlock: () => _unlockPost(post),
                               replyContext: _referenceContext(post),
                             ),
                             _ThreadEntryKind.block => PostCard.block(
@@ -1235,6 +1318,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
                               commentStyle: _grouped && !postIsOpening(post),
                               isAuthor: author,
                               onReply: onReply,
+                              onUnlock: () => _unlockPost(post),
                             ),
                             _ThreadEntryKind.commentsHeading => Padding(
                               key: _commentsKey,
@@ -1359,6 +1443,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
       return StateView.forMessage(
         error,
         onLogin: () => Navigator.of(context).pushNamed('/login'),
+        onPassword: error.fid == null ? null : () => _unlockForum(error.fid!),
       );
     }
     if (error != null) {
@@ -1372,7 +1457,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
 
   /// 眉题:帖子所在版块;只看楼主时一并标出
   String get _eyebrow =>
-      [?_loadedDetail?.forumName, if (_authorUid != null) '只看楼主'].join(' · ');
+      [?_loadedDetail?.forumName, if (_authorUid != null) '只看楼主'].join('，');
 
   Widget _heading(AppTokens t) => Padding(
     padding: const EdgeInsets.fromLTRB(24, 22, 24, 6),
@@ -1479,13 +1564,23 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
   /// 底部阅读工具栏:"写回复…"输入胶囊 + 评论数 / 回到顶部圆钮
   Widget _toolbar() => ValueListenableBuilder<bool>(
     valueListenable: _inComments,
-    builder: (context, inComments, _) => ReadingBar(
-      placeholder: '写回复…',
-      onCompose: () => _openComposer(null),
-      count: _orderedPosts.where((p) => !postIsOpening(p)).length,
-      inComments: inComments,
-      onShowComments: _showComments,
-      onBackToTop: _backToTop,
+    builder: (context, inComments, _) => FavoriteActionBuilder(
+      target: FavoriteTarget(
+        type: FavoriteType.thread,
+        targetId: widget.tid,
+        title: _loadedDetail?.title ?? widget.title,
+      ),
+      builder: (context, favorited, busy, toggle) => ReadingBar(
+        placeholder: '写回复…',
+        onCompose: () => _openComposer(null),
+        count: _orderedPosts.where((p) => !postIsOpening(p)).length,
+        inComments: inComments,
+        onShowComments: _showComments,
+        onBackToTop: _backToTop,
+        favorited: favorited,
+        favoriteBusy: busy,
+        onToggleFavorite: toggle,
+      ),
     ),
   );
 }
@@ -1528,4 +1623,26 @@ class _ReadSnapshot {
   final bool hasNext;
   final ThreadDetail? loadedDetail;
   const _ReadSnapshot(this.pages, this.hasNext, this.loadedDetail);
+
+  /// 作者视图页码与普通页不同，只按 PID 更新快照中已解锁的楼层。
+  _ReadSnapshot withPost(Post post) {
+    ThreadDetail replace(ThreadDetail detail) {
+      if (!detail.posts.any((p) => p.pid == post.pid)) return detail;
+      return ThreadDetail(
+        tid: detail.tid,
+        cookiePrefix: detail.cookiePrefix,
+        fid: detail.fid,
+        forumName: detail.forumName,
+        title: detail.title,
+        posts: [for (final p in detail.posts) p.pid == post.pid ? post : p],
+        page: detail.page,
+      );
+    }
+
+    return _ReadSnapshot(
+      pages.map((page, detail) => MapEntry(page, replace(detail))),
+      hasNext,
+      loadedDetail == null ? null : replace(loadedDetail!),
+    );
+  }
 }

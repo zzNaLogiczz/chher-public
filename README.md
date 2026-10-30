@@ -9,7 +9,7 @@
 <p align="center">一个用 Flutter 构建的非官方 Android 客户端，把帖子、评测和讨论带进原生界面。</p>
 
 <p align="center">
-  <a href="pubspec.yaml"><img src="https://img.shields.io/badge/version-1.0.4-646464?labelColor=60646c" alt="Version 1.0.4" /></a>
+  <a href="pubspec.yaml"><img src="https://img.shields.io/badge/version-1.0.5-646464?labelColor=60646c" alt="Version 1.0.5" /></a>
   <a href="https://flutter.dev/"><img src="https://img.shields.io/badge/Flutter-3.44.2-0d74ce?logo=flutter&amp;labelColor=60646c" alt="Flutter 3.44.2" /></a>
   <a href="https://dart.dev/"><img src="https://img.shields.io/badge/Dart-3.12.2-0d74ce?logo=dart&amp;labelColor=60646c" alt="Dart 3.12.2" /></a>
   <a href="https://developer.android.com/about/versions/nougat"><img src="https://img.shields.io/badge/Android-7.0%2B-218358?logo=android&amp;logoColor=ffffff&amp;labelColor=60646c" alt="Android 7.0+" /></a>
@@ -73,12 +73,12 @@ cp android/key.properties.example android/key.properties
 在 `android/key.properties` 中填写 keystore 路径、别名和密码，然后构建：
 
 ```sh
-tool/build_release.sh 1.0.4             # 生成包含全部支持架构的通用包
+tool/build_release.sh 1.0.5             # 生成包含全部支持架构的通用包
 ```
 
-安装包位于 `build/release/1.0.4/chher-1.0.4.apk`，同时包含 ARM64、ARMv7 和 x86_64。新旧客户端统一获取通用包，无需按原安装包类型分组。
+安装包位于 `build/release/1.0.5/chher-1.0.5.apk`，同时包含 ARM64、ARMv7 和 x86_64。新旧客户端统一获取通用包，无需按原安装包类型分组。
 
-原生库采用压缩打包，调试符号单独保存在同目录的 `symbols/` 中，维护者应保留它们以便解析崩溃日志。版本号 `1.0.4` 对应 versionCode `10004`，不要使用会增加版本号偏移的 `--split-per-abi`。
+原生库采用压缩打包，调试符号单独保存在同目录的 `symbols/` 中，维护者应保留它们以便解析崩溃日志。版本号 `1.0.5` 对应 versionCode `10005`，不要使用会增加版本号偏移的 `--split-per-abi`。
 
 自行签名的包不能覆盖维护者签名的版本。分发衍生版本时，请使用自己的应用标识、签名及更新服务，并遵守项目许可。
 

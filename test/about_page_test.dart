@@ -10,19 +10,12 @@ import 'package:chh_app/ui/grouped.dart';
 import 'package:chh_app/widgets/app_shell.dart';
 import 'package:chh_app/widgets/link_opener.dart';
 
-import 'support/space_fixtures.dart';
-
 void main() {
-  test('构建时间排成日期和时刻,其他形态原样显示', () {
-    expect(buildTimeLabel('202610291205'), '2026-10-29 12:05');
-    expect(buildTimeLabel('本地调试'), '本地调试');
-  });
-
   testWidgets('设置里点关于进入关于页:图标在上,版本号其次,介绍在下', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
         theme: buildAppTheme(Brightness.light),
-        home: SettingsPage(repository: FixtureSpace()),
+        home: const SettingsPage(),
       ),
     );
     await tester.pumpAndSettle();

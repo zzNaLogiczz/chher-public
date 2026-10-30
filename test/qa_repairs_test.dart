@@ -25,8 +25,6 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'support/space_fixtures.dart';
-
 const _capture = bool.fromEnvironment('QA_REPAIR_SCREENSHOTS');
 final _boundary = GlobalKey();
 
@@ -143,9 +141,7 @@ void main() {
           addTearDown(() => chhSession.loggedIn = false);
           await tester.pumpWidget(
             _app(
-              kind == 'logs'
-                  ? const LogPage()
-                  : SettingsPage(repository: FixtureSpace()),
+              kind == 'logs' ? const LogPage() : const SettingsPage(),
               brightness,
               scale,
             ),

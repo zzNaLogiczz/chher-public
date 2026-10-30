@@ -176,6 +176,15 @@ class AppLog extends ChangeNotifier {
     }
   }
 
+  /// 引擎错误可能带完整 URL,沿用请求日志的脱敏规则后再截短。
+  static String failureReason(Object? reason) {
+    final text = '$reason'.replaceAllMapped(
+      RegExp(r'''https?://[^\s<>"']+''', caseSensitive: false),
+      (match) => url(match.group(0)),
+    );
+    return text.length > 200 ? text.substring(0, 200) : text;
+  }
+
   /// 响应摘要:状态、长度、去标签后的开头
   static String response(int status, String body, {int head = 160}) {
     final text = body

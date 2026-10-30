@@ -1,7 +1,6 @@
 import 'package:chh_app/core/app_log.dart';
 import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/di.dart';
-import 'package:chh_app/models/models.dart';
 import 'package:chh_app/pages/log_page.dart';
 import 'package:chh_app/pages/me_page.dart';
 import 'package:chh_app/pages/settings_page.dart';
@@ -10,8 +9,6 @@ import 'package:chh_app/ui/grouped.dart';
 import 'package:chh_app/widgets/browse_controls.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-
-import 'support/space_fixtures.dart';
 
 void main() {
   testWidgets('guest profile keeps login, settings and diagnostics reachable', (
@@ -73,23 +70,115 @@ void main() {
     expect(find.text('个人主页'), findsNothing);
   });
 
-  testWidgets(
-    'a privacy select reads as the field visibility, not a twin row',
-    (tester) async {
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: buildAppTheme(Brightness.light),
-          home: SettingsPage(repository: _QqSettings()),
-        ),
-      );
-      await tester.pumpAndSettle();
-      expect(find.text('QQ'), findsOneWidget);
-      expect(find.text('未填写'), findsOneWidget);
-      // 没有 selected 的下拉框在网页上显示第一项
-      expect(find.text('QQ 可见范围'), findsOneWidget);
-      expect(find.text('公开'), findsOneWidget);
-    },
-  );
+  for (final loggedIn in [true, false]) {
+    testWidgets(
+      'settings groups follow task order without a repository, loggedIn=$loggedIn',
+      (tester) async {
+        final wasLoggedIn = chhSession.loggedIn;
+        chhSession.loggedIn = loggedIn;
+        addTearDown(() => chhSession.loggedIn = wasLoggedIn);
+        await tester.binding.setSurfaceSize(const Size(400, 900));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: buildAppTheme(Brightness.light),
+            home: const SettingsPage(),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final sections = tester.widgetList<GroupedSection>(
+          find.byType(GroupedSection),
+        );
+        expect(sections.map((section) => section.header), [
+          '存储',
+          '关于',
+          if (loggedIn) null,
+        ]);
+        final storage = find.byWidgetPredicate(
+          (widget) => widget is GroupedSection && widget.header == '存储',
+        );
+        final about = find.byWidgetPredicate(
+          (widget) => widget is GroupedSection && widget.header == '关于',
+        );
+        expect(
+          tester
+              .widgetList<GroupedRow>(
+                find.descendant(of: storage, matching: find.byType(GroupedRow)),
+              )
+              .map((row) => row.title),
+          ['图片缓存'],
+        );
+        expect(
+          tester
+              .widgetList<GroupedRow>(
+                find.descendant(of: about, matching: find.byType(GroupedRow)),
+              )
+              .map((row) => row.title),
+          ['关于 Chher', '运行日志'],
+        );
+        final labels = ['外观', '存储', '关于', if (loggedIn) '退出登录'];
+        for (var i = 1; i < labels.length; i++) {
+          expect(
+            tester.getTopLeft(find.text(labels[i - 1])).dy,
+            lessThan(tester.getTopLeft(find.text(labels[i])).dy),
+          );
+        }
+        expect(find.text('退出登录'), loggedIn ? findsOneWidget : findsNothing);
+        expect(find.text('账号资料'), findsNothing);
+        expect(find.text('诊断'), findsNothing);
+        expect(find.text('加载失败'), findsNothing);
+        expect(find.text('需登录'), findsNothing);
+        expect(find.byType(CircularProgressIndicator), findsNothing);
+        expect(tester.takeException(), isNull);
+
+        await tester.tap(find.text('运行日志'));
+        await tester.pumpAndSettle();
+        expect(find.byType(LogPage), findsOneWidget);
+      },
+    );
+  }
+
+  testWidgets('退出登录分组随会话变化显示，其他设置不重建', (tester) async {
+    final wasLoggedIn = chhSession.loggedIn;
+    chhSession.loggedIn = true;
+    addTearDown(() => chhSession.loggedIn = wasLoggedIn);
+    await tester.binding.setSurfaceSize(const Size(400, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(Brightness.light),
+        home: const SettingsPage(),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('退出登录'), findsOneWidget);
+    final list = tester.widget<ListView>(find.byType(ListView));
+    final about = tester.widget(find.byKey(const ValueKey('settings-about')));
+
+    void changeSession(bool loggedIn) {
+      chhSession.loggedIn = loggedIn;
+      // 模拟会话完成登录或退出后的通知,不调用平台 Cookie 仓。
+      // ignore: invalid_use_of_protected_member
+      chhSession.notifyListeners();
+    }
+
+    changeSession(false);
+    await tester.pumpAndSettle();
+    expect(find.text('退出登录'), findsNothing);
+    expect(find.byType(GroupedSection), findsNWidgets(2));
+    expect(tester.widget<ListView>(find.byType(ListView)), same(list));
+    expect(
+      tester.widget(find.byKey(const ValueKey('settings-about'))),
+      same(about),
+    );
+
+    changeSession(true);
+    await tester.pumpAndSettle();
+    expect(find.text('退出登录'), findsOneWidget);
+    expect(find.byType(GroupedSection), findsNWidgets(3));
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('settings only links to About; update check lives there', (
     tester,
@@ -97,7 +186,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: buildAppTheme(Brightness.light),
-        home: SettingsPage(repository: FixtureSpace()),
+        home: const SettingsPage(),
       ),
     );
     await tester.pumpAndSettle();
@@ -124,7 +213,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: buildAppTheme(Brightness.light),
-        home: SettingsPage(repository: FixtureSpace()),
+        home: const SettingsPage(),
       ),
     );
     await tester.pumpAndSettle();
@@ -215,26 +304,5 @@ void main() {
       expect(tester.takeException(), isNull);
       AppLog.instance.clear();
     },
-  );
-}
-
-/// 源站基本资料页实际结构:qq 输入框 + 没有 selected 的 privacy[qq] 下拉框
-class _QqSettings extends FixtureSpace {
-  @override
-  Future<SettingsForm> settings({
-    String ac = 'profile',
-    String? op,
-    bool refresh = false,
-  }) async => const SettingsForm(
-    title: '个人资料',
-    fields: [
-      SettingField(name: 'qq', label: 'QQ', value: ''),
-      SettingField(
-        name: 'privacy[qq]',
-        label: 'QQ',
-        value: '',
-        options: ['公开', '好友可见', '保密'],
-      ),
-    ],
   );
 }

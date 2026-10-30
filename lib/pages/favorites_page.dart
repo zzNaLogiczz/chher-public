@@ -76,12 +76,19 @@ class _FavoritesBodyState extends State<FavoritesBody> {
             key: ValueKey(_seg),
             emptyMessage: '还没有收藏',
             padding: const EdgeInsets.only(top: 4, bottom: 112),
-            loader: (page, {bool refresh = false}) =>
-                (widget.repository ?? spaceRepo).favorites(
-                  type: _types[_seg],
-                  page: page,
-                  refresh: refresh,
-                ),
+            loader: (page, {bool refresh = false}) async {
+              final epoch = favoriteIndex.epoch;
+              final result = await (widget.repository ?? spaceRepo).favorites(
+                type: _types[_seg],
+                page: page,
+                refresh: refresh,
+              );
+              // 换号后返回的旧页面不能写入新账号的索引。
+              if (chhSession.loggedIn && favoriteIndex.epoch == epoch) {
+                favoriteIndex.merge(result.items, prepend: page == 1);
+              }
+              return result;
+            },
             itemBuilder: (context, f) => PlainRow(
               onTap: () => _open(context, f),
               child: _row(context, f),

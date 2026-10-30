@@ -15,6 +15,7 @@ import 'press.dart';
 
 class ReadingBar extends StatelessWidget {
   static const actionKey = ValueKey('reading-bar-action');
+  static const favoriteKey = ValueKey('reading-bar-favorite');
 
   final String placeholder;
   final VoidCallback onCompose;
@@ -22,6 +23,9 @@ class ReadingBar extends StatelessWidget {
   final bool inComments;
   final VoidCallback onShowComments;
   final VoidCallback onBackToTop;
+  final bool? favorited;
+  final bool favoriteBusy;
+  final VoidCallback? onToggleFavorite;
 
   const ReadingBar({
     super.key,
@@ -31,6 +35,9 @@ class ReadingBar extends StatelessWidget {
     required this.inComments,
     required this.onShowComments,
     required this.onBackToTop,
+    this.favorited,
+    this.favoriteBusy = false,
+    this.onToggleFavorite,
   });
 
   @override
@@ -57,6 +64,60 @@ class ReadingBar extends StatelessWidget {
         padding: EdgeInsets.fromLTRB(14, 22, 14, bottom + 10),
         child: Row(
           children: [
+            if (favorited != null) ...[
+              Tooltip(
+                message: favorited! ? '取消收藏' : '收藏',
+                child: PressScale(
+                  key: favoriteKey,
+                  onTap: favoriteBusy ? null : onToggleFavorite,
+                  semanticLabel: favorited! ? '取消收藏' : '收藏',
+                  child: DecoratedBox(
+                    decoration: surface,
+                    child: SizedBox.square(
+                      dimension: 44,
+                      child: Center(
+                        child: SingleMotionBuilder(
+                          value: favorited! ? 1.0 : 0.0,
+                          motion: AppMotion.select,
+                          active: !reduced,
+                          builder: (_, v, _) {
+                            final p = v.clamp(0.0, 1.0);
+                            return Stack(
+                              alignment: Alignment.center,
+                              children: [
+                                Opacity(
+                                  opacity: 1 - p,
+                                  child: Transform.scale(
+                                    scale: 1 - .3 * p,
+                                    child: Icon(
+                                      AppIcons.bookmark,
+                                      size: 20,
+                                      color: t.text,
+                                    ),
+                                  ),
+                                ),
+                                Opacity(
+                                  opacity: p,
+                                  child: Transform.scale(
+                                    scale: .7 + .3 * p,
+                                    child: Icon(
+                                      AppIcons.bookmarkFilled,
+                                      size: 20,
+                                      color: t.accent,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+            ],
             Expanded(
               child: ComposeCapsule(
                 placeholder: placeholder,

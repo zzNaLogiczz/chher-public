@@ -9,6 +9,7 @@ import '../ui/feedback.dart';
 import '../models/models.dart';
 import 'browse_controls.dart';
 import 'paged_list.dart' show PageLoader;
+import 'password_sheet.dart';
 import 'state_view.dart';
 import 'expressive_controls.dart';
 
@@ -17,6 +18,7 @@ class BrowseThreadList extends StatefulWidget {
   final Widget Function(BuildContext context, ThreadSummary thread) itemBuilder;
   final Widget? header;
   final String emptyMessage;
+  final Future<bool> Function(int fid)? onPassword;
 
   /// 把首页开头连续的置顶帖收成一行,点开原地展开
   final bool collapsePinned;
@@ -30,6 +32,7 @@ class BrowseThreadList extends StatefulWidget {
     required this.itemBuilder,
     this.header,
     this.emptyMessage = '这里还没有帖子',
+    this.onPassword,
     this.collapsePinned = false,
     this.pinnedMemoryKey,
   });
@@ -75,6 +78,21 @@ class _BrowseThreadListState extends State<BrowseThreadList> {
   bool _hasNext = false;
   Object? _error;
   int? _failedPage;
+  bool _unlocking = false;
+
+  Future<void> _unlock(PageMessage message) async {
+    final fid = message.fid;
+    if (_unlocking || fid == null) return;
+    _unlocking = true;
+    try {
+      final success =
+          await (widget.onPassword?.call(fid) ??
+              showForumPasswordUnlock(context, fid));
+      if (mounted && success) await _load(1, refresh: true);
+    } finally {
+      _unlocking = false;
+    }
+  }
 
   @override
   void initState() {
@@ -166,6 +184,7 @@ class _BrowseThreadListState extends State<BrowseThreadList> {
                   child: error is PageMessage
                       ? StateView.forMessage(
                           error,
+                          onPassword: () => _unlock(error),
                           onLogin: () async {
                             await Navigator.pushNamed(context, '/login');
                             if (mounted) await _load(1, refresh: true);

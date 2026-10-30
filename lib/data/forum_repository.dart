@@ -1,7 +1,13 @@
 /// 论坛域读操作:版块目录、帖子列表、帖子详情、导读流、搜索、标签
 library;
 
+import 'package:html/parser.dart' as html;
+
 import '../core/chh_urls.dart';
+import '../core/md5.dart';
+import '../network/chh_session.dart';
+import '../network/cookie_jar.dart';
+import '../parser/dom_utils.dart';
 import '../models/models.dart';
 import '../network/chh_client.dart';
 import '../parser/forum_index_parser.dart';
@@ -13,7 +19,75 @@ import '../parser/thread_parser.dart';
 
 class ForumRepository {
   final ChhClient client;
-  const ForumRepository(this.client);
+  final ChhSession? session;
+  const ForumRepository(this.client, {this.session});
+
+  String? get cookiePrefix => session?.cookiePrefix;
+
+  Future<void> unlockPost({
+    required int pid,
+    required String password,
+    required String cookiePrefix,
+  }) async {
+    if (cookiePrefix.isEmpty) throw StateError('缺少 Cookie 前缀');
+    await (session ?? ChhSession(client)).setSiteCookie(
+      '${cookiePrefix}postpw_$pid',
+      md5(password),
+    );
+  }
+
+  Future<bool> verifyForumPassword(int fid, String password) async {
+    final url = ChhUrls.threadList(fid);
+    final page = await client.getHtml(url, refresh: true);
+    final doc = html.parse(page);
+    final form = doc.querySelector('form[action*="action=pwverify"]');
+    if (form == null) return false;
+    final action = url.resolve(form.attributes['action'] ?? '');
+    // 密码只提交给站点实际给出的同站表单。
+    if (action.origin != url.origin ||
+        action.queryParameters['fid'] != '$fid') {
+      return false;
+    }
+    final response = await client.postForm(action, {
+      'formhash':
+          form.querySelector('input[name="formhash"]')?.attributes['value'] ??
+          '',
+      'pw': password,
+      'loginsubmit': 'true',
+    });
+    if (response.isBlocked || response.status >= 400) return false;
+    final result = html.parse(response.body);
+    if (result.querySelector('form[action*="action=pwverify"]') != null) {
+      return false;
+    }
+    final message = detectPageMessage(result);
+    if (message != null &&
+        (message.kind != PageMessageKind.message ||
+            !message.text.contains('成功'))) {
+      return false;
+    }
+    final prefixes = [
+      RegExp(r"cookiepre\s*=\s*'([^']*)'").firstMatch(page)?.group(1),
+      RegExp(r"cookiepre\s*=\s*'([^']*)'").firstMatch(response.body)?.group(1),
+      cookiePrefix,
+    ];
+    final prefix = prefixes
+        .whereType<String>()
+        .where((p) => p.isNotEmpty)
+        .firstOrNull;
+    if (prefix == null) throw StateError('缺少 Cookie 前缀');
+    final name = '${prefix}fidpw$fid';
+    String? value;
+    for (final raw in response.setCookies) {
+      final cookie = CookieJar.parseSetCookie(raw);
+      if (cookie?.name == name) value = cookie!.value;
+    }
+    await (session ?? ChhSession(client)).setSiteCookie(
+      name,
+      value ?? Uri.encodeComponent(password),
+    );
+    return true;
+  }
 
   Future<List<ForumCategory>> forumIndex({bool refresh = false}) async {
     return parseForumIndex(
