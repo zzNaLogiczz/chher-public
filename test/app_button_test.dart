@@ -5,17 +5,21 @@ import 'package:chh_app/ui/app_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-Widget app(Widget child, {double textScale = 1, double width = 390}) =>
-    MaterialApp(
-      theme: buildAppTheme(Brightness.light),
-      home: MediaQuery(
-        data: MediaQueryData(
-          size: Size(width, 800),
-          textScaler: TextScaler.linear(textScale),
-        ),
-        child: Scaffold(body: Center(child: child)),
-      ),
-    );
+Widget app(
+  Widget child, {
+  double textScale = 1,
+  double width = 390,
+  Brightness brightness = Brightness.light,
+}) => MaterialApp(
+  theme: buildAppTheme(brightness),
+  home: MediaQuery(
+    data: MediaQueryData(
+      size: Size(width, 800),
+      textScaler: TextScaler.linear(textScale),
+    ),
+    child: Scaffold(body: Center(child: child)),
+  ),
+);
 
 Color fillOf(WidgetTester tester) =>
     (tester.widget<DecoratedBox>(find.byKey(AppButton.surfaceKey)).decoration
@@ -40,48 +44,74 @@ void main() {
     expect(tester.getSize(find.byKey(AppButton.surfaceKey)).height, 34);
   });
 
-  testWidgets('tinted, plain and destructive variants use their tokens', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      app(
-        Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            AppButton(
-              label: '重试',
-              variant: AppButtonVariant.tinted,
-              onPressed: () {},
+  for (final brightness in Brightness.values) {
+    testWidgets(
+      'tinted, plain and destructive variants use readable tokens in $brightness',
+      (tester) async {
+        final tokens = brightness == Brightness.dark
+            ? AppTokens.dark
+            : AppTokens.light;
+        await tester.pumpWidget(
+          app(
+            Material(
+              color: tokens.surface,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  AppButton(
+                    label: '重试',
+                    variant: AppButtonVariant.tinted,
+                    onPressed: () {},
+                  ),
+                  AppButton(
+                    label: '全部',
+                    variant: AppButtonVariant.plain,
+                    trailingChevron: true,
+                    onPressed: () {},
+                  ),
+                  AppButton(
+                    label: '退出登录',
+                    variant: AppButtonVariant.destructive,
+                    onPressed: () {},
+                  ),
+                ],
+              ),
             ),
-            AppButton(
-              label: '全部',
-              variant: AppButtonVariant.plain,
-              trailingChevron: true,
-              onPressed: () {},
-            ),
-            AppButton(
-              label: '退出登录',
-              variant: AppButtonVariant.destructive,
-              onPressed: () {},
-            ),
-          ],
-        ),
-      ),
+            brightness: brightness,
+          ),
+        );
+        expect(
+          tester.widget<Text>(find.text('重试')).style!.color,
+          tokens.accent,
+        );
+        expect(
+          tester.widget<Text>(find.text('全部')).style!.color,
+          tokens.accent,
+        );
+        expect(find.byIcon(AppIcons.forward), findsOneWidget);
+        final label = find.text('退出登录');
+        final foreground = tester.widget<Text>(label).style!.color!;
+        expect(
+          foreground,
+          brightness == Brightness.dark ? Radix.red11Dark : Radix.red11Light,
+        );
+        final material = tester.widget<Material>(
+          find.ancestor(of: label, matching: find.byType(Material)).first,
+        );
+        expect(material.color, tokens.surface);
+        final luminances = [
+          foreground.computeLuminance(),
+          material.color!.computeLuminance(),
+        ]..sort();
+        expect(
+          (luminances.last + .05) / (luminances.first + .05),
+          greaterThanOrEqualTo(4.5),
+          reason:
+              'Destructive text must remain readable on its confirmation surface',
+        );
+      },
     );
-    expect(
-      tester.widget<Text>(find.text('重试')).style!.color,
-      AppTokens.light.accent,
-    );
-    expect(
-      tester.widget<Text>(find.text('全部')).style!.color,
-      AppTokens.light.accent,
-    );
-    expect(find.byIcon(AppIcons.forward), findsOneWidget);
-    expect(
-      tester.widget<Text>(find.text('退出登录')).style!.color,
-      AppTokens.light.red,
-    );
-  });
+  }
 
   testWidgets('quiet is unfilled secondary text for cancel and reply', (
     tester,
