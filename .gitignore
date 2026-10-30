@@ -94,6 +94,7 @@ key.properties
 # Local agent workflow state; reviewable plans live under docs/qa/.
 /.omx/
 /.code-review-graph/
+/.claude/
 
 .superpowers/
 .gstack/
