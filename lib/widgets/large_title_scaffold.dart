@@ -15,6 +15,9 @@ class LargeTitleScaffold extends StatefulWidget {
   /// 四个根分栏传 false。
   final bool showBack;
 
+  /// 为带固定工具栏的正文预留顶栏空间,不随外层标题滚动消失。
+  final bool reserveNavigationBar;
+
   /// 顶栏右侧的圆钮或胶囊组
   final List<Widget> actions;
 
@@ -35,6 +38,7 @@ class LargeTitleScaffold extends StatefulWidget {
     required this.title,
     required this.body,
     this.showBack = true,
+    this.reserveNavigationBar = false,
     this.actions = const [],
     this.titleAccessory,
     this.eyebrow,
@@ -79,36 +83,42 @@ class _LargeTitleScaffoldState extends State<LargeTitleScaffold> {
       floatingActionButton: widget.floatingActionButton,
       body: Stack(
         children: [
-          NotificationListener<ScrollNotification>(
-            onNotification: (notification) {
-              // 只看外层(大标题所在)的滚动;内层列表的滚动发生在大标题收起之后
-              if (notification.depth == 0 &&
-                  notification.metrics.axis == Axis.vertical) {
-                _offset.value = notification.metrics.pixels;
-              }
-              return false;
-            },
-            child: NestedScrollView(
-              physics: const BouncingScrollPhysics(),
-              headerSliverBuilder: (context, _) => [
-                SliverPersistentHeader(
-                  pinned: true,
-                  delegate: _BarSpacer(top + NavOverlay.barHeight),
-                ),
-                SliverToBoxAdapter(
-                  child: KeyedSubtree(
-                    key: _titleKey,
-                    child: LargeTitleHeader(
-                      title: widget.title,
-                      eyebrow: widget.eyebrow,
-                      accessory: widget.titleAccessory,
+          Padding(
+            padding: EdgeInsets.only(
+              top: widget.reserveNavigationBar ? top + NavOverlay.barHeight : 0,
+            ),
+            child: NotificationListener<ScrollNotification>(
+              onNotification: (notification) {
+                // 只看外层(大标题所在)的滚动;内层列表的滚动发生在大标题收起之后
+                if (notification.depth == 0 &&
+                    notification.metrics.axis == Axis.vertical) {
+                  _offset.value = notification.metrics.pixels;
+                }
+                return false;
+              },
+              child: NestedScrollView(
+                physics: const BouncingScrollPhysics(),
+                headerSliverBuilder: (context, _) => [
+                  if (!widget.reserveNavigationBar)
+                    SliverPersistentHeader(
+                      pinned: true,
+                      delegate: _BarSpacer(top + NavOverlay.barHeight),
+                    ),
+                  SliverToBoxAdapter(
+                    child: KeyedSubtree(
+                      key: _titleKey,
+                      child: LargeTitleHeader(
+                        title: widget.title,
+                        eyebrow: widget.eyebrow,
+                        accessory: widget.titleAccessory,
+                      ),
                     ),
                   ),
-                ),
-                if (widget.header != null)
-                  SliverToBoxAdapter(child: widget.header),
-              ],
-              body: widget.body,
+                  if (widget.header != null)
+                    SliverToBoxAdapter(child: widget.header),
+                ],
+                body: widget.body,
+              ),
             ),
           ),
           Positioned(
@@ -116,6 +126,7 @@ class _LargeTitleScaffoldState extends State<LargeTitleScaffold> {
             left: 0,
             right: 0,
             child: NavOverlay(
+              fadeBelowBar: !widget.reserveNavigationBar,
               leading: widget.showBack
                   ? ChromeButton(
                       icon: AppIcons.back,

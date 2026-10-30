@@ -50,6 +50,7 @@ class AppShell extends StatelessWidget {
     return LargeTitleScaffold(
       title: title,
       showBack: false,
+      reserveNavigationBar: current == AppDestination.forums,
       surface: current == AppDestination.forums || current == AppDestination.me
           ? AppSurface.grouped
           : AppSurface.content,

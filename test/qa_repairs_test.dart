@@ -10,6 +10,9 @@ import 'package:chh_app/design/tokens.dart';
 import 'package:chh_app/di.dart';
 import 'package:chh_app/models/models.dart';
 import 'package:chh_app/pages/forum_index_view.dart';
+import 'package:chh_app/pages/home_page.dart';
+import 'package:chh_app/widgets/app_shell.dart';
+import 'package:chh_app/ui/nav_bar.dart';
 import 'package:chh_app/pages/log_page.dart';
 import 'package:chh_app/pages/settings_page.dart';
 import 'package:chh_app/ui/app_button.dart';
@@ -362,6 +365,203 @@ void main() {
         await tester.drag(results, const Offset(0, 1000));
         await tester.pumpAndSettle();
         expect(loads, 2, reason: 'Pull to refresh is preserved');
+      },
+    );
+  }
+  for (final scale in [1.0, 2.0]) {
+    testWidgets(
+      'home forum toolbar stays below navigation after full collapse scale $scale',
+      (tester) async {
+        tester.view.devicePixelRatio = 1;
+        tester.view.physicalSize = Size(scale == 2 ? 320 : 390, 844);
+        tester.view.padding = const FakeViewPadding(top: 32, bottom: 24);
+        tester.view.viewPadding = const FakeViewPadding(top: 32, bottom: 24);
+        addTearDown(tester.view.reset);
+        var loads = 0;
+        await tester.pumpWidget(
+          _app(
+            HomePage(
+              initialiseSession: () async {},
+              screenBuilders: {
+                AppDestination.feed: (_) => const Scaffold(body: Text('本地示例')),
+                AppDestination.forums: (_) => AppShell(
+                  title: '版块',
+                  current: AppDestination.forums,
+                  body: ForumIndexView(
+                    loadForums: (_) async {
+                      loads++;
+                      return [
+                        ForumCategory(
+                          name: '交流区',
+                          forums: List.generate(
+                            1000,
+                            (i) => Forum(fid: i + 1, name: '版块 $i'),
+                          ),
+                        ),
+                      ];
+                    },
+                  ),
+                ),
+              },
+            ),
+            Brightness.light,
+            scale,
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.descendant(
+            of: find.byType(AppBottomNavigation),
+            matching: find.text('版块'),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final nested = tester.state<NestedScrollViewState>(
+          find.byType(NestedScrollView),
+        );
+        final field = find.byType(EditableText);
+        final capsule = find.byType(SearchCapsule);
+        final picker = find.byType(PickerButton<int>);
+        final nav = find.byType(NavOverlay);
+        final bar = find.descendant(
+          of: nav,
+          matching: find.byWidgetPredicate(
+            (widget) =>
+                widget is Positioned && widget.height == NavOverlay.barHeight,
+          ),
+        );
+        void expectToolbarVisible({bool hitTest = true}) {
+          final barRect = tester.getRect(bar);
+          expect(barRect.top, 32);
+          expect(barRect.height, NavOverlay.barHeight);
+          expect(
+            tester.getRect(nav).bottom,
+            barRect.bottom,
+            reason: 'Reserved navigation must not fade over the fixed toolbar',
+          );
+          expect(
+            tester.getRect(capsule).top,
+            greaterThanOrEqualTo(barRect.bottom),
+            reason:
+                'The filter must not paint behind the actual navigation bar',
+          );
+          expect(
+            tester.getRect(picker).top,
+            greaterThanOrEqualTo(barRect.bottom),
+          );
+          if (hitTest) {
+            expect(field.hitTestable(), findsOneWidget);
+            expect(picker.hitTestable(), findsOneWidget);
+          }
+        }
+
+        expect(nested.outerController.offset, 0);
+        expectToolbarVisible();
+        final initialTop = tester.getRect(capsule).top;
+        expect(
+          initialTop,
+          closeTo(
+            tester.getRect(bar).bottom +
+                tester.getSize(find.byType(LargeTitleHeader)).height +
+                8,
+            .01,
+          ),
+          reason:
+              'Reserve the navigation bar once, preserving the initial title/body spacing',
+        );
+        expect(find.byType(AppBottomNavigation), findsOneWidget);
+        expect(find.byType(GroupedRow).evaluate().length, lessThan(40));
+        await _shot(tester, 'home-forum-initial-$scale');
+        final results = find.byType(CustomScrollView).last;
+        for (var i = 0; i < 4; i++) {
+          final drag = await tester.startGesture(tester.getCenter(results));
+          for (var step = 0; step < 4; step++) {
+            await drag.moveBy(const Offset(0, -175));
+            await tester.pump(const Duration(milliseconds: 16));
+            expectToolbarVisible(hitTest: false);
+          }
+          await drag.up();
+          await tester.pumpAndSettle();
+          expectToolbarVisible();
+        }
+        expect(
+          nested.outerController.offset,
+          closeTo(nested.outerController.position.maxScrollExtent, .01),
+        );
+        expect(nested.outerController.offset, greaterThan(0));
+        expect(tester.getRect(capsule).top, lessThan(initialTop));
+        expectToolbarVisible();
+        expect(
+          tester.widget<Opacity>(find.byKey(NavOverlay.inlineTitleKey)).opacity,
+          closeTo(1, .01),
+        );
+        await _shot(tester, 'home-forum-collapsed-$scale');
+        await tester.tap(field);
+        final editor = tester.widget<EditableText>(field);
+        tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+        await tester.pumpAndSettle();
+        await tester.enterText(field, 'no-match');
+        await tester.pumpAndSettle();
+        editor.controller.selection = const TextSelection(
+          baseOffset: 1,
+          extentOffset: 4,
+        );
+        for (final height in [700.0, 844.0]) {
+          tester.view.physicalSize = Size(
+            tester.view.physicalSize.width,
+            height,
+          );
+          await tester.pumpAndSettle();
+          await tester.drag(results, const Offset(0, -400));
+          await tester.pumpAndSettle();
+          expectToolbarVisible();
+          expect(editor.focusNode.hasFocus, isTrue);
+          expect(
+            editor.controller.selection,
+            const TextSelection(baseOffset: 1, extentOffset: 4),
+          );
+          expect(
+            tester.getRect(find.byType(SearchClearButton)).bottom,
+            lessThan(height - 300),
+          );
+        }
+        expect(find.byType(AppBottomNavigation), findsNothing);
+        await _shot(tester, 'home-forum-keyboard-empty-$scale');
+        await tester.tap(find.byType(SearchClearButton));
+        await tester.pumpAndSettle();
+        expectToolbarVisible();
+        expect(editor.focusNode.hasFocus, isTrue);
+        expect(editor.controller.text, isEmpty);
+        expect(find.text('版块 0'), findsOneWidget);
+        expect(loads, 1);
+        expect(find.byType(GroupedRow).evaluate().length, lessThan(40));
+        tester.view.viewInsets = FakeViewPadding.zero;
+        await tester.pumpAndSettle();
+        expectToolbarVisible();
+        expect(find.byType(AppBottomNavigation), findsOneWidget);
+        await _shot(tester, 'home-forum-restored-$scale');
+        await tester.tap(picker);
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('picker-option-1')));
+        await tester.pump(const Duration(milliseconds: 250));
+        await tester.pumpAndSettle();
+        expect(tester.widget<PickerButton<int>>(picker).value, 0);
+        expect(loads, 1);
+        nested.innerController.jumpTo(0);
+        nested.outerController.jumpTo(0);
+        await tester.pumpAndSettle();
+        await tester.drag(results, const Offset(0, 500));
+        await tester.pumpAndSettle();
+        expect(
+          loads,
+          2,
+          reason:
+              'One actual pull refresh issues exactly one extra catalog load',
+        );
+        expect(tester.widget<PickerButton<int>>(picker).value, 0);
+        expectToolbarVisible();
+
+        expect(tester.takeException(), isNull);
       },
     );
   }

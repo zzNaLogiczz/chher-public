@@ -37,6 +37,9 @@ class NavOverlay extends StatefulWidget {
   /// 居中小标题左右让出的宽度;右侧放了较宽的操作时调大,避免标题压到按钮下
   final double titleInset;
 
+  /// 正文已固定在顶栏下方时,不再把渐隐遮罩画到工具栏上。
+  final bool fadeBelowBar;
+
   const NavOverlay({
     super.key,
     this.leading,
@@ -46,6 +49,7 @@ class NavOverlay extends StatefulWidget {
     required this.collapseAt,
     required this.background,
     this.titleInset = 72,
+    this.fadeBelowBar = true,
   });
 
   @override
@@ -101,7 +105,7 @@ class _NavOverlayState extends State<NavOverlay>
     final t = AppTokens.of(context);
     final top = MediaQuery.paddingOf(context).top;
     final solid = top + NavOverlay.barHeight;
-    final height = solid + NavOverlay.fadeBand;
+    final height = solid + (widget.fadeBelowBar ? NavOverlay.fadeBand : 0);
     return SizedBox(
       height: height,
       child: Stack(
