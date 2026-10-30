@@ -49,6 +49,14 @@ android {
             signingConfig = signingConfigs.getByName("release")
         }
     }
+
+    // 直接分发的通用 APK 压缩原生库，降低下载体积。
+    // Android 安装时解压设备所需架构的库；三个 CPU 架构全部保留。
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
 }
 
 kotlin {
