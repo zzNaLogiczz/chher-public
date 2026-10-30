@@ -69,6 +69,30 @@ class DeviceInputTests(unittest.TestCase):
                     send_input('test-device', PACKAGE, ['tap', '10', '20'], runner=runner)
                 self.assertEqual(runner.call_count, 1)
 
+    def test_legacy_activity_dumps_are_recognized(self):
+        record = f'ActivityRecord{{abc u0 {PACKAGE}/com.chhreader.chh_app.MainActivity t10}}'
+        # Android 10没有topResumedActivity；Android 7–9另有mFocusedActivity
+        android10 = f'    mResumedActivity: {record}\n ResumedActivity:{record}\n'
+        android7 = f'  mFocusedActivity: {record}\n    mResumedActivity: {record}\n'
+        for dump in [android10, android7]:
+            with self.subTest(dump=dump):
+                runner = Mock(side_effect=[result(dump), result(WINDOW), result()])
+                send_input('test-device', PACKAGE, ['tap', '10', '20'], runner=runner)
+                self.assertEqual(runner.call_count, 3)
+            with self.subTest(dump=dump, other=True):
+                runner = Mock(return_value=result(dump.replace(PACKAGE, 'com.tencent.mm')))
+                with self.assertRaisesRegex(DeviceInputError, '不在前台'):
+                    send_input('test-device', PACKAGE, ['tap', '10', '20'], runner=runner)
+                self.assertEqual(runner.call_count, 1)
+
+    def test_newest_activity_field_wins_over_legacy_lines(self):
+        stale = f'    mResumedActivity: ActivityRecord{{abc u0 {PACKAGE}/.MainActivity t1}}\n'
+        dump = stale + ACTIVITY.replace(PACKAGE, 'com.tencent.mm')
+        runner = Mock(return_value=result(dump))
+        with self.assertRaisesRegex(DeviceInputError, '不在前台'):
+            send_input('test-device', PACKAGE, ['tap', '10', '20'], runner=runner)
+        self.assertEqual(runner.call_count, 1)
+
     def test_window_focus_loss_never_sends_input(self):
         for window in ['', '  mCurrentFocus=null\n', WINDOW.replace(PACKAGE, 'com.android.systemui')]:
             with self.subTest(window=window):

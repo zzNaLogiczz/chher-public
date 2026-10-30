@@ -61,6 +61,20 @@ def _belongs_to_package(line, package):
     return re.search(r'(?<![A-Za-z0-9_.])' + re.escape(package) + '/', line) is not None
 
 
+# 前台Activity的字段名随系统版本变化：Android 11起为topResumedActivity；
+# Android 10只有(m)ResumedActivity；Android 7–9另有mFocusedActivity。按新到旧取第一个出现的字段。
+_RESUMED_MARKERS = ('topResumedActivity=', 'mFocusedActivity:', 'ResumedActivity:')
+
+
+def _resumed_activity(dump):
+    lines = dump.splitlines()
+    for marker in _RESUMED_MARKERS:
+        line = next((line for line in lines if marker in line), None)
+        if line is not None:
+            return line
+    return ''
+
+
 def send_input(device, package, arguments, *, runner=None):
     """只在目标Activity和窗口均处于前台时发送一个已校验动作。"""
     command = validated_input(arguments)
@@ -70,8 +84,7 @@ def send_input(device, package, arguments, *, runner=None):
         raise InputRejected('包名无效。')
     runner = subprocess.run if runner is None else runner
     activities = _adb(device, ['shell', 'dumpsys', 'activity', 'activities'], runner)
-    activity = next((line for line in activities.splitlines()
-                     if 'topResumedActivity=' in line), '')
+    activity = _resumed_activity(activities)
     if not _belongs_to_package(activity, package):
         raise DeviceInputError('目标应用不在前台，已停止输入；不会自动拉回应用。')
     windows = _adb(device, ['shell', 'dumpsys', 'window'], runner)
