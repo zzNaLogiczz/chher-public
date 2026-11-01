@@ -21,6 +21,10 @@ Future<void> main() async {
     const Duration(milliseconds: 300),
     onTimeout: () {},
   );
+  await readingPrefs.load().timeout(
+    const Duration(milliseconds: 300),
+    onTimeout: () {},
+  );
   const review = bool.fromEnvironment('interaction_review');
   const threadReview = bool.fromEnvironment('thread_review');
   runApp(

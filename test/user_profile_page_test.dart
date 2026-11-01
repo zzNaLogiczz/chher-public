@@ -75,18 +75,18 @@ void main() {
     }
     expect(find.text('权天使'), findsOneWidget);
     expect(find.text('在线时长'), findsOneWidget);
-    expect(find.text('2845'), findsOneWidget);
+    expect(find.text('1200'), findsOneWidget);
     expect(find.text('小时'), findsOneWidget);
-    expect(find.text('主题 128，回帖 3600'), findsOneWidget);
+    expect(find.text('主题 120，回帖 4800'), findsOneWidget);
     final rows = tester
         .widgetList<GroupedRow>(find.byType(GroupedRow))
         .toList();
     expect(rows.map((row) => row.title), ['注册时间', '最后访问', '上次发表', '好友']);
     expect(rows.map((row) => row.value), [
-      '2013-6-1 21:59',
-      '2026-10-30 11:43',
-      '2026-10-29 22:46',
-      '15',
+      '2001-01-01 00:00',
+      '2001-02-03 04:05',
+      '2001-02-03 04:00',
+      '24',
     ]);
     for (final row in rows) {
       expect(row.icon, isNull);
@@ -128,11 +128,12 @@ void main() {
             (_) async => const UserProfile(
               uid: '42',
               name: '访客',
+              // 原始资料同样为虚构，仅用于测试，不来自真实账号。
               profile: {
                 '邮箱状态': '已验证',
                 '所在时区': '(GMT +08:00) 北京, 香港',
-                '上次活动时间': '2026-10-30 11:43',
-                '统计信息': '好友数 15 | 回帖数 3112 | 主题数 616',
+                '上次活动时间': '2001-02-03 04:05',
+                '统计信息': '好友数 24 | 回帖数 4800 | 主题数 120',
                 '用户认证': '手机认证',
               },
               stats: {'已用空间': '0 B'},
@@ -163,7 +164,7 @@ void main() {
       '已验证',
       '手机认证',
       '0 B',
-      '好友数 15 | 回帖数 3112 | 主题数 616',
+      '好友数 24 | 回帖数 4800 | 主题数 120',
     ]) {
       expect(find.text(text), findsNothing);
     }
@@ -365,9 +366,10 @@ void main() {
                 threads: 9999999999999999,
                 replies: 9999999999999999,
                 friends: 9999999999999999,
-                registeredAt: '2013-6-1 21:59',
-                lastVisitAt: '2026-10-30 11:43',
-                lastPostAt: '2026-10-29 22:46',
+                // 虚构日期仅用于测试，不来自真实账号；保留长名和大数字布局覆盖。
+                registeredAt: '2001-01-01 00:00',
+                lastVisitAt: '2001-02-03 04:05',
+                lastPostAt: '2001-02-03 04:00',
                 portalArticles: 9999999999999999,
               ),
             ),

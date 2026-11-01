@@ -96,7 +96,7 @@ void main() {
     );
   }
 
-  testWidgets('thread inline title remains centered between single circles', (
+  testWidgets('thread inline title remains centered beside reading actions', (
     tester,
   ) async {
     const width = 360.0;
@@ -131,7 +131,12 @@ void main() {
     final nav = find.byType(NavOverlay);
     expect(
       find.descendant(of: nav, matching: find.byType(ChromeButton)),
-      findsNWidgets(2),
+      findsOneWidget,
+    );
+    final group = find.descendant(of: nav, matching: find.byType(ChromeGroup));
+    expect(
+      tester.widget<ChromeGroup>(group).items.map((item) => item.tooltip),
+      ['查看原页面', '阅读设置'],
     );
     final scroll = tester.state<ScrollableState>(find.byType(Scrollable).first);
     scroll.position.jumpTo(200);
@@ -140,7 +145,7 @@ void main() {
     final title = tester.getRect(find.byKey(NavOverlay.inlineTitleKey));
     expect(title.center.dx, closeTo(width / 2, 1));
     expect(title.overlaps(tester.getRect(find.byTooltip('返回'))), isFalse);
-    expect(title.overlaps(tester.getRect(find.byTooltip('查看原页面'))), isFalse);
+    expect(title.overlaps(tester.getRect(group)), isFalse);
     expect(tester.takeException(), isNull);
   });
 

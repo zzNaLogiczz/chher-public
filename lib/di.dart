@@ -18,6 +18,7 @@ import 'data/space_repository.dart';
 import 'core/app_log.dart';
 import 'core/app_paths.dart';
 import 'core/appearance.dart';
+import 'core/reading_prefs.dart';
 import 'core/log_store.dart';
 import 'network/chh_client.dart';
 import 'network/chh_session.dart';
@@ -29,6 +30,7 @@ import 'data/user_group_levels.dart';
 final ChhClient chhClient = ChhClient.createDefault();
 final ChhSession chhSession = ChhSession(chhClient);
 final AppearanceController appearance = AppearanceController();
+final ReadingPrefsController readingPrefs = ReadingPrefsController();
 
 final ForumRepository forumRepo = ForumRepository(
   chhClient,

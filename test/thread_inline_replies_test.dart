@@ -7,7 +7,7 @@ import 'package:chh_app/pages/thread_detail_page.dart';
 import 'package:chh_app/ui/segmented.dart';
 import 'package:chh_app/widgets/thread_comment_widgets.dart';
 import 'package:chh_app/ui/reading_bar.dart';
-import 'package:chh_app/ui/app_button.dart';
+import 'package:chh_app/ui/press.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -76,7 +76,7 @@ void main() {
           .state<ScrollableState>(find.byType(Scrollable).first)
           .position;
       final offset = scroll.pixels;
-      final onExpand = tester.widget<AppButton>(action).onPressed!;
+      final onExpand = tester.widget<PressScale>(action).onTap!;
       onExpand();
       onExpand(); // A rapid second activation must not append another batch.
       await tester.pump();
@@ -372,7 +372,7 @@ void main() {
       await Scrollable.ensureVisible(tester.element(action), alignment: .4);
       await tester.pump();
       // If proximity loading already started, the control must stay disabled.
-      final callback = tester.widget<AppButton>(action).onPressed;
+      final callback = tester.widget<PressScale>(action).onTap;
       callback?.call();
       callback?.call();
       await tester.pump();

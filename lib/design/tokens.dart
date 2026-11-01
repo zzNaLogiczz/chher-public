@@ -86,6 +86,10 @@ class AppTokens extends ThemeExtension<AppTokens> {
   final Color surface;
   final Color fill;
   final Color fill2;
+  final Color fill3;
+  final Color greenSoft;
+  final Color greenFill;
+  final Color greenLine;
   final Color separator;
   final Color pressed;
   final Color text;
@@ -109,6 +113,10 @@ class AppTokens extends ThemeExtension<AppTokens> {
     required this.surface,
     required this.fill,
     required this.fill2,
+    required this.fill3,
+    required this.greenSoft,
+    required this.greenFill,
+    required this.greenLine,
     required this.separator,
     required this.pressed,
     required this.text,
@@ -133,6 +141,10 @@ class AppTokens extends ThemeExtension<AppTokens> {
     surface: Color(0xFFFFFFFF),
     fill: Color.fromRGBO(118, 118, 128, .12),
     fill2: Color.fromRGBO(118, 118, 128, .22),
+    fill3: Color.fromRGBO(118, 118, 128, .06),
+    greenSoft: Color.fromRGBO(43, 154, 102, .09),
+    greenFill: Radix.green3Light,
+    greenLine: Color.fromRGBO(33, 131, 88, .16),
     separator: Color.fromRGBO(60, 60, 67, .16),
     pressed: Color(0xFFE5E5EA),
     text: Color(0xFF1C2024),
@@ -157,6 +169,10 @@ class AppTokens extends ThemeExtension<AppTokens> {
     surface: Color(0xFF1C1C1E),
     fill: Color.fromRGBO(118, 118, 128, .24),
     fill2: Color.fromRGBO(118, 118, 128, .36),
+    fill3: Color.fromRGBO(118, 118, 128, .12),
+    greenSoft: Color.fromRGBO(61, 214, 140, .09),
+    greenFill: Radix.green3Dark,
+    greenLine: Color.fromRGBO(61, 214, 140, .18),
     separator: Color.fromRGBO(84, 84, 88, .60),
     pressed: Color(0xFF2C2C2F),
     text: Color(0xFFEDEEF0),
@@ -185,6 +201,9 @@ class AppTokens extends ThemeExtension<AppTokens> {
   };
 
   bool get isDark => bg.computeLuminance() < 0.3;
+
+  /// Thread section bands are slightly lighter than the dark page background.
+  Color get threadSectionBand => isDark ? const Color(0xFF151517) : grouped;
 
   // ---- 层级阴影(规格 §5.4) ----
   //
@@ -235,6 +254,10 @@ class AppTokens extends ThemeExtension<AppTokens> {
     Color? surface,
     Color? fill,
     Color? fill2,
+    Color? fill3,
+    Color? greenSoft,
+    Color? greenFill,
+    Color? greenLine,
     Color? separator,
     Color? pressed,
     Color? text,
@@ -258,6 +281,10 @@ class AppTokens extends ThemeExtension<AppTokens> {
       surface: surface ?? this.surface,
       fill: fill ?? this.fill,
       fill2: fill2 ?? this.fill2,
+      fill3: fill3 ?? this.fill3,
+      greenSoft: greenSoft ?? this.greenSoft,
+      greenFill: greenFill ?? this.greenFill,
+      greenLine: greenLine ?? this.greenLine,
       separator: separator ?? this.separator,
       pressed: pressed ?? this.pressed,
       text: text ?? this.text,
@@ -324,4 +351,12 @@ abstract final class ImageColors {
   static const shade = Color(0xFF1C2024);
   static const viewerBackground = Color(0xFF111113);
   static const viewerForeground = Color(0xFFEDEEF0);
+}
+
+/// Fixed metadata sizes from the thread detail design; reading text uses ReadingMetrics.
+abstract final class ThreadMetrics {
+  static const metaSize = 12.5;
+  static const headingSize = 20.0;
+  static const pillRadius = 15.0;
+  static const forumRadius = 13.0;
 }

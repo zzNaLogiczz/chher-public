@@ -47,7 +47,13 @@ class ThreadCommentHeading extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.baseline,
           textBaseline: TextBaseline.alphabetic,
           children: [
-            Text('评论', style: AppType.title2.copyWith(color: t.text)),
+            Text(
+              '评论',
+              style: AppType.title2.copyWith(
+                fontSize: ThreadMetrics.headingSize,
+                color: t.text,
+              ),
+            ),
             const SizedBox(width: 6),
             Flexible(
               child: busy
@@ -57,7 +63,10 @@ class ThreadCommentHeading extends StatelessWidget {
                       complete ? '$loadedCount' : '已加载 $loadedCount',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: AppType.footnote.copyWith(color: t.text3),
+                      style: AppType.footnote.copyWith(
+                        fontSize: ThreadMetrics.metaSize,
+                        color: t.text3,
+                      ),
                     ),
             ),
           ],

@@ -1,9 +1,11 @@
 /// Verified against public portal comment pages and portal_comment_requote JS.
 library;
 
+import 'package:html/dom.dart' as dom;
 import 'package:html/parser.dart' as html_parser;
 
 import '../core/chh_urls.dart';
+import '../core/link_target.dart';
 import '../models/article_discussion.dart';
 import '../models/models.dart';
 import 'content_walker.dart';
@@ -26,15 +28,20 @@ ArticleDiscussion parseArticleDiscussion(
     );
     final body = item.querySelector('dd');
     if (cid == null || !seen.add(cid) || body == null) continue;
-    final author = findUserLink(item.querySelector('dt'));
-    final rawTime = cleanText(item.querySelector('dt span.xg1')?.text);
-    final avatar = item.querySelector('.avt img')?.attributes['src'];
+    final authorArea = _commentAuthorArea(item);
+    final author = _commentAuthor(authorArea);
+    final rawTime = cleanText(authorArea.querySelector('dt span.xg1')?.text);
+    final avatar = _commentAvatar(authorArea);
     comments.add(
       ArticleComment(
         cid: cid,
-        author: cleanText(author?.el.text),
-        authorUid: author?.uid,
-        avatarUrl: avatar == null ? null : ChhUrls.absolutize(avatar),
+        author: author.name,
+        authorUid: author.uid,
+        avatarUrl:
+            avatar ??
+            (author.uid == null
+                ? null
+                : ChhUrls.avatar(author.uid!, size: 'small')),
         timeRaw: rawTime.isEmpty ? null : rawTime,
         time: ChhUrls.parseTime(rawTime),
         content: parseContentBlocks(body),
@@ -64,6 +71,96 @@ ArticleDiscussion parseArticleDiscussion(
     threadUrl: thread?.url,
     replyIssue: reply.issue,
   );
+}
+
+/// 只读当前评论直属的作者栏和头像栏，剔除引用与嵌套评论，避免借他人身份。
+dom.Element _commentAuthorArea(dom.Element item) {
+  final area = dom.Element.tag('div');
+  for (final child in item.children) {
+    if (child.localName == 'dt' || child.classes.contains('avt')) {
+      area.append(child.clone(true));
+    }
+  }
+  for (final foreign in area.querySelectorAll(
+    'blockquote, .quote, .blockquote, dl, dd',
+  )) {
+    foreign.remove();
+  }
+  return area;
+}
+
+({String name, String? uid}) _commentAuthor(dom.Element area) {
+  final links = area
+      .querySelectorAll('a[href]')
+      .where((link) => _isCommentAuthorLink(link.attributes['href']!))
+      .toList();
+  final named = links.where((link) => cleanText(link.text).isNotEmpty);
+  final name = named.isEmpty
+      ? textWithout(area.querySelector('dt'), ['.xg1'])
+      : cleanText(named.first.text);
+  final uids = links
+      .map((link) => _commentUid(link.attributes['href']!))
+      .toSet();
+  // 即使只有一条合法链接，混有外站、非法或不同 UID 也不能挑一条猜身份。
+  return (name: name, uid: uids.length == 1 ? uids.single : null);
+}
+
+bool _isCommentAuthorLink(String href) {
+  try {
+    final uri = Uri.tryParse(href);
+    if (uri == null) return true;
+    final query = uri.queryParametersAll;
+    // 先按解码后的路径与参数收集候选，再校验可信来源，避免编码或外站冲突被漏掉。
+    return uri.path.contains('space-uid-') ||
+        query.containsKey('uid') ||
+        (query['mod']?.any((value) => value.startsWith('space')) ?? false);
+  } on FormatException {
+    // 作者区域中无法解析的链接也参与冲突判定，不因解析失败猜选其他身份。
+    return true;
+  }
+}
+
+String? _commentUid(String href) {
+  try {
+    // 沿用正文链接的本站信任边界：HTTP(S)、本站域名、无凭据及自定义端口。
+    final target = classifyLink(href);
+    if (target is! OtherSiteLink) return null;
+    final uri = target.uri;
+    final query = uri.queryParametersAll;
+    if (query.values.any((values) => values.length != 1)) return null;
+    final seo = RegExp(
+      r'^/space-uid-([1-9]\d{0,8})\.html$',
+    ).firstMatch(uri.path);
+    if (seo != null) {
+      return query.containsKey('uid') ? null : seo.group(1);
+    }
+    if (uri.path != '/home.php' || query['mod']?.single != 'space') return null;
+    final uid = query['uid']?.single;
+    // 既有头像助手只支持九位分段路径，超出范围时保守保留无身份状态。
+    return uid != null && RegExp(r'^[1-9]\d{0,8}$').hasMatch(uid) ? uid : null;
+  } on FormatException {
+    return null;
+  }
+}
+
+String? _commentAvatar(dom.Element area) {
+  for (final image in area.querySelectorAll('.avt img')) {
+    final raw = image.attributes['src']?.trim() ?? '';
+    if (raw.isEmpty) continue;
+    final parsed = Uri.tryParse(raw);
+    if (parsed == null) continue;
+    final uri = Uri.parse('${ChhUrls.base}/').resolveUri(parsed);
+    // 头像仅接受本站和既有静态图片域，不让外站或脚本地址覆盖可信回退。
+    if ((uri.scheme == 'http' || uri.scheme == 'https') &&
+        (uri.host == 'www.chiphell.com' ||
+            uri.host == 'chiphell.com' ||
+            uri.host == 'static.chiphell.com') &&
+        uri.userInfo.isEmpty &&
+        !uri.hasPort) {
+      return uri.toString();
+    }
+  }
+  return null;
 }
 
 /// The full comments page supplies aid + formhash and commentsubmit=true.

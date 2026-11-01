@@ -6,6 +6,7 @@ library;
 import 'package:flutter/material.dart';
 
 import 'design/theme.dart';
+import 'design/reading.dart';
 import 'di.dart';
 import 'pages/favorites_page.dart';
 import 'pages/home_page.dart';
@@ -20,23 +21,26 @@ class ChhApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: appearance,
-      builder: (context, _) => MaterialApp(
-        title: 'Chher',
-        debugShowCheckedModeBanner: false,
-        theme: buildAppTheme(Brightness.light),
-        darkTheme: buildAppTheme(Brightness.dark),
-        themeMode: appearance.mode.themeMode,
-        home: const HomePage(),
-        routes: {
-          '/login': (_) => const LoginPage(),
-          '/messages': (_) => const MessagesPage(),
-          '/me': (_) => const MePage(),
-          '/favorites': (_) => const FavoritesPage(),
-          '/settings': (_) => const SettingsPage(),
-          '/logs': (_) => const LogPage(),
-        },
+    return ReadingScope(
+      controller: readingPrefs,
+      child: ListenableBuilder(
+        listenable: appearance,
+        builder: (context, _) => MaterialApp(
+          title: 'Chher',
+          debugShowCheckedModeBanner: false,
+          theme: buildAppTheme(Brightness.light),
+          darkTheme: buildAppTheme(Brightness.dark),
+          themeMode: appearance.mode.themeMode,
+          home: const HomePage(),
+          routes: {
+            '/login': (_) => const LoginPage(),
+            '/messages': (_) => const MessagesPage(),
+            '/me': (_) => const MePage(),
+            '/favorites': (_) => const FavoritesPage(),
+            '/settings': (_) => const SettingsPage(),
+            '/logs': (_) => const LogPage(),
+          },
+        ),
       ),
     );
   }

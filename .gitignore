@@ -101,5 +101,6 @@ key.properties
 
 # Local design/agent notes and historical QA evidence are not public source.
 /docs/
+/.design/
 AGENTS.md
 DESIGN.md

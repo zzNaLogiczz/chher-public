@@ -105,7 +105,7 @@ void main() {
         find.descendant(of: cards, matching: find.byType(VerticalDivider)),
         findsNWidgets(2),
       );
-      expect(find.text('差 171 积分'), findsOneWidget);
+      expect(find.text('差 600 积分'), findsOneWidget);
       expect(
         find.descendant(of: cards, matching: find.byKey(UserPage.progressKey)),
         findsNothing,

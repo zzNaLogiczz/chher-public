@@ -8,7 +8,10 @@ import 'package:flutter/material.dart';
 import '../ui/app_button.dart';
 
 import '../design/tokens.dart';
+import '../design/reading.dart';
+import 'package:solar_icons/solar_icons.dart';
 import '../ui/press.dart';
+import '../ui/hit_slop.dart';
 import '../ui/quote.dart';
 import '../design/typography.dart';
 import 'expressive_controls.dart';
@@ -19,6 +22,7 @@ import 'image_grid.dart';
 import 'net_image.dart';
 import 'rich_content_text.dart';
 import 'content_link_block.dart';
+import 'post_feedback.dart';
 
 enum _PostPart { whole, header, block, footer }
 
@@ -31,6 +35,7 @@ class PostCard extends StatelessWidget {
 
   /// Comment mode displays the author’s own content without historical quotes.
   final bool commentStyle;
+  final bool nested;
 
   /// Only a nested reply's direct, loaded recipient; root replies omit this.
   final String? replyToAuthor;
@@ -44,6 +49,7 @@ class PostCard extends StatelessWidget {
   final ContentBlock? contentBlock;
   final List<String> gallery;
   final int galleryIndex;
+  final bool paragraphGapBefore;
 
   const PostCard({
     super.key,
@@ -51,6 +57,7 @@ class PostCard extends StatelessWidget {
     required this.isOpening,
     this.isAuthor = false,
     this.commentStyle = false,
+    this.nested = false,
     this.replyToAuthor,
     this.onReply,
     this.onUnlock,
@@ -59,7 +66,8 @@ class PostCard extends StatelessWidget {
   }) : _part = _PostPart.whole,
        contentBlock = null,
        gallery = const [],
-       galleryIndex = 0;
+       galleryIndex = 0,
+       paragraphGapBefore = false;
 
   /// Long opening posts are separate lazy list entries, not one huge Column.
   const PostCard.header({
@@ -68,6 +76,7 @@ class PostCard extends StatelessWidget {
     required this.isOpening,
     this.isAuthor = false,
     this.commentStyle = false,
+    this.nested = false,
     this.replyToAuthor,
     this.onReply,
     this.onUnlock,
@@ -76,7 +85,8 @@ class PostCard extends StatelessWidget {
   }) : _part = _PostPart.header,
        contentBlock = null,
        gallery = const [],
-       galleryIndex = 0;
+       galleryIndex = 0,
+       paragraphGapBefore = false;
 
   const PostCard.block({
     super.key,
@@ -85,8 +95,10 @@ class PostCard extends StatelessWidget {
     required this.contentBlock,
     this.gallery = const [],
     this.galleryIndex = 0,
+    this.paragraphGapBefore = false,
     this.isAuthor = false,
     this.commentStyle = false,
+    this.nested = false,
     this.replyToAuthor,
     this.onUnlock,
   }) : _part = _PostPart.block,
@@ -100,6 +112,7 @@ class PostCard extends StatelessWidget {
     required this.isOpening,
     this.isAuthor = false,
     this.commentStyle = false,
+    this.nested = false,
     this.replyToAuthor,
     this.onReply,
     this.onUnlock,
@@ -108,19 +121,23 @@ class PostCard extends StatelessWidget {
   }) : _part = _PostPart.footer,
        contentBlock = null,
        gallery = const [],
-       galleryIndex = 0;
+       galleryIndex = 0,
+       paragraphGapBefore = false;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => HitSlopRegion(child: _build(context));
+
+  Widget _build(BuildContext context) {
     final t = AppTokens.of(context);
+    final metrics = ReadingMetrics.of(context);
     if (_part != _PostPart.whole) return _buildPart(context, t);
-    if (commentStyle) return _comment(context, t);
+    if (commentStyle && !isOpening) return _comment(context, t);
     return Padding(
       padding: EdgeInsets.fromLTRB(
-        24,
-        isOpening ? 24 : 20,
-        24,
-        isOpening ? 26 : 20,
+        metrics.gutter,
+        metrics.postVPad,
+        metrics.gutter,
+        metrics.postVPad,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -129,7 +146,7 @@ class PostCard extends StatelessWidget {
           ?replyContext,
           Padding(
             // 回复楼与头像对齐缩进,楼主楼不缩进
-            padding: EdgeInsets.only(top: isOpening ? 18 : 14),
+            padding: EdgeInsets.only(top: metrics.postVPad),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -137,8 +154,7 @@ class PostCard extends StatelessWidget {
                 ..._notes(context, t, PostNoteKind.edited),
                 ..._blocks(context, t),
                 ..._notes(context, t, PostNoteKind.supplement),
-                if (post.rating != null) _ratingBlock(context, t, post.rating!),
-                if (post.comments.isNotEmpty) _commentsBlock(context, t),
+                _feedback(),
                 _actions(t),
               ],
             ),
@@ -148,75 +164,81 @@ class PostCard extends StatelessWidget {
     );
   }
 
-  Widget _comment(BuildContext context, AppTokens t) => Padding(
-    padding: const EdgeInsets.fromLTRB(24, 10, 24, 4),
-    child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _profileLink(
-          context,
-          key: ValueKey('post-avatar-${post.pid}'),
-          child: Padding(
-            padding: const EdgeInsets.only(right: 10),
-            child: _avatar(t, 28),
+  Widget _comment(BuildContext context, AppTokens t) {
+    final metrics = ReadingMetrics.of(context);
+    return Padding(
+      padding: EdgeInsets.symmetric(
+        horizontal: nested ? 0 : metrics.gutter,
+        vertical: metrics.postVPad,
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _commentAvatar(context, t),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _commentMetadata(context, t),
+                const SizedBox(height: 2),
+                ..._blocks(context, t),
+                ..._notes(context, t, PostNoteKind.supplement),
+                if (post.rating?.isEmpty == false ||
+                    post.comments.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  CommentFeedback(rating: post.rating, comments: post.comments),
+                ],
+                _commentMetaRow(context, t),
+              ],
+            ),
           ),
-        ),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Flexible(
-                    child: _profileLink(
-                      context,
-                      key: ValueKey('post-author-${post.pid}'),
-                      child: Text(
-                        post.author,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: AppType.sizeFootnote,
-                          fontWeight: FontWeight.w600,
-                          color: t.text2,
-                        ),
-                      ),
-                    ),
+        ],
+      ),
+    );
+  }
+
+  Widget _commentMetadata(BuildContext context, AppTokens t) => Row(
+    children: [
+      Expanded(
+        child: Row(
+          children: [
+            Flexible(
+              child: _profileLink(
+                context,
+                key: ValueKey('post-author-${post.pid}'),
+                child: Text(
+                  post.author,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppType.footnote.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: t.text2,
                   ),
-                  // 评论区里楼主的评论和楼中楼回复同样标出楼主
-                  if (isAuthor) _ownerBadge(t),
-                ],
+                ),
               ),
-              const SizedBox(height: 4),
-              ..._blocks(context, t),
-              ..._notes(context, t, PostNoteKind.supplement),
-              Wrap(
-                spacing: 8,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  if (post.timeRaw.isNotEmpty)
-                    Text(
-                      post.timeRaw,
-                      style: TextStyle(
-                        fontSize: AppType.sizeFootnote,
-                        color: t.text3,
-                      ),
-                    ),
-                  if (onReply != null)
-                    AppButton(
-                      key: ValueKey('comment-reply-${post.pid}'),
-                      label: '回复',
-                      variant: AppButtonVariant.quiet,
-                      onPressed: onReply,
-                    ),
-                ],
-              ),
-            ],
-          ),
+            ),
+            if (isAuthor) _ownerBadge(t),
+          ],
         ),
-      ],
-    ),
+      ),
+    ],
   );
+
+  Widget _commentMetaRow(BuildContext context, AppTokens t) => CommentMetaRow(
+    timeLabel: post.timeRaw,
+    replyKey: ValueKey('comment-reply-${post.pid}'),
+    onReply: onReply,
+  );
+
+  Widget _commentAvatar(BuildContext context, AppTokens t) {
+    final metrics = ReadingMetrics.of(context);
+    return _profileLink(
+      context,
+      key: ValueKey('post-avatar-${post.pid}'),
+      child: _avatar(t, nested ? metrics.avatarNested : metrics.avatar),
+    );
+  }
 
   Widget _ownerBadge(AppTokens t) => Padding(
     padding: const EdgeInsets.only(left: 6),
@@ -293,13 +315,15 @@ class PostCard extends StatelessWidget {
   }
 
   Widget _buildPart(BuildContext context, AppTokens t) {
+    final metrics = ReadingMetrics.of(context);
+    if (commentStyle && !isOpening) return _commentPart(context, t, metrics);
     final content = switch (_part) {
       _PostPart.header => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _authorRow(context, t),
           ?replyContext,
-          const SizedBox(height: 16),
+          SizedBox(height: metrics.postVPad),
           ..._notes(context, t, PostNoteKind.edited),
           if (post.lock != null) _lockBlock(t),
         ],
@@ -308,73 +332,134 @@ class PostCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           ..._notes(context, t, PostNoteKind.supplement),
-          if (post.rating != null) _ratingBlock(context, t, post.rating!),
-          if (post.comments.isNotEmpty) _commentsBlock(context, t),
+          _feedback(),
           _actions(t),
         ],
       ),
-      _PostPart.block => switch (contentBlock!) {
-        final TextBlock textBlock => _text(
-          context,
-          textBlock,
-          prefix: _replyPrefix,
-        ),
-        QuoteBlock(:final source, :final children) => _quote(
-          context,
-          t,
-          source,
-          children,
-        ),
-        SiteLinkBlock() || BilibiliBlock() => _linkBlock(contentBlock!),
-        ImageBlock(:final url) => Padding(
-          padding: const EdgeInsets.only(top: 10, bottom: 16),
-          child: Semantics(
-            button: true,
-            label: '查看第 ${galleryIndex + 1} 张图片',
-            child: GestureDetector(
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => ImageViewerPage(
-                    urls: gallery.isEmpty ? [url] : gallery,
-                    initialIndex: galleryIndex,
-                  ),
-                ),
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(AppRadii.sm),
-                child: ArticleImage(url: url),
-              ),
-            ),
-          ),
-        ),
-      },
+      _PostPart.block => _contentBlock(context, t, metrics),
       _PostPart.whole => const SizedBox.shrink(),
     };
     return Padding(
       padding: EdgeInsets.fromLTRB(
-        24,
-        _part == _PostPart.header ? (isOpening ? 24 : 20) : 0,
-        24,
-        _part == _PostPart.footer ? (isOpening ? 26 : 20) : 0,
+        nested ? 0 : metrics.gutter,
+        _part == _PostPart.header
+            ? metrics.postVPad
+            : (!isOpening && paragraphGapBefore ? metrics.paragraphGap : 0),
+        nested ? 0 : metrics.gutter,
+        _part == _PostPart.footer ? metrics.postVPad : 0,
       ),
-      child:
-          _part == _PostPart.block &&
-              contentBlock is! TextBlock &&
-              _replyPrefix != null
-          ? Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _text(context, const TextBlock(''), prefix: _replyPrefix),
-                content,
+      child: content,
+    );
+  }
+
+  Widget _contentBlock(
+    BuildContext context,
+    AppTokens t,
+    ReadingMetrics metrics,
+  ) {
+    final content = switch (contentBlock!) {
+      final TextBlock textBlock => _text(
+        context,
+        textBlock,
+        prefix: _replyPrefix,
+      ),
+      QuoteBlock(:final source, :final children) => _quote(
+        context,
+        t,
+        source,
+        children,
+      ),
+      SiteLinkBlock() || BilibiliBlock() => _linkBlock(contentBlock!),
+      ImageBlock(:final url) => Padding(
+        padding: EdgeInsets.symmetric(vertical: metrics.imageGap),
+        child: Semantics(
+          button: true,
+          label: '查看第 ${galleryIndex + 1} 张图片',
+          child: GestureDetector(
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => ImageViewerPage(
+                  urls: gallery.isEmpty ? [url] : gallery,
+                  initialIndex: galleryIndex,
+                ),
+              ),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(AppRadii.sm),
+              child: ArticleImage(url: url),
+            ),
+          ),
+        ),
+      ),
+    };
+    return contentBlock is! TextBlock && _replyPrefix != null
+        ? Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _text(context, const TextBlock(''), prefix: _replyPrefix),
+              content,
+            ],
+          )
+        : content;
+  }
+
+  /// Lazy comments keep the same metadata and indentation as whole comments.
+  Widget _commentPart(
+    BuildContext context,
+    AppTokens t,
+    ReadingMetrics metrics,
+  ) {
+    final avatar = nested ? metrics.avatarNested : metrics.avatar;
+    if (_part == _PostPart.header) {
+      return Padding(
+        padding: EdgeInsets.fromLTRB(
+          nested ? 0 : metrics.gutter,
+          metrics.postVPad,
+          nested ? 0 : metrics.gutter,
+          2,
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            KeyedSubtree(
+              key: ValueKey('post-profile-${post.pid}'),
+              child: _commentAvatar(context, t),
+            ),
+            const SizedBox(width: 10),
+            Expanded(child: _commentMetadata(context, t)),
+          ],
+        ),
+      );
+    }
+    final child = _part == _PostPart.footer
+        ? Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ..._notes(context, t, PostNoteKind.supplement),
+              if (post.rating?.isEmpty == false ||
+                  post.comments.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                CommentFeedback(rating: post.rating, comments: post.comments),
               ],
-            )
-          : content,
+              _commentMetaRow(context, t),
+            ],
+          )
+        : _contentBlock(context, t, metrics);
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        (nested ? 0 : metrics.gutter) + avatar + 10,
+        paragraphGapBefore ? metrics.paragraphGap : 0,
+        nested ? 0 : metrics.gutter,
+        _part == _PostPart.footer ? metrics.postVPad : 0,
+      ),
+      child: child,
     );
   }
 
   Widget _authorRow(BuildContext context, AppTokens t) {
-    final size = isOpening ? 38.0 : 32.0;
-    return Row(
+    final metrics = ReadingMetrics.of(context);
+    final size = isOpening ? metrics.openingAvatar : 34.0;
+    final row = Row(
       children: [
         Expanded(
           child: _profileLink(
@@ -408,7 +493,10 @@ class PostCard extends StatelessWidget {
                       if (post.timeRaw.isNotEmpty)
                         Text(
                           post.timeRaw,
-                          style: AppType.footnote.copyWith(color: t.text3),
+                          style: TextStyle(
+                            fontSize: ThreadMetrics.metaSize,
+                            color: t.text3,
+                          ),
                         ),
                     ],
                   ),
@@ -427,11 +515,22 @@ class PostCard extends StatelessWidget {
         ],
       ],
     );
+    if (!isOpening) return row;
+    return Container(
+      padding: EdgeInsets.symmetric(vertical: metrics.postVPad - 2),
+      decoration: BoxDecoration(
+        border: Border.symmetric(
+          horizontal: BorderSide(color: t.separator, width: AppSpace.hairline),
+        ),
+      ),
+      child: row,
+    );
   }
 
   /// 把内容块渲染成组件,并把相邻图片合并成一个宫格
   List<Widget> _blocks(BuildContext context, AppTokens t) {
     if (post.lock != null) return [_lockBlock(t)];
+    final metrics = ReadingMetrics.of(context);
     final out = <Widget>[];
     final pendingImages = <String>[];
     var prefix = _replyPrefix;
@@ -440,7 +539,7 @@ class PostCard extends StatelessWidget {
       if (pendingImages.isEmpty) return;
       out.add(
         Padding(
-          padding: const EdgeInsets.only(top: 10, bottom: 2),
+          padding: EdgeInsets.symmetric(vertical: metrics.imageGap),
           child: ImageGrid(
             List.of(pendingImages),
             preserveAspectRatio: isOpening,
@@ -464,6 +563,9 @@ class PostCard extends StatelessWidget {
           pendingImages.add(url);
         case TextBlock():
           flushImages();
+          if (out.isNotEmpty && !isOpening) {
+            out.add(SizedBox(height: metrics.paragraphGap));
+          }
           out.add(_text(context, block, prefix: prefix));
         case QuoteBlock(:final source, :final children):
           flushImages();
@@ -500,9 +602,22 @@ class PostCard extends StatelessWidget {
         for (final n in notes)
           Padding(
             padding: const EdgeInsets.only(bottom: 8),
-            child: Text(
-              n.text,
-              style: TextStyle(fontSize: AppType.sizeFootnote, color: t.text3),
+            child: Row(
+              children: [
+                Icon(SolarIconsOutline.clockCircle, size: 13, color: t.text3),
+                const SizedBox(width: 5),
+                Expanded(
+                  child: Text(
+                    _editedLabel(n.text),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: ThreadMetrics.metaSize,
+                      color: t.text3,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
       ];
@@ -514,26 +629,34 @@ class PostCard extends StatelessWidget {
           margin: const EdgeInsets.only(top: 4, bottom: 8),
           padding: const EdgeInsets.fromLTRB(12, 10, 12, 11),
           decoration: BoxDecoration(
-            color: t.fill,
-            borderRadius: BorderRadius.circular(AppRadii.sm),
-            border: Border.all(color: t.separator, width: AppSpace.hairline),
+            color: t.warnBg,
+            borderRadius: const BorderRadius.horizontal(
+              left: Radius.circular(4),
+              right: Radius.circular(AppRadii.sm),
+            ),
+            border: Border(left: BorderSide(color: t.warn, width: 3)),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                '补充内容',
+                _supplementLabel(n.text),
                 style: TextStyle(
-                  fontSize: AppType.sizeFootnote,
+                  fontSize: ThreadMetrics.metaSize,
                   fontWeight: FontWeight.w600,
-                  color: t.text2,
+                  color: t.warn,
                 ),
               ),
               const SizedBox(height: 5),
               SelectableText(
-                n.text.replaceFirst(RegExp(r'^补充内容\s*'), ''),
+                n.text.replaceFirst(
+                  RegExp(
+                    r'^补充内容\s*(?:[（(]\d{4}-\d{2}-\d{2}[^)）]*[)）]\s*[:：]?\s*)?',
+                  ),
+                  '',
+                ),
                 style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                  fontSize: AppType.sizeBody,
+                  fontSize: AppType.sizeSubhead,
                   height: 1.7,
                 ),
               ),
@@ -543,148 +666,25 @@ class PostCard extends StatelessWidget {
     ];
   }
 
-  /// 评分
-  ///
-  /// 汇总项用强调色,明细一行一条:谁、加了多少、理由。
-  /// 分值保留站点原文,不自行换算。
-  Widget _ratingBlock(BuildContext context, AppTokens t, PostRating rating) {
-    return Container(
-      margin: const EdgeInsets.only(top: 6, bottom: 2),
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-      decoration: BoxDecoration(
-        color: t.accentFill,
-        borderRadius: BorderRadius.circular(AppRadii.sm),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Wrap(
-            spacing: 14,
-            runSpacing: 4,
-            children: [
-              Text(
-                '评分',
-                style: TextStyle(
-                  fontSize: AppType.sizeFootnote,
-                  fontWeight: FontWeight.w600,
-                  color: t.accent,
-                ),
-              ),
-              for (final s in rating.summary)
-                Text(
-                  s,
-                  style: TextStyle(
-                    fontSize: AppType.sizeFootnote,
-                    color: t.accent,
-                  ),
-                ),
-            ],
-          ),
-          for (final e in rating.entries)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  SizedBox(
-                    width: 84,
-                    child: Text(
-                      e.user,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: AppType.sizeFootnote,
-                        color: t.text,
-                      ),
-                    ),
-                  ),
-                  SizedBox(
-                    width: 60,
-                    child: Text(
-                      e.score,
-                      style: TextStyle(
-                        fontSize: AppType.sizeFootnote,
-                        fontWeight: FontWeight.w600,
-                        color: t.accent,
-                      ),
-                    ),
-                  ),
-                  Expanded(
-                    child: Text(
-                      e.reason ?? '',
-                      style: TextStyle(
-                        fontSize: AppType.sizeFootnote,
-                        color: t.text2,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-        ],
-      ),
-    );
+  String _editedLabel(String text) {
+    final match = RegExp(
+      r'于\s*\d{4}-(\d{2}-\d{2})\s+(\d{2}:\d{2})\s*编辑',
+    ).firstMatch(text);
+    return match == null ? text : '${match[1]} ${match[2]} 编辑过';
   }
 
-  /// 点评:挂在楼层下方的短评论,比正文弱一档
-  Widget _commentsBlock(BuildContext context, AppTokens t) {
-    return Container(
-      margin: const EdgeInsets.only(top: 8, bottom: 2),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: t.fill,
-        borderRadius: BorderRadius.circular(AppRadii.sm),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          for (final c in post.comments)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 7),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Text(
-                        c.author,
-                        style: TextStyle(
-                          fontSize: AppType.sizeFootnote,
-                          fontWeight: FontWeight.w500,
-                          color: t.text,
-                        ),
-                      ),
-                      const Spacer(),
-                      if (c.timeRaw != null)
-                        Text(
-                          c.timeRaw!,
-                          style: TextStyle(
-                            fontSize: AppType.sizeFootnote,
-                            color: t.text3,
-                          ),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    c.text,
-                    style: TextStyle(
-                      fontSize: AppType.sizeFootnote,
-                      height: 1.6,
-                      color: t.text2,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-        ],
-      ),
-    );
+  String _supplementLabel(String text) {
+    final match = RegExp(r'\d{4}-(\d{2}-\d{2})').firstMatch(text);
+    return match == null ? '楼主补充' : '楼主补充 · ${match[1]}';
   }
 
-  /// 楼层操作:回复这一层
+  Widget _feedback() => isOpening
+      ? OpeningFeedback(rating: post.rating, comments: post.comments)
+      : FloorFeedback(rating: post.rating, comments: post.comments);
+
+  /// Opening replies are composed from the reading toolbar only.
   Widget _actions(AppTokens t) {
-    if (onReply == null) return const SizedBox.shrink();
+    if (isOpening || onReply == null) return const SizedBox.shrink();
     return Row(
       mainAxisAlignment: MainAxisAlignment.end,
       children: [
@@ -692,24 +692,14 @@ class PostCard extends StatelessWidget {
           Expanded(child: discussionAction!),
           const SizedBox(width: 8),
         ],
-        // 回复是一行浅色文字操作,不再是灰色方块
-        PressHighlight(
-          onTap: onReply,
-          borderRadius: BorderRadius.circular(AppRadii.xs),
-          semanticLabel: '回复',
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(minHeight: 44, minWidth: 44),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 6),
-              child: Center(
-                widthFactor: 1,
-                child: Text(
-                  isOpening || !post.floorIsKnown ? '回复' : '回复 #${post.floor}',
-                  style: AppType.footnote.copyWith(
-                    fontWeight: FontWeight.w500,
-                    color: t.text3,
-                  ),
-                ),
+        _replyControl(
+          child: SizedBox(
+            height: 20,
+            child: Text(
+              !post.floorIsKnown ? '回复' : '回复 #${post.floor}',
+              style: AppType.footnote.copyWith(
+                fontWeight: FontWeight.w500,
+                color: t.text3,
               ),
             ),
           ),
@@ -718,16 +708,31 @@ class PostCard extends StatelessWidget {
     );
   }
 
+  Widget _replyControl({Key? key, required Widget child}) => HitSlopTarget(
+    enabled: onReply != null,
+    slop: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+    child: PressScale(
+      key: key,
+      onTap: onReply,
+      semanticLabel: '回复',
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minWidth: 28),
+        child: child,
+      ),
+    ),
+  );
+
   String? get _replyPrefix =>
       commentStyle && replyToAuthor != null ? '回复 $replyToAuthor：' : null;
 
   Widget _text(BuildContext context, TextBlock block, {String? prefix}) {
+    final metrics = ReadingMetrics.of(context);
     final style = Theme.of(context).textTheme.bodyLarge?.copyWith(
-      fontSize: commentStyle ? AppType.sizeBody - 1 : AppType.sizeBody,
-      height: isOpening ? 1.85 : 1.7,
+      fontSize: isOpening ? metrics.bodySize : metrics.commentSize,
+      height: isOpening ? metrics.bodyHeight : metrics.commentHeight,
     );
     return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
+      padding: EdgeInsets.only(bottom: isOpening ? metrics.paragraphGap : 0),
       child: RichContentText(
         block: prefix == null
             ? block
@@ -759,4 +764,99 @@ class PostCard extends StatelessWidget {
       child: QuoteView(author: source ?? '', text: text, collapsedLines: 4),
     );
   }
+}
+
+/// 文章与帖子评论共用时间、回复字形度量和透明触区；外层提供 HitSlopRegion。
+class CommentMetaRow extends StatelessWidget {
+  static final _numericCommentTime = RegExp(r'^[0-9\s:./-]+$');
+
+  final String timeLabel;
+  final String? timeSemanticsLabel;
+  final Key? replyKey;
+  final VoidCallback? onReply;
+
+  const CommentMetaRow({
+    super.key,
+    required this.timeLabel,
+    this.timeSemanticsLabel,
+    this.replyKey,
+    this.onReply,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
+    if (timeLabel.isEmpty && onReply == null) return const SizedBox.shrink();
+    // 数字与中文 fallback 的 ascent/descent 不同，行框齐底不等于基线一致。
+    // 两段文字共用继承字体的行度量，字号缩放交给 Text；不做设备像素补偿。
+    final strut = StrutStyle.fromTextStyle(
+      DefaultTextStyle.of(context).style.merge(AppType.footnote),
+      forceStrutHeight: true,
+    );
+    final opticalLift =
+        Theme.of(context).platform == TargetPlatform.android &&
+            _numericCommentTime.hasMatch(timeLabel)
+        ? MediaQuery.textScalerOf(context).scale(AppType.sizeFootnote) *
+              ReadingMetrics.commentReplyOpticalLiftEm
+        : 0.0;
+    return Padding(
+      padding: const EdgeInsets.only(top: ReadingMetrics.commentMetaGap),
+      child: Wrap(
+        spacing: ReadingMetrics.commentMetaGap,
+        // 换行后避开回复向上扩展的透明触区，时间文字不触发回复。
+        runSpacing: ReadingMetrics.commentMetaRunGap,
+        crossAxisAlignment: WrapCrossAlignment.end,
+        children: [
+          if (timeLabel.isNotEmpty)
+            Text(
+              timeLabel,
+              semanticsLabel: timeSemanticsLabel,
+              strutStyle: strut,
+              style: AppType.footnote.copyWith(color: t.text3),
+            ),
+          if (onReply != null)
+            _replyControl(
+              key: replyKey,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 20),
+                // 最小高度只约束触控容器，不拉伸文字段落。
+                child: Align(
+                  alignment: Alignment.bottomLeft,
+                  widthFactor: 1,
+                  heightFactor: 1,
+                  // 在触控容器内部预留光学校正空间，换行后也不侵入上一行。
+                  child: Padding(
+                    padding: EdgeInsets.only(bottom: opticalLift),
+                    child: ExcludeSemantics(
+                      child: Text(
+                        '回复',
+                        strutStyle: strut,
+                        style: AppType.footnote.copyWith(
+                          color: t.text2,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _replyControl({Key? key, required Widget child}) => HitSlopTarget(
+    enabled: onReply != null,
+    slop: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+    child: PressScale(
+      key: key,
+      onTap: onReply,
+      semanticLabel: '回复',
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minWidth: 28),
+        child: child,
+      ),
+    ),
+  );
 }

@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:io';
+import 'package:chh_app/parser/thread_parser.dart';
 import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/di.dart';
 import 'package:chh_app/parser/header_parser.dart';
@@ -94,6 +96,186 @@ Future<ThreadViewMode> currentViewMode(WidgetTester tester) async {
 }
 
 void main() {
+  testWidgets(
+    'unlinked 4 and 9 join explicit 34 on initial load and jump in floor mode',
+    (tester) async {
+      final data = parseThread(
+        File(
+          'test_data/thread_unlinked_quote_synthetic.html',
+        ).readAsStringSync(),
+        tid: 123,
+      );
+      final reads = <int>[];
+      await pump(
+        tester,
+        ThreadDetailPage(
+          tid: 123,
+          title: '合成引用',
+          loadPage: (n, _, _) async {
+            reads.add(n);
+            return data;
+          },
+        ),
+      );
+      await bottom(tester);
+      final expand = find.text('展开 3 条回复');
+      await tester.scrollUntilVisible(
+        expand,
+        -150,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(expand);
+      await tester.pumpAndSettle();
+      for (final pid in [4, 9, 34]) {
+        final reply = find.byKey(ValueKey('comment-reply-$pid'));
+        await tester.scrollUntilVisible(
+          reply,
+          100,
+          scrollable: find.byType(Scrollable).first,
+        );
+        expect(reply, findsOneWidget);
+      }
+      await tester.scrollUntilVisible(
+        find.byType(AppSegmented<ThreadViewMode>),
+        -200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tapViewMode(tester, '原楼层');
+      await tester.pumpAndSettle();
+      for (final pid in [4, 9]) {
+        final context = find.descendant(
+          of: card(pid),
+          matching: find.byType(ThreadReplyContext),
+        );
+        await tester.scrollUntilVisible(
+          context,
+          100,
+          scrollable: find.byType(Scrollable).first,
+        );
+        expect(tester.widget<ThreadReplyContext>(context).reference.pid, 2);
+        await tester.tap(context);
+        await tester.pumpAndSettle();
+        expect(
+          find.text('这段合成正文用于验证无链接引用匹配，后面还有完整的结尾。').hitTestable(),
+          findsWidgets,
+        );
+      }
+      expect(reads, [1]);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('unlinked groups survive page append with an explicit reply', (
+    tester,
+  ) async {
+    final parsed = parseThread(
+      File('test_data/thread_unlinked_quote_synthetic.html').readAsStringSync(),
+      tid: 123,
+    ).posts;
+    final target = parsed.firstWhere((p) => p.pid == 2);
+    final later = Completer<ThreadDetail>();
+    final reads = <int>[];
+    await pump(
+      tester,
+      ThreadDetailPage(
+        tid: 123,
+        title: '分页引用',
+        loadPage: (n, _, _) async {
+          reads.add(n);
+          return n == 1
+              ? page([
+                  post(1, long: true),
+                  target,
+                  parsed.firstWhere((p) => p.pid == 4),
+                  parsed.firstWhere((p) => p.pid == 9),
+                ], more: true)
+              : later.future;
+        },
+      ),
+    );
+    // 下一页仍挂起时只推进有限帧，避免等待加载指示器停止动画。
+    for (var i = 0; i < 4; i++) {
+      final position = tester
+          .state<ScrollableState>(find.byType(Scrollable).first)
+          .position;
+      position.jumpTo(position.maxScrollExtent);
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    expect(find.text('展开 2 条回复'), findsOneWidget);
+    expect(reads, [1, 2]);
+    later.complete(page([parsed.firstWhere((p) => p.pid == 34)], n: 2));
+    await tester.pumpAndSettle();
+    expect(find.text('展开 3 条回复'), findsOneWidget);
+    await tester.tap(find.text('展开 3 条回复'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('comment-reply-4')), findsOneWidget);
+    expect(find.byKey(const ValueKey('comment-reply-9')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('new page ambiguity removes an inferred jump and grouping', (
+    tester,
+  ) async {
+    final parsed = parseThread(
+      File('test_data/thread_unlinked_quote_synthetic.html').readAsStringSync(),
+      tid: 123,
+    ).posts;
+    final target = parsed.firstWhere((p) => p.pid == 2);
+    final later = Completer<ThreadDetail>();
+    await pump(
+      tester,
+      ThreadDetailPage(
+        tid: 123,
+        title: '歧义引用',
+        loadPage: (n, _, _) async => n == 1
+            ? page([
+                post(1, long: true),
+                target,
+                parsed.firstWhere((p) => p.pid == 4),
+              ], more: true)
+            : later.future,
+      ),
+    );
+    // 下一页仍挂起时只推进有限帧，避免等待加载指示器停止动画。
+    for (var i = 0; i < 4; i++) {
+      final position = tester
+          .state<ScrollableState>(find.byType(Scrollable).first)
+          .position;
+      position.jumpTo(position.maxScrollExtent);
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    expect(find.text('展开 1 条回复'), findsOneWidget);
+    later.complete(
+      page([
+        Post(
+          pid: 3,
+          floor: 3,
+          author: target.author,
+          timeRaw: target.timeRaw,
+          content: target.content,
+        ),
+      ], n: 2),
+    );
+    await tester.pumpAndSettle();
+    await bottom(tester);
+    expect(find.text('展开 1 条回复'), findsNothing);
+    expect(card(4), findsWidgets);
+    await tester.scrollUntilVisible(
+      find.byType(AppSegmented<ThreadViewMode>),
+      -200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tapViewMode(tester, '原楼层');
+    await tester.pumpAndSettle();
+    await bottom(tester);
+    expect(
+      find.descendant(of: card(4), matching: find.byType(ThreadReplyContext)),
+      findsNothing,
+    );
+    expect(find.textContaining('这段合成正文用于验证无链接引用匹配 ...'), findsWidgets);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('a deep reply expands inline and quotes its own PID on send', (
     tester,
   ) async {

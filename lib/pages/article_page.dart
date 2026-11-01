@@ -12,6 +12,8 @@ import '../controllers/article_reader_controller.dart';
 import 'article_discussion_page.dart';
 import '../data/editorial_cover_cache.dart';
 import '../design/tokens.dart';
+import '../design/reading.dart';
+import '../ui/reading_settings_sheet.dart';
 import '../design/typography.dart';
 import '../ui/reading_bar.dart';
 import '../ui/favorite_action.dart';
@@ -62,7 +64,6 @@ class _ArticlePageState extends State<ArticlePage> {
   final _imageIndex = <int, int>{};
   int _indexedPages = 0;
   bool _handedOff = false;
-  bool _largeText = false;
   bool _overCover = true;
   bool _scrollCheckScheduled = false;
   double get _coverHeight =>
@@ -292,9 +293,8 @@ class _ArticlePageState extends State<ArticlePage> {
                   ),
                   ChromeGroupItem(
                     icon: CupertinoIcons.textformat_size,
-                    tooltip: _largeText ? '标准字号' : '放大字号',
-                    selected: _largeText,
-                    onPressed: () => setState(() => _largeText = !_largeText),
+                    tooltip: '阅读设置',
+                    onPressed: () => showReadingSettingsSheet(context),
                   ),
                 ],
               ),
@@ -452,57 +452,63 @@ class _ArticlePageState extends State<ArticlePage> {
         itemCount: _blocks.length,
         itemBuilder: (context, i) {
           final block = _blocks[i];
+          final metrics = ReadingMetrics.of(context);
           final bodyStyle = TextStyle(
-            fontSize: _largeText
-                ? AppType.readingLarge.fontSize
-                : AppType.reading.fontSize,
-            height: 1.85,
+            fontSize: metrics.bodySize,
+            height: metrics.bodyHeight,
             letterSpacing: 0,
             color: t.text,
           );
           return RepaintBoundary(
             key: ValueKey('article-block-$i'),
-            child: switch (block) {
-              ImageBlock(:final url) => Padding(
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                child: Semantics(
-                  button: true,
-                  label: '查看第 ${_imageIndex[i]! + 1} 张原图',
-                  child: GestureDetector(
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => ImageViewerPage(
-                          urls: List.unmodifiable(_allImages),
-                          initialIndex: _imageIndex[i]!,
+            child: MediaQuery(
+              data: MediaQuery.of(context).copyWith(
+                textScaler: metrics.textScaler(
+                  MediaQuery.textScalerOf(context),
+                ),
+              ),
+              child: switch (block) {
+                ImageBlock(:final url) => Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  child: Semantics(
+                    button: true,
+                    label: '查看第 ${_imageIndex[i]! + 1} 张原图',
+                    child: GestureDetector(
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => ImageViewerPage(
+                            urls: List.unmodifiable(_allImages),
+                            initialIndex: _imageIndex[i]!,
+                          ),
                         ),
                       ),
+                      child: ArticleImage(url: url),
                     ),
-                    child: ArticleImage(url: url),
                   ),
                 ),
-              ),
-              TextBlock() => Padding(
-                padding: const EdgeInsets.fromLTRB(26, 10, 26, 16),
-                child: RichContentText(block: block, style: bodyStyle),
-              ),
-              QuoteBlock(:final children) => Padding(
-                padding: const EdgeInsets.fromLTRB(26, 8, 26, 16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    for (final child in children.whereType<TextBlock>())
-                      RichContentText(
-                        block: child,
-                        style: bodyStyle.copyWith(color: t.text2),
-                      ),
-                  ],
+                TextBlock() => Padding(
+                  padding: const EdgeInsets.fromLTRB(26, 10, 26, 16),
+                  child: RichContentText(block: block, style: bodyStyle),
                 ),
-              ),
-              SiteLinkBlock() || BilibiliBlock() => Padding(
-                padding: const EdgeInsets.fromLTRB(26, 4, 26, 16),
-                child: ContentLinkBlockView(block: block),
-              ),
-            },
+                QuoteBlock(:final children) => Padding(
+                  padding: const EdgeInsets.fromLTRB(26, 8, 26, 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (final child in children.whereType<TextBlock>())
+                        RichContentText(
+                          block: child,
+                          style: bodyStyle.copyWith(color: t.text2),
+                        ),
+                    ],
+                  ),
+                ),
+                SiteLinkBlock() || BilibiliBlock() => Padding(
+                  padding: const EdgeInsets.fromLTRB(26, 4, 26, 16),
+                  child: ContentLinkBlockView(block: block),
+                ),
+              },
+            ),
           );
         },
       ),

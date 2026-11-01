@@ -226,7 +226,7 @@ Widget postApp(Widget child) => MaterialApp(
 );
 
 void postCardTests() {
-  testWidgets('comment reply is a light text action, not accent', (
+  testWidgets('comment reply is a semibold text2 action below the body', (
     tester,
   ) async {
     const comment = Post(
@@ -246,13 +246,21 @@ void postCardTests() {
         ),
       ),
     );
-    final label = tester.widget<Text>(
-      find.descendant(
-        of: find.byKey(const ValueKey('comment-reply-7')),
-        matching: find.text('回复'),
-      ),
+    final control = find.byKey(const ValueKey('comment-reply-7'));
+    final action = tester.widget<Text>(
+      find.descendant(of: control, matching: find.text('回复')),
     );
-    expect(label.style!.color, AppTokens.light.text2);
+    expect(action.style!.color, AppTokens.light.text2);
+    expect(action.style!.fontWeight, FontWeight.w600);
+    expect(action.style!.fontSize, 13);
+    expect(
+      find.descendant(of: control, matching: find.byType(Icon)),
+      findsNothing,
+    );
+    expect(
+      tester.getTopLeft(control).dy,
+      greaterThan(tester.getBottomLeft(find.text('要**打不开')).dy),
+    );
   });
 
   testWidgets('opening post hides #1 and replies use a text reply action', (

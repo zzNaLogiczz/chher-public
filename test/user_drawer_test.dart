@@ -24,7 +24,7 @@ const _locked = Post(
 );
 
 void main() {
-  testWidgets('锁定楼层保留作者和回复入口，密码操作可用', (tester) async {
+  testWidgets('锁定首楼保留作者和密码操作，不显示楼层回复入口', (tester) async {
     var unlocks = 0;
     await tester.pumpWidget(
       MaterialApp(
@@ -41,7 +41,7 @@ void main() {
     );
     expect(find.text('用户'), findsOneWidget);
     expect(find.text('本帖为密码帖，请输入密码'), findsOneWidget);
-    expect(find.text('回复'), findsOneWidget);
+    expect(find.text('回复'), findsNothing);
     await tester.tap(find.text('输入密码'));
     expect(unlocks, 1);
     final avatar = tester.widget<PressScale>(
@@ -158,7 +158,7 @@ void main() {
       expect(before, greaterThan(0));
       final size = tester.getSize(entry);
       if (target == 'avatar') {
-        expect(size, const Size(38, 28));
+        expect(size, const Size(32, 32));
       } else {
         expect(size, tester.getSize(find.text('作者4')));
       }

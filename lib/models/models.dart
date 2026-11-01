@@ -177,11 +177,29 @@ class PostReference {
   });
 }
 
+/// 无链接署名与摘录仅供本帖已加载楼层推断，不是显式引用地址。
+class UnlinkedQuoteEvidence {
+  final int tid;
+  final String author;
+  final DateTime minute;
+  final String excerpt;
+  final bool truncated;
+
+  const UnlinkedQuoteEvidence({
+    required this.tid,
+    required this.author,
+    required this.minute,
+    required this.excerpt,
+    required this.truncated,
+  });
+}
+
 class QuoteBlock extends ContentBlock {
   /// 引用者签名,如 "xxx 发表于 2026-10-19 14:41"
   final String? source;
   final List<ContentBlock> children;
   final PostReference? reference;
+  final UnlinkedQuoteEvidence? unlinkedEvidence;
 
   /// 站点拦截提示复用引用样式，但不能参与回复关联或随引文折叠。
   final bool isNotice;
@@ -190,6 +208,7 @@ class QuoteBlock extends ContentBlock {
     this.children, {
     this.source,
     this.reference,
+    this.unlinkedEvidence,
     this.isNotice = false,
   });
 }
@@ -785,6 +804,7 @@ class PostNote {
 class RatingEntry {
   final String user;
   final String? uid;
+  final String? avatarUrl;
 
   /// 站点原样给出的分值文本,如「+ 100」。不自行解析正负与单位。
   final String score;
@@ -795,7 +815,15 @@ class RatingEntry {
     required this.score,
     this.uid,
     this.reason,
+    this.avatarUrl,
   });
+}
+
+class RatingSummaryItem {
+  final String label;
+  final String? value;
+
+  const RatingSummaryItem({required this.label, this.value});
 }
 
 /// 楼层评分汇总(dl#ratelog_{pid}.rate)
@@ -806,6 +834,25 @@ class PostRating {
 
   const PostRating({required this.summary, required this.entries});
 
+  List<RatingSummaryItem> get items => summary.map((text) {
+    // 仅拆分明确的整数汇总;未知格式保留原文,避免误读部分数值。
+    final match = RegExp(
+      r'^([^\d+\-.,]+?)\s*([+-]?\s*\d+)\s*$',
+    ).firstMatch(text);
+    if (match == null || match.group(1)!.trim().isEmpty) {
+      return RatingSummaryItem(label: text);
+    }
+    return RatingSummaryItem(
+      label: match.group(1)!.trim(),
+      value: match.group(2)!.replaceAll(RegExp(r'\s+'), ''),
+    );
+  }).toList();
+
+  int? get participants {
+    final item = items.where((item) => item.label == '参与人数').firstOrNull;
+    return int.tryParse(item?.value ?? '');
+  }
+
   bool get isEmpty => summary.isEmpty && entries.isEmpty;
 }
 
@@ -813,6 +860,7 @@ class PostRating {
 class PostComment {
   final String author;
   final String? uid;
+  final String? avatarUrl;
   final String text;
   final String? timeRaw;
 
@@ -821,6 +869,7 @@ class PostComment {
     required this.text,
     this.uid,
     this.timeRaw,
+    this.avatarUrl,
   });
 }
 

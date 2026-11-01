@@ -3,6 +3,7 @@ import 'package:chh_app/models/models.dart';
 import 'package:chh_app/parser/space_parser.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+// 以下个人资料日期与统计均为虚构，仅用于测试，不来自真实账号。
 String _profileHtml({
   bool activity = true,
   bool tip = true,
@@ -19,23 +20,23 @@ ${avatar ? '<div class="avt"><img src="uc_server/data/avatar/90_avatar_small.jpg
   <ul class="pf_l cl pbm mbm"><li><em>邮箱状态</em>已验证</li></ul>
   ${counts ? '''<ul class="cl bbda pbm mbm"><li>
    <em class="xg2">统计信息</em>
-   <a href="home.php?mod=space&amp;uid=900001&amp;do=thread">主题数 616</a>
-   <span class="pipe">|</span><a href="home.php?mod=space&amp;uid=900001&amp;do=friend">好友数 15</a>
-   <span class="pipe">|</span><a href="home.php?mod=space&amp;uid=900001&amp;do=thread">回帖数 3,112</a>
+   <a href="home.php?mod=space&amp;uid=900001&amp;do=thread">主题数 120</a>
+   <span class="pipe">|</span><a href="home.php?mod=space&amp;uid=900001&amp;do=friend">好友数 24</a>
+   <span class="pipe">|</span><a href="home.php?mod=space&amp;uid=900001&amp;do=thread">回帖数 4,800</a>
   </li></ul>''' : ''}
  </div>
  <div class="pbm mbm bbda cl"><h2 class="mbn">用户认证</h2><a href="#"><img alt="手机认证"/></a></div>
  ${activity ? '''<div class="pbm mbm bbda cl">
   <h2 class="mbn">活跃概况</h2>
-  <ul><li><em class="xg1">用户组&nbsp;&nbsp;</em><span class="xi2" ${tip ? 'tip="积分 2,329, 距离下一级还需 1,171 积分"' : ''}><a href="home.php?mod=spacecp&amp;ac=usergroup&amp;gid=40">权天使</a></span></li></ul>
+  <ul><li><em class="xg1">用户组&nbsp;&nbsp;</em><span class="xi2" ${tip ? 'tip="积分 2,400, 距离下一级还需 1,600 积分"' : ''}><a href="home.php?mod=spacecp&amp;ac=usergroup&amp;gid=40">权天使</a></span></li></ul>
   <ul id="pbbs" class="pf_l">
-   <li><em>在线时间</em> 2,845 小时 </li><li><em>注册时间</em>2013-6-1 21:59</li>
-   <li><em>最后访问</em>2026-10-30 11:43</li><li><em>上次活动时间</em>2026-10-30 11:43</li>
-   <li><em>上次发表时间</em>2026-10-29 22:46</li><li><em>所在时区</em>(GMT +08:00) 北京, 香港</li>
+   <li><em>在线时间</em> 1,200 小时 </li><li><em>注册时间</em>2001-01-01 00:00</li>
+   <li><em>最后访问</em>2001-02-03 04:05</li><li><em>上次活动时间</em>2001-02-03 04:05</li>
+   <li><em>上次发表时间</em>2001-02-03 04:00</li><li><em>所在时区</em>(GMT +08:00) 北京, 香港</li>
   </ul>
  </div>''' : ''}
  ${statistics ? '''<div id="psts" class="cl"><h2 class="mbn">统计信息</h2><ul class="pf_l">
-  <li><em>已用空间</em>   0 B </li><li><em>积分</em> 2,329 </li><li><em>邪恶指数</em>1 583 </li><li><em>门户文章</em>0 </li>
+  <li><em>已用空间</em>   0 B </li><li><em>积分</em> 2,400 </li><li><em>邪恶指数</em>3 600 </li><li><em>门户文章</em>0 </li>
  </ul></div>''' : ''}
 </div></body></html>
 ''';
@@ -107,16 +108,16 @@ void main() {
       expect(profile.name, '示例用户');
       expect(profile.group, '权天使');
       expect(profile.groupId, 40);
-      expect(profile.nextLevelCredits, 1171);
-      expect(profile.onlineHours, 2845);
-      expect(profile.credits, 2329);
-      expect(profile.evil, 1583);
-      expect(profile.threads, 616);
-      expect(profile.replies, 3112);
-      expect(profile.friends, 15);
-      expect(profile.registeredAt, '2013-6-1 21:59');
-      expect(profile.lastVisitAt, '2026-10-30 11:43');
-      expect(profile.lastPostAt, '2026-10-29 22:46');
+      expect(profile.nextLevelCredits, 1600);
+      expect(profile.onlineHours, 1200);
+      expect(profile.credits, 2400);
+      expect(profile.evil, 3600);
+      expect(profile.threads, 120);
+      expect(profile.replies, 4800);
+      expect(profile.friends, 24);
+      expect(profile.registeredAt, '2001-01-01 00:00');
+      expect(profile.lastVisitAt, '2001-02-03 04:05');
+      expect(profile.lastPostAt, '2001-02-03 04:00');
       expect(profile.portalArticles, 0);
       expect(profile.avatarUrl, ChhUrls.avatar('900001', size: 'big'));
       expect(profile.avatarUrl, isNot(contains('small')));
@@ -128,8 +129,8 @@ void main() {
         uid: '900001',
       );
       _expectNoActivity(profile);
-      expect(profile.credits, 2329);
-      expect(profile.threads, 616);
+      expect(profile.credits, 2400);
+      expect(profile.threads, 120);
     });
 
     test('缺 tip 时保留用户组，不补下一级积分', () {
@@ -150,7 +151,7 @@ void main() {
       expect(profile.friends, isNull);
       expect(profile.portalArticles, isNull);
       expect(profile.group, '权天使');
-      expect(profile.onlineHours, 2845);
+      expect(profile.onlineHours, 1200);
     });
 
     test('游客空页字段为空且仍提供大头像地址', () {
@@ -179,15 +180,15 @@ void main() {
     test('未知数字不补零，空白和千分位可解析', () {
       final profile = parseUserProfile(
         _profileHtml()
-            .replaceAll('1,171 积分', '1&nbsp;171 积分')
-            .replaceAll('2,845 小时', '2&nbsp;845 小时')
-            .replaceAll('> 2,329 <', '> 未知 <')
-            .replaceAll('回帖数 3,112', '回帖数 3&nbsp;112'),
+            .replaceAll('1,600 积分', '1&nbsp;600 积分')
+            .replaceAll('1,200 小时', '1&nbsp;200 小时')
+            .replaceAll('> 2,400 <', '> 未知 <')
+            .replaceAll('回帖数 4,800', '回帖数 4&nbsp;800'),
         uid: '900001',
       );
-      expect(profile.nextLevelCredits, 1171);
-      expect(profile.onlineHours, 2845);
-      expect(profile.replies, 3112);
+      expect(profile.nextLevelCredits, 1600);
+      expect(profile.onlineHours, 1200);
+      expect(profile.replies, 4800);
       expect(profile.credits, isNull);
     });
   });

@@ -3,6 +3,7 @@ library;
 
 import 'package:flutter/material.dart';
 import '../design/motion.dart';
+import '../design/reading.dart';
 import '../ui/app_button.dart';
 import '../design/icons.dart';
 import '../ui/bottom_bar.dart';
@@ -435,7 +436,12 @@ class _ArticleDiscussionPageState extends State<ArticleDiscussionPage>
 
   /// 与帖子评论区同一个三段控件;认不出作者时只有前两段
   Widget _modeBar() => Padding(
-    padding: const EdgeInsets.fromLTRB(AppSpace.screen, 0, AppSpace.screen, 12),
+    padding: EdgeInsets.fromLTRB(
+      ReadingMetrics.of(context).gutter,
+      0,
+      ReadingMetrics.of(context).gutter,
+      12,
+    ),
     child: CommentModeBar(
       mode: _mode,
       onChanged: _setMode,
@@ -445,6 +451,7 @@ class _ArticleDiscussionPageState extends State<ArticleDiscussionPage>
   );
 
   Widget _discussionBody(AppTokens t) {
+    final metrics = ReadingMetrics.of(context);
     final scrollView = CustomScrollView(
       controller: widget._asSheet ? null : _scroll,
       primary: widget._asSheet ? true : null,
@@ -478,7 +485,7 @@ class _ArticleDiscussionPageState extends State<ArticleDiscussionPage>
           )
         else ...[
           SliverPadding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
+            padding: EdgeInsets.symmetric(horizontal: metrics.gutter),
             // 每种查看方式一个新列表:回到顶部时不沿用旧行的布局偏移,
             // 否则滚动校正会把位置"保留"在旧内容的高度上
             sliver: SliverList.builder(
@@ -525,6 +532,7 @@ class _ArticleDiscussionPageState extends State<ArticleDiscussionPage>
   }
 
   Widget _entryView(AppTokens t, int index) {
+    final metrics = ReadingMetrics.of(context);
     final entry = _entries[index];
     final comment = entry.comment;
     if (entry.expander > 0) return _expander(entry);
@@ -540,12 +548,20 @@ class _ArticleDiscussionPageState extends State<ArticleDiscussionPage>
       onReply: () => _openComposer(comment),
     );
     final view = entry.nested
-        ? Padding(padding: const EdgeInsets.only(left: 38), child: tile)
+        ? Padding(
+            padding: EdgeInsets.only(left: metrics.avatar + 10),
+            child: tile,
+          )
         : Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               if (index > 0)
-                Divider(height: .5, thickness: .5, color: t.separator),
+                Divider(
+                  height: .5,
+                  thickness: .5,
+                  indent: metrics.avatar + 10,
+                  color: t.separator,
+                ),
               tile,
             ],
           );
@@ -561,7 +577,10 @@ class _ArticleDiscussionPageState extends State<ArticleDiscussionPage>
     final visible = _visibleReplies[entry.comment.cid] ?? 0;
     final remaining = entry.expander;
     return Padding(
-      padding: const EdgeInsets.only(left: 38, bottom: 8),
+      padding: EdgeInsets.only(
+        left: ReadingMetrics.of(context).avatar + 10,
+        bottom: ReadingMetrics.of(context).postVPad,
+      ),
       child: Align(
         alignment: Alignment.centerLeft,
         child: AppButton(

@@ -71,7 +71,7 @@ void main() {
       app(
         ChromeButton(
           icon: AppIcons.views,
-          tooltip: '放大字号',
+          tooltip: '阅读设置',
           selected: true,
           onPressed: () {},
         ),

@@ -37,8 +37,8 @@ void main() {
     await tester.pumpAndSettle();
     final long = tester.getTopLeft(find.textContaining('1.踩死'));
     final short = tester.getTopLeft(find.text('2.随便踩'));
-    // 正文左右内边距 24;不足一行的段落也从左边开始
-    expect(long.dx, 24);
-    expect(short.dx, 24);
+    // 默认舒适布局正文左右内边距 20;不足一行的段落也从左边开始
+    expect(long.dx, 20);
+    expect(short.dx, 20);
   });
 }

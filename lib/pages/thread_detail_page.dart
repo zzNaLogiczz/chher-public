@@ -2,12 +2,16 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart' show CupertinoIcons;
+import '../ui/reading_settings_sheet.dart';
 import '../ui/app_button.dart';
 import '../design/typography.dart';
 import '../ui/feedback.dart';
 
 import '../core/app_log.dart';
 import '../design/tokens.dart';
+import '../design/reading.dart';
+import '../ui/press.dart';
 import 'package:motor/motor.dart';
 import '../design/motion.dart';
 import '../ui/reading_bar.dart';
@@ -1007,6 +1011,8 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
   }
 
   Widget _replyExpansion(Post post) {
+    final metrics = ReadingMetrics.of(context);
+    final t = AppTokens.of(context);
     final visible = _visibleReplies[post.pid] ?? 0;
     final remaining = _index.repliesFor(post.pid).length - visible;
     final finished = remaining <= 0 && !_hasNext && _tailError == null;
@@ -1021,20 +1027,52 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     final content = finished
         ? const SizedBox.shrink()
         : Padding(
-            padding: const EdgeInsets.fromLTRB(64, 0, 24, 8),
+            padding: EdgeInsets.fromLTRB(
+              metrics.gutter + metrics.avatar + 10,
+              0,
+              metrics.gutter,
+              metrics.postVPad,
+            ),
             child: Align(
               alignment: Alignment.centerLeft,
-              child: AppButton(
+              child: PressScale(
                 key: ValueKey('thread-expand-replies-${post.pid}'),
-                label: label,
-                variant: AppButtonVariant.plain,
-                icon: AppIcons.down,
-                onPressed:
+                semanticLabel: label,
+                onTap:
                     _loading ||
                         _expandingRoot != null ||
                         _replyReveal.isAnimating
                     ? null
                     : () => _expandReplies(post.pid),
+                child: Container(
+                  height: 30,
+                  padding: const EdgeInsets.symmetric(horizontal: 11),
+                  decoration: BoxDecoration(
+                    color: t.accentFill,
+                    borderRadius: BorderRadius.circular(
+                      ThreadMetrics.pillRadius,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Flexible(
+                        child: Text(
+                          label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: ThreadMetrics.metaSize,
+                            fontWeight: FontWeight.w600,
+                            color: t.accent,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 5),
+                      Icon(AppIcons.down, size: 13, color: t.accent),
+                    ],
+                  ),
+                ),
               ),
             ),
           );
@@ -1203,6 +1241,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
   @override
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
+    final metrics = ReadingMetrics.of(context);
     final top = MediaQuery.paddingOf(context).top;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && _scroll.hasClients) _syncInComments();
@@ -1239,161 +1278,199 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
                         }
                         return false;
                       },
-                      child: ListView.builder(
-                        controller: _scroll,
-                        physics: const AlwaysScrollableScrollPhysics(),
-                        padding: EdgeInsets.only(
-                          top: top + NavOverlay.barHeight,
-                          bottom: 120,
+                      child: MediaQuery(
+                        data: MediaQuery.of(context).copyWith(
+                          textScaler: metrics.textScaler(
+                            MediaQuery.textScalerOf(context),
+                          ),
                         ),
-                        itemCount: _entries.length + 2,
-                        findChildIndexCallback: (key) {
-                          if (key == _focusKey) {
-                            final index = _entries.indexWhere(
-                              (e) => e.isStart && e.post.pid == _focusTargetPid,
-                            );
-                            return index < 0 ? null : index + 1;
-                          }
-                          return key is ValueKey<String>
-                              ? _entryIndices[key.value]
-                              : null;
-                        },
-                        itemBuilder: (context, index) {
-                          if (index == 0) return _heading(t);
-                          // 标题之后的内容随查看方式切换淡化/淡入
-                          final heading =
-                              _entryIndices[_ThreadReadEntry.headingKey] ??
-                              _entries.length + 1;
-                          if (index == _entries.length + 1) {
-                            return FadeTransition(
-                              opacity: _commentsOpacity,
-                              child: _tail(t),
-                            );
-                          }
-                          final entry = _entries[index - 1];
-                          final post = entry.post;
-                          final focused = post.pid == _highlightPid;
-                          final author =
-                              post.authorUid != null &&
-                              post.authorUid == _openingAuthor;
-                          void onReply() {
-                            _openComposer(post);
-                          }
+                        child: ListView.builder(
+                          controller: _scroll,
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          padding: EdgeInsets.only(
+                            top: top + NavOverlay.barHeight,
+                            bottom: 120,
+                          ),
+                          itemCount: _entries.length + 2,
+                          findChildIndexCallback: (key) {
+                            if (key == _focusKey) {
+                              final index = _entries.indexWhere(
+                                (e) =>
+                                    e.isStart && e.post.pid == _focusTargetPid,
+                              );
+                              return index < 0 ? null : index + 1;
+                            }
+                            return key is ValueKey<String>
+                                ? _entryIndices[key.value]
+                                : null;
+                          },
+                          itemBuilder: (context, index) {
+                            final metrics = ReadingMetrics.of(context);
+                            if (index == 0) return _heading(t);
+                            // 标题之后的内容随查看方式切换淡化/淡入
+                            final heading =
+                                _entryIndices[_ThreadReadEntry.headingKey] ??
+                                _entries.length + 1;
+                            if (index == _entries.length + 1) {
+                              return FadeTransition(
+                                opacity: _commentsOpacity,
+                                child: _tail(t),
+                              );
+                            }
+                            final entry = _entries[index - 1];
+                            final post = entry.post;
+                            final focused = post.pid == _highlightPid;
+                            final author =
+                                post.authorUid != null &&
+                                post.authorUid == _openingAuthor;
+                            void onReply() {
+                              _openComposer(post);
+                            }
 
-                          final card = switch (entry.kind) {
-                            _ThreadEntryKind.whole => PostCard(
-                              post: post,
-                              isOpening: postIsOpening(post),
-                              commentStyle: _grouped && !postIsOpening(post),
-                              replyToAuthor: _replyToAuthor(post),
-                              isAuthor: author,
-                              onReply: onReply,
-                              onUnlock: () => _unlockPost(post),
-                              replyContext: _referenceContext(post),
-                            ),
-                            _ThreadEntryKind.header => PostCard.header(
-                              post: post,
-                              isOpening: postIsOpening(post),
-                              commentStyle: _grouped && !postIsOpening(post),
-                              isAuthor: author,
-                              onReply: onReply,
-                              onUnlock: () => _unlockPost(post),
-                              replyContext: _referenceContext(post),
-                            ),
-                            _ThreadEntryKind.block => PostCard.block(
-                              post: post,
-                              isOpening: postIsOpening(post),
-                              commentStyle: _grouped && !postIsOpening(post),
-                              replyToAuthor: entry.blockIndex == 0
-                                  ? _replyToAuthor(post)
-                                  : null,
-                              isAuthor: author,
-                              contentBlock: entry.block!,
-                              gallery: entry.gallery,
-                              galleryIndex: entry.imageIndex,
-                            ),
-                            _ThreadEntryKind.footer => PostCard.footer(
-                              post: post,
-                              isOpening: postIsOpening(post),
-                              commentStyle: _grouped && !postIsOpening(post),
-                              isAuthor: author,
-                              onReply: onReply,
-                              onUnlock: () => _unlockPost(post),
-                            ),
-                            _ThreadEntryKind.commentsHeading => Padding(
-                              key: _commentsKey,
-                              padding: const EdgeInsets.fromLTRB(
-                                AppSpace.screen,
-                                20,
-                                AppSpace.screen,
-                                8,
+                            final card = switch (entry.kind) {
+                              _ThreadEntryKind.whole => PostCard(
+                                post: post,
+                                isOpening: postIsOpening(post),
+                                commentStyle: _grouped && !postIsOpening(post),
+                                nested: entry.nested,
+                                replyToAuthor: _replyToAuthor(post),
+                                isAuthor: author,
+                                onReply: onReply,
+                                onUnlock: () => _unlockPost(post),
+                                replyContext: _referenceContext(post),
                               ),
-                              child: ThreadCommentHeading(
-                                loadedCount: _orderedPosts
-                                    .where((p) => !postIsOpening(p))
-                                    .length,
-                                complete: _index.sourceComplete,
-                                mode: _shownMode,
-                                busy: _pendingMode != null,
-                                onModeChanged: _setViewMode,
+                              _ThreadEntryKind.header => PostCard.header(
+                                post: post,
+                                isOpening: postIsOpening(post),
+                                commentStyle: _grouped && !postIsOpening(post),
+                                nested: entry.nested,
+                                isAuthor: author,
+                                onReply: onReply,
+                                onUnlock: () => _unlockPost(post),
+                                replyContext: _referenceContext(post),
                               ),
-                            ),
-                            _ThreadEntryKind.replies => _replyExpansion(post),
-                          };
-                          final content = ColoredBox(
-                            color: focused ? t.accentFill : t.bg,
-                            child: Padding(
-                              padding: EdgeInsets.only(
-                                left: entry.nested ? 40 : 0,
+                              _ThreadEntryKind.block => PostCard.block(
+                                post: post,
+                                isOpening: postIsOpening(post),
+                                commentStyle: _grouped && !postIsOpening(post),
+                                nested: entry.nested,
+                                replyToAuthor: entry.blockIndex == 0
+                                    ? _replyToAuthor(post)
+                                    : null,
+                                isAuthor: author,
+                                contentBlock: entry.block!,
+                                paragraphGapBefore: entry.blockIndex > 0,
+                                gallery: entry.gallery,
+                                galleryIndex: entry.imageIndex,
                               ),
-                              child: card,
-                            ),
-                          );
-                          final reveal = _revealingEntries.contains(entry.key)
-                              ? _replyRevealCurve
-                              : const AlwaysStoppedAnimation<double>(1);
-                          final row = Column(
-                            key: focused && entry.isStart
-                                ? _focusKey
-                                : ValueKey(entry.key),
-                            // 默认居中会给子项宽松约束,不足一行的段落随之居中
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              // 紧跟评论区标题的第一条不画分隔线,分段控件已隔开
-                              if (entry.isStart &&
-                                  !entry.nested &&
-                                  index > 1 &&
-                                  index != heading + 1)
-                                Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 24,
-                                  ),
-                                  child: Divider(
-                                    height: 1,
-                                    thickness: AppSpace.hairline,
-                                    color: t.separator,
-                                  ),
+                              _ThreadEntryKind.footer => PostCard.footer(
+                                post: post,
+                                isOpening: postIsOpening(post),
+                                commentStyle: _grouped && !postIsOpening(post),
+                                nested: entry.nested,
+                                isAuthor: author,
+                                onReply: onReply,
+                                onUnlock: () => _unlockPost(post),
+                              ),
+                              _ThreadEntryKind.commentsHeading => Padding(
+                                key: _commentsKey,
+                                padding: EdgeInsets.fromLTRB(
+                                  metrics.gutter,
+                                  metrics.postVPad + 8,
+                                  metrics.gutter,
+                                  8,
                                 ),
-                              if (entry.nested)
-                                SizeTransition(
-                                  sizeFactor: reveal,
-                                  alignment: Alignment.topCenter,
-                                  child: FadeTransition(
-                                    opacity: reveal,
-                                    child: content,
+                                child: ThreadCommentHeading(
+                                  loadedCount: _orderedPosts
+                                      .where((p) => !postIsOpening(p))
+                                      .length,
+                                  complete: _index.sourceComplete,
+                                  mode: _shownMode,
+                                  busy: _pendingMode != null,
+                                  onModeChanged: _setViewMode,
+                                ),
+                              ),
+                              _ThreadEntryKind.replies => _replyExpansion(post),
+                            };
+                            final content = ColoredBox(
+                              color: focused ? t.accentFill : t.bg,
+                              child: entry.nested
+                                  ? Container(
+                                      margin: EdgeInsets.only(
+                                        left:
+                                            metrics.gutter +
+                                            metrics.avatar +
+                                            10,
+                                        right: metrics.gutter - 8,
+                                      ),
+                                      // Keep the visible gutter unchanged while
+                                      // letting reply hit slop reach this inset.
+                                      padding: const EdgeInsets.only(
+                                        left: 10,
+                                        right: 8,
+                                      ),
+                                      child: card,
+                                    )
+                                  : card,
+                            );
+                            final reveal = _revealingEntries.contains(entry.key)
+                                ? _replyRevealCurve
+                                : const AlwaysStoppedAnimation<double>(1);
+                            final row = Column(
+                              key: focused && entry.isStart
+                                  ? _focusKey
+                                  : ValueKey(entry.key),
+                              // 默认居中会给子项宽松约束,不足一行的段落随之居中
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                if (entry.kind ==
+                                    _ThreadEntryKind.commentsHeading)
+                                  ColoredBox(
+                                    color: t.threadSectionBand,
+                                    child: SizedBox(
+                                      height: metrics.sectionBand,
+                                    ),
                                   ),
-                                )
-                              else
-                                content,
-                            ],
-                          );
-                          return index > heading
-                              ? FadeTransition(
-                                  opacity: _commentsOpacity,
-                                  child: row,
-                                )
-                              : row;
-                        },
+                                // 紧跟评论区标题的第一条不画分隔线,分段控件已隔开
+                                if (entry.isStart &&
+                                    !entry.nested &&
+                                    entry.kind !=
+                                        _ThreadEntryKind.commentsHeading &&
+                                    index > 1 &&
+                                    index != heading + 1)
+                                  Padding(
+                                    padding: EdgeInsets.only(
+                                      left:
+                                          metrics.gutter + metrics.avatar + 10,
+                                      right: metrics.gutter,
+                                    ),
+                                    child: Divider(
+                                      height: 1,
+                                      thickness: AppSpace.hairline,
+                                      color: t.separator,
+                                    ),
+                                  ),
+                                if (entry.nested)
+                                  SizeTransition(
+                                    sizeFactor: reveal,
+                                    alignment: Alignment.topCenter,
+                                    child: FadeTransition(
+                                      opacity: reveal,
+                                      child: content,
+                                    ),
+                                  )
+                                else
+                                  content,
+                              ],
+                            );
+                            return index > heading
+                                ? FadeTransition(
+                                    opacity: _commentsOpacity,
+                                    child: row,
+                                  )
+                                : row;
+                          },
+                        ),
                       ),
                     ),
                   ),
@@ -1411,16 +1488,25 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
                   tooltip: '返回',
                   onPressed: () => Navigator.of(context).maybePop(),
                 ),
-                // 与返回键同款圆钮、左右对称:平时只是顶栏的一部分,要找时固定在右上角
+                // 原页面与阅读设置共用顶栏操作胶囊。
                 actions: [
-                  ChromeButton(
-                    key: const ValueKey('thread-source-page'),
-                    icon: AppIcons.webPage,
-                    tooltip: '查看原页面',
-                    onPressed: () => showSourcePage(
-                      context,
-                      threadSourceUrl(widget.tid, page: _firstPage),
-                    ),
+                  ChromeGroup(
+                    key: const ValueKey('thread-reading-settings'),
+                    items: [
+                      ChromeGroupItem(
+                        icon: AppIcons.webPage,
+                        tooltip: '查看原页面',
+                        onPressed: () => showSourcePage(
+                          context,
+                          threadSourceUrl(widget.tid, page: _firstPage),
+                        ),
+                      ),
+                      ChromeGroupItem(
+                        icon: CupertinoIcons.textformat_size,
+                        tooltip: '阅读设置',
+                        onPressed: () => showReadingSettingsSheet(context),
+                      ),
+                    ],
                   ),
                 ],
                 inlineTitle: _loadedDetail?.title ?? widget.title,
@@ -1459,73 +1545,93 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
   String get _eyebrow =>
       [?_loadedDetail?.forumName, if (_authorUid != null) '只看楼主'].join('，');
 
-  Widget _heading(AppTokens t) => Padding(
-    padding: const EdgeInsets.fromLTRB(24, 22, 24, 6),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (_eyebrow.isNotEmpty) ...[
-          Text(
-            _eyebrow,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: AppType.sizeFootnote,
-              color: t.accent,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 9),
-        ],
-        Text(
-          _loadedDetail?.title ?? widget.title,
-          style: TextStyle(
-            fontSize: _firstPage == 1
-                ? AppType.sizeLargeTitle
-                : AppType.sizeTitle2,
-            height: 1.4,
-            fontWeight: FontWeight.w700,
-            color: t.text,
-            letterSpacing: -.4,
-          ),
-        ),
-        if (_firstPage > 1)
-          Padding(
-            padding: const EdgeInsets.only(top: 12),
-            child: AppButton(
-              label: _beforeError == null ? '查看前面的讨论' : '前文未加载，轻点重试',
-              variant: AppButtonVariant.plain,
-              icon: AppIcons.up,
-              onPressed: _loading ? null : _loadBefore,
-            ),
-          ),
-        if (_error != null)
-          Padding(
-            padding: const EdgeInsets.only(top: 12),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    '刷新未完成，已保留当前内容',
-                    style: TextStyle(
-                      fontSize: AppType.sizeFootnote,
-                      color: t.text2,
+  Widget _heading(AppTokens t) {
+    final metrics = ReadingMetrics.of(context);
+    return Padding(
+      padding: EdgeInsets.fromLTRB(metrics.gutter, 22, metrics.gutter, 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (_eyebrow.isNotEmpty) ...[
+            Container(
+              height: 26,
+              padding: const EdgeInsets.symmetric(horizontal: 9),
+              decoration: BoxDecoration(
+                color: t.accentFill,
+                borderRadius: BorderRadius.circular(ThreadMetrics.forumRadius),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Flexible(
+                    child: Text(
+                      _eyebrow,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: ThreadMetrics.metaSize,
+                        color: t.accent,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
-                ),
-                AppButton(
-                  label: '重试',
-                  variant: AppButtonVariant.plain,
-                  onPressed: _loading
-                      ? null
-                      : () => _loadInitial(page: _firstPage, refresh: true),
-                ),
-              ],
+                  const SizedBox(width: 4),
+                  Icon(AppIcons.forward, size: 11, color: t.accent),
+                ],
+              ),
+            ),
+            const SizedBox(height: 9),
+          ],
+          Text(
+            _loadedDetail?.title ?? widget.title,
+            style: TextStyle(
+              fontSize: _firstPage == 1
+                  ? metrics.titleSize
+                  : AppType.sizeTitle2,
+              height: 1.36,
+              fontWeight: FontWeight.w700,
+              color: t.text,
+              letterSpacing: -.4,
             ),
           ),
-      ],
-    ),
-  );
+          if (_firstPage > 1)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: AppButton(
+                label: _beforeError == null ? '查看前面的讨论' : '前文未加载，轻点重试',
+                variant: AppButtonVariant.plain,
+                icon: AppIcons.up,
+                onPressed: _loading ? null : _loadBefore,
+              ),
+            ),
+          if (_error != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '刷新未完成，已保留当前内容',
+                      style: TextStyle(
+                        fontSize: AppType.sizeFootnote,
+                        color: t.text2,
+                      ),
+                    ),
+                  ),
+                  AppButton(
+                    label: '重试',
+                    variant: AppButtonVariant.plain,
+                    onPressed: _loading
+                        ? null
+                        : () => _loadInitial(page: _firstPage, refresh: true),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
 
   Widget _tail(AppTokens t) => Padding(
     padding: EdgeInsets.fromLTRB(24, 24, 24, 8 + _tailSlack),

@@ -12,7 +12,7 @@
 /// 楼层:<a id="postnum1001">N#</a>(文本可能为空或"沙发",回退用序号)
 /// 说明:<i class="pstatus">本帖最后由 … 编辑</i> / 补充内容
 /// 评分:<dl id="ratelog_{pid}" class="rate"> → table.ratl 表头汇总 + tbody.ratl_l 明细
-/// 点评:<div id="comment_{pid}" class="cm">(本地样本为空,按条目含用户链接容错解析)
+/// 点评:<div id="comment_{pid}" class="cm"> → .pstl 条目中的作者、头像与正文
 library;
 
 import 'package:html/dom.dart' as dom;
@@ -88,9 +88,7 @@ ThreadDetail parseThread(
         avatarUrl: avatarUrl,
         timeRaw: timeRaw,
         time: ChhUrls.parseTime(timeRaw),
-        content: message == null
-            ? const []
-            : parseContentBlocks(message, threadId: tid),
+        content: _postContent(table, message, locked, tid),
         lock: locked == null
             ? null
             : PostLock(
@@ -117,6 +115,82 @@ ThreadDetail parseThread(
     posts: posts,
     page: parsePager(doc, fallbackPage: fallbackPage),
   );
+}
+
+List<ContentBlock> _postContent(
+  dom.Element table,
+  dom.Element? message,
+  dom.Element? locked,
+  int tid,
+) {
+  // 正文先按原顺序解析；整楼锁定时不从正文外补回图片。
+  final blocks = message == null
+      ? <ContentBlock>[]
+      : parseContentBlocks(message, threadId: tid);
+  if (locked != null) return blocks;
+  final seenUrls = blocks.whereType<ImageBlock>().map((b) => b.url).toSet();
+  final seenIds = <int>{};
+  // 只让当前楼层已解析且可见的正文图片占用身份，引用和受限节点不参与。
+  for (final image
+      in message?.querySelectorAll('img[aid], img[id^="aimg_"]') ??
+          <dom.Element>[]) {
+    if (!_belongsToPost(image, table)) continue;
+    final id = _attachmentId(image);
+    final block = parseAttachmentImage(image);
+    if (id != null && block != null && seenUrls.contains(block.url)) {
+      seenIds.add(id);
+    }
+  }
+
+  // 只取附件图片区，排除附件说明、下载链接及楼层其余装饰图片。
+  for (final image in table.querySelectorAll(
+    '.pct > .pcb > .t_fsz > .pattl '
+    'dl.tattl.attm > dd .savephotop img[id^="aimg_"]',
+  )) {
+    // 嵌套楼层与正文内附件由各自的解析入口负责。
+    if (!_belongsToPost(image, table, exclude: message)) continue;
+    final block = parseAttachmentImage(image);
+    if (block == null) continue;
+    final id = _attachmentId(image);
+    // 可见的同一附件可能有多个地址；即使不追加，也登记其身份与地址别名。
+    final duplicateId = id != null && !seenIds.add(id);
+    final duplicateUrl = !seenUrls.add(block.url);
+    // 去重只影响新增部分，不改变正文内刻意重复的图片。
+    if (!duplicateId && !duplicateUrl) blocks.add(block);
+  }
+  return blocks;
+}
+
+bool _belongsToPost(
+  dom.Element image,
+  dom.Element table, {
+  dom.Element? exclude,
+}) {
+  // 先确认最近的楼层归属，避免嵌套楼层占用外层楼层的附件身份。
+  for (var parent = image.parent; parent != null; parent = parent.parent) {
+    if (parent == table) return true;
+    if (parent == exclude ||
+        (parent.localName == 'table' && parent.id.startsWith('pid'))) {
+      return false;
+    }
+  }
+  return false;
+}
+
+int? _attachmentId(dom.Element image) {
+  // 仅接受正十进制身份；两种有效标记互相冲突时不推断同一附件。
+  int? positiveId(String raw) {
+    if (!RegExp(r'^[0-9]+$').hasMatch(raw)) return null;
+    final value = int.tryParse(raw);
+    return value != null && value > 0 ? value : null;
+  }
+
+  final aid = positiveId((image.attributes['aid'] ?? '').trim());
+  final id = positiveId(
+    RegExp(r'^aimg_([0-9]+)$').firstMatch(image.id)?.group(1) ?? '',
+  );
+  if (aid != null && id != null && aid != id) return null;
+  return aid ?? id;
 }
 
 /// 回复表单比导航更具体：必须是当前帖子的 reply action，避免误取正文
@@ -218,10 +292,15 @@ PostRating? _ratingOf(dom.Document doc, int pid) {
         ? link!.text.trim()
         : cells[0].text.trim();
     if (user.isEmpty) continue;
+    final avatarRaw =
+        (cells[0].querySelector('img.user_avatar') ??
+                cells[0].querySelector('img'))
+            ?.attributes['src'];
     entries.add(
       RatingEntry(
         user: user,
         uid: ChhUrls.uidFromUrl(link?.attributes['href'] ?? ''),
+        avatarUrl: avatarRaw == null ? null : ChhUrls.absolutize(avatarRaw),
         // 分值保留站点原文,不自行解析正负与单位
         score: cells[1].text.replaceAll(RegExp(r'\s+'), ' ').trim(),
         reason: cells.length > 2
@@ -237,17 +316,24 @@ PostRating? _ratingOf(dom.Document doc, int pid) {
 
 /// 点评
 ///
-/// 本地样本里这个容器是空的,所以按「条目含用户链接」容错解析,
-/// 不对具体 class 名做硬假设。
+/// 作者链接前可能有无文字的头像链接,优先选有文字的用户链接。
 List<PostComment> _commentsOf(dom.Document doc, int pid) {
   final box = doc.querySelector('#comment_$pid');
   if (box == null) return const [];
 
   final out = <PostComment>[];
   for (final item in box.children) {
-    final link = item.querySelector('a[href*="space-uid"], a[href*="uid="]');
+    final links = item.querySelectorAll(
+      'a[href*="space-uid"], a[href*="uid="]',
+    );
+    final link =
+        links.where((a) => a.text.trim().isNotEmpty).firstOrNull ??
+        links.firstOrNull;
     if (link == null) continue;
 
+    final avatarRaw =
+        (item.querySelector('img.user_avatar') ?? item.querySelector('img'))
+            ?.attributes['src'];
     final time = item.querySelectorAll('.xg1').lastOrNull;
     final clone = item.clone(true);
     for (final drop in clone.querySelectorAll(
@@ -262,8 +348,9 @@ List<PostComment> _commentsOf(dom.Document doc, int pid) {
       PostComment(
         author: link.text.trim(),
         uid: ChhUrls.uidFromUrl(link.attributes['href'] ?? ''),
+        avatarUrl: avatarRaw == null ? null : ChhUrls.absolutize(avatarRaw),
         text: text,
-        timeRaw: time?.text.trim(),
+        timeRaw: time?.text.trim().replaceFirst(RegExp(r'^发表于\s*'), '').trim(),
       ),
     );
   }

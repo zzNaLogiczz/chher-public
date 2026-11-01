@@ -2,6 +2,7 @@
 library;
 
 import '../models/models.dart';
+import 'thread_quote_matcher.dart';
 
 /// A page-local fallback ordinal must never identify a thread's opening post.
 bool postIsOpening(Post post) => post.floorIsKnown && post.floor == 1;
@@ -26,11 +27,15 @@ class ThreadConversationResolution {
   final PostReference? directTarget;
   final bool isPinnedRoot;
 
+  /// 与显式链接区分，推断不改写原始 QuoteBlock.reference。
+  final bool isInferredTarget;
+
   const ThreadConversationResolution({
     required this.status,
     required this.rootPid,
     this.directTarget,
     this.isPinnedRoot = false,
+    this.isInferredTarget = false,
   });
 
   bool get isGroupedReply =>
@@ -93,6 +98,8 @@ class ThreadConversationIndex {
       order[pid] = ordinal++;
     }
 
+    final matcher = ThreadQuoteMatcher(tid: tid, posts: byPid.values);
+    final inferredPids = <int>{};
     final parents = <int, int>{};
     final targets = <int, PostReference>{};
     final statuses = <int, ThreadConversationStatus>{};
@@ -108,7 +115,11 @@ class ThreadConversationIndex {
         quotation = block;
         if (quoteCount > 1) break;
       }
-      final reference = quoteCount == 1 ? quotation?.reference : null;
+      var reference = quoteCount == 1 ? quotation?.reference : null;
+      if (quoteCount == 1 && reference == null && quotation != null) {
+        reference = matcher.targetFor(post, quotation);
+        if (reference != null) inferredPids.add(post.pid);
+      }
       if (reference != null) targets[post.pid] = reference;
 
       ThreadConversationStatus? status;
@@ -196,6 +207,7 @@ class ThreadConversationIndex {
         rootPid: root,
         directTarget: targets[post.pid],
         isPinnedRoot: pinnedRootPids.contains(post.pid),
+        isInferredTarget: inferredPids.contains(post.pid),
       );
       if (root == post.pid) {
         roots.add(post);

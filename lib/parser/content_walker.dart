@@ -12,6 +12,7 @@ import 'package:html/dom.dart' as dom;
 import '../core/chh_urls.dart';
 import '../core/link_target.dart';
 import '../models/models.dart';
+import '../data/thread_quote_matcher.dart';
 import 'dom_utils.dart';
 
 const _skipTags = {'script', 'style', 'svg', 'button'};
@@ -42,6 +43,37 @@ const _paragraphTags = {
 /// 显式跨帖引用仍保留原目标，聚合层需另行校验是否属于当前主题。
 List<ContentBlock> parseContentBlocks(dom.Element root, {int? threadId}) =>
     _parseContentBlocks(root, threadId: threadId, insideQuote: false);
+
+/// 只用于正文外附件；在原 DOM 上检查祖先，避免复制节点后丢失权限边界。
+ImageBlock? parseAttachmentImage(dom.Element image) {
+  if (image.localName != 'img') return null;
+  const excluded = {'locked', 'quote', 'avatar', 'medal', 'sign', 'rate', 'cm'};
+  for (dom.Element? node = image; node != null; node = node.parent) {
+    final style = (node.attributes['style'] ?? '')
+        .replaceAll(RegExp(r'\s+'), '')
+        .toLowerCase();
+    if (_skipTags.contains(node.localName) ||
+        node.classes.any(_skipClasses.contains) ||
+        node.classes.any(excluded.contains) ||
+        _isQuote(node) ||
+        _isHidden(node) ||
+        node.attributes.containsKey('hidden') ||
+        node.attributes['aria-hidden'] == 'true' ||
+        style.contains('display:none') ||
+        style.contains('visibility:hidden')) {
+      return null;
+    }
+  }
+  if (_smileyUrl(image) != null) return null;
+  // 与正文共用懒加载优先级及地址标准化，不把文件类型图标当成附件图。
+  final url = _imageUrl(image);
+  if (url == null ||
+      url.contains('static/image/filetype/') ||
+      url.contains('static/image/smiley/')) {
+    return null;
+  }
+  return ImageBlock(url);
+}
 
 List<ContentBlock> _parseContentBlocks(
   dom.Element root, {
@@ -213,13 +245,34 @@ class _BlockWalker {
                   .where((child) => child.localName == 'blockquote')
                   .firstOrNull ??
               node);
+    final children = _parseContentBlocks(
+      inner,
+      threadId: threadId,
+      insideQuote: true,
+    );
+    // 外框只能包住这一段引用，不能丢弃其他片段后把多引用当成唯一证据。
+    final singleQuote =
+        identical(node, inner) ||
+        node.nodes.every(
+          (child) =>
+              identical(child, inner) ||
+              child is dom.Element && child.localName == 'br' ||
+              child is dom.Text && child.text.trim().isEmpty,
+        );
     out.add(
       QuoteBlock(
-        _parseContentBlocks(inner, threadId: threadId, insideQuote: true),
+        children,
         source: _quoteSource(node),
         reference: insideQuote || threadId == null
             ? null
             : _quoteReference(inner),
+        unlinkedEvidence:
+            insideQuote ||
+                !singleQuote ||
+                threadId == null ||
+                node.querySelector('a') != null
+            ? null
+            : _unlinkedQuoteEvidence(inner, children, threadId!),
       ),
     );
   }
@@ -270,6 +323,77 @@ bool _isQuote(dom.Element element) =>
     element.localName == 'blockquote' ||
     (element.localName == 'div' &&
         element.className.split(RegExp(r'\s+')).contains('quote'));
+
+/// 只接受完整独立署名行；任何链接、嵌套引文或不可读内容都阻止文本回退。
+UnlinkedQuoteEvidence? _unlinkedQuoteEvidence(
+  dom.Element quote,
+  List<ContentBlock> children,
+  int tid,
+) {
+  const textTags = {
+    'font',
+    'span',
+    'b',
+    'strong',
+    'i',
+    'em',
+    'u',
+    's',
+    'br',
+    'p',
+    'div',
+  };
+  if (quote
+          .querySelectorAll('*')
+          .any(
+            (node) =>
+                !textTags.contains(node.localName) ||
+                _isQuote(node) ||
+                node.classes.contains('locked') ||
+                _isHidden(node) ||
+                node.classes.any(_skipClasses.contains),
+          ) ||
+      children.length < 2 ||
+      children.any((block) => block is! TextBlock)) {
+    return null;
+  }
+  // 从 DOM 取完整署名，作者内部空白不能经正文归一后变成另一个名字。
+  final header = quote.nodes
+      .where(
+        (node) =>
+            node is dom.Element ||
+            node is dom.Text && node.text.trim().isNotEmpty,
+      )
+      .firstOrNull;
+  final signature = header?.text?.trim() ?? '';
+  if (normalizeQuoteText(signature) != (children.first as TextBlock).text) {
+    return null;
+  }
+  final match = RegExp(
+    r'^(.{1,60}?) +发表于 +(\d{4}-\d{1,2}-\d{1,2} +\d{1,2}:\d{2})$',
+  ).firstMatch(signature);
+  if (match == null) return null;
+  final author = match.group(1)!;
+  final minute = quoteMinute(match.group(2)!);
+  if (author.trim() != author || minute == null) return null;
+  var excerpt = normalizeQuoteText(
+    children.skip(1).cast<TextBlock>().map((block) => block.text).join(' '),
+  );
+  final ending = RegExp(r'(?:\.{3}|…+)$').firstMatch(excerpt);
+  if (ending != null) excerpt = excerpt.substring(0, ending.start).trimRight();
+  // 短句和纯标点缺少辨识度，不足以证明同一段正文。
+  if (excerpt.replaceAll(RegExp(r'\s'), '').runes.length < 12 ||
+      !RegExp(r'[\p{L}\p{N}]', unicode: true).hasMatch(excerpt)) {
+    return null;
+  }
+  return UnlinkedQuoteEvidence(
+    tid: tid,
+    author: author,
+    minute: minute,
+    excerpt: excerpt,
+    truncated: ending != null,
+  );
+}
 
 /// 只检查引用第一行署名；不扫描摘录正文或嵌套旧引文中的地址。
 /// 引用可被手工编辑，因此即便成功也仅是 claimed reference。

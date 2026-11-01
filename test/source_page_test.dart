@@ -88,7 +88,7 @@ void main() {
 
   testWidgets('右上角常驻原页面按钮,点开是抽屉,关闭回到帖子', (tester) async {
     await pumpThread(tester, forumName: '自由水世界2024');
-    await tester.tap(find.byKey(const ValueKey('thread-source-page')));
+    await tester.tap(find.byTooltip('查看原页面'));
     // 只推进到滑入途中:网页要等抽屉停稳才创建,测试环境没有原生网页实现
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 16));

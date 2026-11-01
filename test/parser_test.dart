@@ -181,6 +181,96 @@ void _postExtrasTests() {
       expect(rating.entries.first.score, '+ 100');
       expect(rating.entries.first.reason, '示例评分理由');
       expect(rating.entries.first.uid, '2001');
+      expect(
+        rating.entries.first.avatarUrl,
+        'https://example.invalid/rater.png',
+      );
+      expect(rating.entries.last.avatarUrl, isNull);
+      expect(rating.items.map((item) => item.label), ['参与人数', '邪恶指数']);
+      expect(rating.items.map((item) => item.value), ['2', '+110']);
+      expect(rating.participants, 2);
+    });
+
+    test('回复楼点评保留作者、头像和正文,清理时间前缀及 nbsp', () {
+      final d = parseThread(sample('thread_synthetic.html'), tid: 900001);
+      final reply = d.posts.firstWhere((p) => p.pid == 90000102);
+      expect(reply.floor, 2);
+      expect(reply.comments, hasLength(2));
+      expect(reply.comments.map((c) => c.author), ['示例点评者甲', '示例点评者乙']);
+      expect(reply.comments.map((c) => c.uid), ['3001', '3002']);
+      expect(reply.comments.map((c) => c.timeRaw), [
+        '2026-01-04 05:06',
+        '2026-01-04 07:08',
+      ]);
+      expect(reply.comments.map((c) => c.text), ['合成点评甲', '合成 点评乙']);
+      expect(reply.comments.map((c) => c.avatarUrl), [
+        'https://example.invalid/comment-3001.png',
+        'https://example.invalid/comment-3002.png',
+      ]);
+      for (final comment in reply.comments) {
+        expect(Uri.parse(comment.avatarUrl!).isAbsolute, isTrue);
+        expect(comment.timeRaw, isNot(contains('发表于')));
+        expect(comment.text, isNot(contains('\u00a0')));
+        expect(comment.text, isNot(contains('&nbsp;')));
+      }
+    });
+
+    test('回复楼评分允许无理由,参与人数以汇总而非明细条数为准', () {
+      final d = parseThread(sample('thread_synthetic.html'), tid: 900001);
+      final rating = d.posts.firstWhere((p) => p.pid == 90000102).rating!;
+      expect(rating.entries, hasLength(1));
+      expect(rating.entries.single.user, '示例评分者丙');
+      expect(rating.entries.single.uid, '2003');
+      expect(rating.entries.single.score, '+ 5');
+      expect(rating.entries.single.reason, anyOf(isNull, isEmpty));
+      expect(
+        rating.entries.single.avatarUrl,
+        'https://example.invalid/rater-2003.png',
+      );
+      expect(rating.participants, 2);
+      expect(rating.items.map((item) => item.value), ['2', '+5']);
+    });
+
+    test('评分汇总无法拆分时保留原文,缺少人数不推算', () {
+      const rating = PostRating(
+        summary: ['邪恶指数 - 12', ' 未知汇总 ', '邪恶指数 1.5'],
+        entries: [RatingEntry(user: '示例评分者', score: '- 12')],
+      );
+      expect(rating.items.first.label, '邪恶指数');
+      expect(rating.items.first.value, '-12');
+      expect(rating.items[1].label, ' 未知汇总 ');
+      expect(rating.items[1].value, isNull);
+      expect(rating.items[2].label, '邪恶指数 1.5');
+      expect(rating.items[2].value, isNull);
+      expect(rating.participants, isNull);
+      expect(const PostRating(summary: [], entries: []).items, isEmpty);
+      expect(
+        const PostComment(author: '示例点评者', text: '合成点评').avatarUrl,
+        isNull,
+      );
+    });
+
+    test('点评和评分头像复用相对路径补全并兼容无 class 的图片', () {
+      final source = sample('thread_synthetic.html')
+          .replaceAll(
+            'https://example.invalid/comment-3001.png',
+            './synthetic/comment.png',
+          )
+          .replaceAll(
+            '//example.invalid/rater-2003.png',
+            './synthetic/rater.png',
+          )
+          .replaceAll(' class="user_avatar"', '');
+      final d = parseThread(source, tid: 900001);
+      final reply = d.posts.firstWhere((p) => p.pid == 90000102);
+      expect(
+        reply.comments.first.avatarUrl,
+        'https://www.chiphell.com/synthetic/comment.png',
+      );
+      expect(
+        reply.rating!.entries.single.avatarUrl,
+        'https://www.chiphell.com/synthetic/rater.png',
+      );
     });
 
     test('没有点评时为空,不造假数据', () {
