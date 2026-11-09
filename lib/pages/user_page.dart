@@ -12,6 +12,8 @@ import '../design/shapes.dart';
 import '../design/tokens.dart';
 import '../design/typography.dart';
 import '../di.dart';
+import '../data/user_block_index.dart';
+import '../ui/user_block_action.dart';
 import '../models/models.dart';
 import '../ui/chrome_button.dart';
 import '../ui/grouped.dart';
@@ -227,6 +229,42 @@ class _UserProfileBodyState extends State<UserProfileBody> {
                   ),
                 ),
               ),
+              if (UserBlockIndex.normalizeUid(profile.uid) !=
+                  UserBlockIndex.normalizeUid(chhSession.badges.uid))
+                ListenableBuilder(
+                  listenable: userBlockIndex,
+                  builder: (context, _) => GroupedSection(
+                    children: [
+                      PressHighlight(
+                        semanticLabel: userBlockIndex.isBlocked(profile.uid)
+                            ? '解除黑名单'
+                            : '加入黑名单',
+                        onTap: () => toggleUserBlock(
+                          context,
+                          uid: profile.uid,
+                          name: profile.name,
+                          avatarUrl: profile.avatarUrl,
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 14,
+                          ),
+                          child: Text(
+                            userBlockIndex.isBlocked(profile.uid)
+                                ? '解除黑名单'
+                                : '加入黑名单',
+                            style: AppType.callout.copyWith(
+                              color: userBlockIndex.isBlocked(profile.uid)
+                                  ? AppTokens.of(context).accent
+                                  : AppTokens.of(context).red,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               if (profile.onlineHours != null ||
                   profile.credits != null ||
                   profile.evil != null) ...[
@@ -314,6 +352,31 @@ class _IdentityCard extends StatelessWidget {
           overflow: TextOverflow.ellipsis,
           textAlign: TextAlign.center,
           style: AppType.title1.copyWith(color: t.text),
+        ),
+        ListenableBuilder(
+          listenable: userBlockIndex,
+          builder: (context, _) => ExpressiveVisibility(
+            visible: userBlockIndex.isBlocked(profile.uid),
+            child: Padding(
+              padding: const EdgeInsets.only(top: 10),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: t.warnBg,
+                  borderRadius: BorderRadius.circular(AppRadii.xs),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
+                  child: Text(
+                    '已加入黑名单',
+                    style: AppType.footnote.copyWith(color: t.warn),
+                  ),
+                ),
+              ),
+            ),
+          ),
         ),
         const SizedBox(height: 10),
         Wrap(

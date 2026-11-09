@@ -104,3 +104,6 @@ key.properties
 /.design/
 AGENTS.md
 DESIGN.md
+
+# B-frame design prototypes (83MB embedded samples) stay local-only.
+/design-prototypes/

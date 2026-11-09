@@ -31,6 +31,18 @@ ImageProvider<Object> boundedNetworkImage(String url, int decodeWidth) =>
       ChhCachedImage(url, headers: chhImageHeaders),
     );
 
+/// Display-sized decoding bounds both axes without distorting tall/wide sources.
+ImageProvider<Object> boundedNetworkImageBox(
+  String url,
+  int width,
+  int height,
+) => ResizeImage(
+  ChhCachedImage(url, headers: chhImageHeaders),
+  width: width.clamp(64, 2048),
+  height: height.clamp(64, 2048),
+  policy: ResizeImagePolicy.fit,
+);
+
 class NetImage extends StatelessWidget {
   final String url;
   final BoxFit fit;

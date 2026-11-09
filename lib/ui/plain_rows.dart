@@ -167,10 +167,12 @@ class _ReadStateBuilderState extends State<ReadStateBuilder> {
   Widget build(BuildContext context) => widget.builder(context, _state);
 }
 
-/// 帖子行:眉题(版块或分类)→ 标题 → 元信息。元信息只用间距分开,不用间隔号和图标。
+/// 方案 A：两行标题、元信息与独立回复数列。
 class ThreadRow extends StatelessWidget {
   final ThreadSummary thread;
   final String? eyebrow;
+  final String? timeLabel;
+  final bool showCategory;
 
   /// 可定位的回复摘要等补充文字
   final String? excerpt;
@@ -187,6 +189,8 @@ class ThreadRow extends StatelessWidget {
     super.key,
     required this.thread,
     this.eyebrow,
+    this.timeLabel,
+    this.showCategory = true,
     this.excerpt,
     this.onTap,
     this.locked = false,
@@ -197,95 +201,220 @@ class ThreadRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
-    final label = eyebrow ?? thread.forumName ?? thread.typeName;
-    final when = displayTime(thread);
-    final meta = <String>[
-      if (thread.author.isNotEmpty) thread.author,
-      ?when,
-      if (!locked && thread.replies > 0) '${thread.replies} 回复',
-      if (thread.hasImages) '含图',
-    ];
-    final metaStyle = AppType.footnote.copyWith(color: t.text3);
+    final when = timeLabel ?? displayTime(thread);
+    final label = showCategory
+        ? eyebrow ?? thread.forumName ?? thread.typeName
+        : null;
     final sticky =
         thread.sticky &&
         !(PlainRowScope.maybeOf(context)?.impliesSticky ?? false);
+    final reduced = MediaQuery.disableAnimationsOf(context);
+    final duration = reduced ? Duration.zero : AppMotion.revealDuration;
     return PlainRow(
       onTap: onTap,
       child: Semantics(
         label: readSemanticsLabel(readState),
-        child: Column(
+        child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (sticky || (label?.isNotEmpty ?? false))
-              Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: Wrap(
-                  spacing: 8,
-                  children: [
-                    if (sticky)
-                      Text(
-                        '置顶',
-                        style: AppType.caption.copyWith(color: t.warn),
-                      ),
-                    if (label?.isNotEmpty ?? false)
-                      Text(
-                        label!,
-                        style: AppType.caption.copyWith(color: t.accent),
-                      ),
-                  ],
-                ),
-              ),
-            Text(
-              thread.title,
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
-              style: AppType.headline.copyWith(
-                color: readTitleColor(t, readState),
-              ),
-            ),
-            if ((excerpt ?? thread.snippet) case final String text) ...[
-              const SizedBox(height: 4),
-              Text(
-                text,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: AppType.subhead.copyWith(color: t.text2),
-              ),
-            ],
-            if (meta.isNotEmpty || readState is ThreadReadNewReplies) ...[
-              const SizedBox(height: 6),
-              Wrap(
-                spacing: 12,
-                runSpacing: 4,
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  for (final item in meta) Text(item, style: metaStyle),
-                  // 新回复并入同一行,不另起一行
-                  if (readState case final ThreadReadNewReplies fresh)
-                    newRepliesText(t, fresh),
-                ],
-              ),
-            ],
-            if (locked)
-              Padding(
-                padding: const EdgeInsets.only(top: 6),
-                child: Row(
-                  children: [
-                    Text('需登录', style: metaStyle.copyWith(color: t.warn)),
-                    const Spacer(),
-                    AppButton(
-                      label: '登录',
-                      small: true,
-                      variant: AppButtonVariant.tinted,
-                      onPressed: onLogin,
+                  TweenAnimationBuilder<Color?>(
+                    tween: ColorTween(end: readTitleColor(t, readState)),
+                    duration: duration,
+                    curve: Curves.easeOut,
+                    builder: (context, color, _) => Text(
+                      thread.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppType.headline.copyWith(color: color),
+                    ),
+                  ),
+                  if ((excerpt ?? thread.snippet) case final String text) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      text,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppType.subhead.copyWith(color: t.text2),
                     ),
                   ],
-                ),
+                  const SizedBox(height: 5),
+                  _metadata(context, t, label, when, sticky),
+                  if (locked)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Row(
+                        children: [
+                          Text(
+                            '需登录',
+                            style: AppType.footnote.copyWith(color: t.warn),
+                          ),
+                          const Spacer(),
+                          AppButton(
+                            label: '登录',
+                            small: true,
+                            variant: AppButtonVariant.tinted,
+                            onPressed: onLogin,
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
               ),
+            ),
+            if (!locked) ...[const SizedBox(width: 12), _count(t, duration)],
           ],
         ),
       ),
     );
   }
+
+  Widget _metadata(
+    BuildContext context,
+    AppTokens t,
+    String? label,
+    String? when,
+    bool sticky,
+  ) {
+    final style = AppType.footnote.copyWith(color: t.text3);
+    final identity = Text.rich(
+      TextSpan(
+        children: [
+          if (sticky)
+            TextSpan(
+              text: '置顶  ',
+              style: style.copyWith(color: t.warn),
+            ),
+          if (label?.isNotEmpty ?? false)
+            TextSpan(
+              text: '$label  ',
+              style: style.copyWith(
+                color: t.accent,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          TextSpan(text: thread.author, style: style),
+        ],
+      ),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: style,
+    );
+    final timeAndImage = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (when?.isNotEmpty ?? false)
+          Flexible(
+            child: Text(
+              when!,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: style,
+            ),
+          ),
+        if (thread.hasImages) ...[
+          if (when?.isNotEmpty ?? false) const SizedBox(width: 8),
+          Icon(AppIcons.image, size: 14, color: t.text3, semanticLabel: '含图'),
+        ],
+      ],
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final stacked =
+            MediaQuery.textScalerOf(context).scale(AppType.sizeFootnote) > 19 ||
+            constraints.maxWidth < 200;
+        if (stacked) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              identity,
+              if (when?.isNotEmpty == true || thread.hasImages)
+                Padding(
+                  padding: const EdgeInsets.only(top: 3),
+                  child: timeAndImage,
+                ),
+            ],
+          );
+        }
+        return Row(
+          children: [
+            Flexible(child: identity),
+            if (when?.isNotEmpty == true || thread.hasImages) ...[
+              const SizedBox(width: 10),
+              Flexible(child: timeAndImage),
+            ],
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _count(AppTokens t, Duration duration) {
+    final fresh = readState is ThreadReadNewReplies
+        ? (readState as ThreadReadNewReplies).count
+        : null;
+    final seen = readState is ThreadReadSeen;
+    final text = fresh == null
+        ? _compactCount(thread.replies)
+        : '+${_compactCount(fresh)}';
+    return SizedBox(
+      key: ValueKey('thread-count-${thread.tid}'),
+      width: 44,
+      child: Align(
+        alignment: Alignment.topRight,
+        child: Semantics(
+          label: fresh == null
+              ? '${thread.replies} 回复'
+              : '有 $fresh 条新回复，共 ${thread.replies} 回复',
+          excludeSemantics: true,
+          child: AnimatedContainer(
+            duration: duration,
+            curve: Curves.easeOut,
+            constraints: const BoxConstraints(
+              minWidth: 30,
+              minHeight: 22,
+              maxWidth: 44,
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+            decoration: BoxDecoration(
+              color: fresh != null
+                  ? t.accent
+                  : seen
+                  ? t.fill3
+                  : thread.replies == 0
+                  ? Colors.transparent
+                  : t.fill,
+              borderRadius: BorderRadius.circular(22),
+            ),
+            child: AnimatedDefaultTextStyle(
+              duration: duration,
+              curve: Curves.easeOut,
+              style: AppType.footnote.copyWith(
+                fontWeight: FontWeight.w600,
+                color: fresh != null
+                    ? t.onAccent
+                    : seen || thread.replies == 0
+                    ? t.text3
+                    : t.text2,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(text, maxLines: 1),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  static String _compactCount(int count) => count < 10000
+      ? '$count'
+      : '${(count / 10000).toStringAsFixed(count < 100000 ? 1 : 0)}万';
 
   /// 时间优先用解析出的结构化时间:今天只显示时分,今年显示月-日;拿不到就用站点原文
   static String? displayTime(ThreadSummary thread) {
@@ -310,6 +439,7 @@ class ThreadRow extends StatelessWidget {
 /// 置顶帖排在卡片内,收起时卡片向上折回一行
 class PinnedGroupRow extends StatelessWidget {
   final int count;
+  final String? firstTitle;
   final bool expanded;
   final VoidCallback onToggle;
 
@@ -319,6 +449,7 @@ class PinnedGroupRow extends StatelessWidget {
   const PinnedGroupRow({
     super.key,
     required this.count,
+    this.firstTitle,
     required this.expanded,
     required this.onToggle,
     required this.itemBuilder,
@@ -333,18 +464,19 @@ class PinnedGroupRow extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         AppSpace.screen,
-        6,
+        2,
         AppSpace.screen,
-        4,
+        6,
       ),
       child: DecoratedBox(
         decoration: ShapeDecoration(
-          color: t.fill,
-          shape: appShape(AppRadii.md),
+          color: t.fill3,
+          shape: appShape(AppRadii.sm),
         ),
         child: AppClip(
-          radius: AppRadii.md,
+          radius: AppRadii.sm,
           child: Column(
+            mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               _header(t, reduced),
@@ -381,25 +513,38 @@ class PinnedGroupRow extends StatelessWidget {
       child: ConstrainedBox(
         constraints: const BoxConstraints(minHeight: 44),
         child: Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppSpace.rowInset,
-            vertical: 10,
-          ),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           child: Row(
             children: [
               Text(
-                '置顶帖',
-                style: AppType.subhead.copyWith(
-                  color: t.text,
+                '置顶',
+                style: AppType.caption.copyWith(
+                  color: t.warn,
                   fontWeight: FontWeight.w600,
                 ),
               ),
-              const Spacer(),
+              const SizedBox(width: 8),
+              Expanded(
+                child: AnimatedOpacity(
+                  opacity: expanded ? 0 : 1,
+                  duration: reduced ? Duration.zero : AppMotion.fade,
+                  child: Text(
+                    firstTitle ?? '',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppType.filter.copyWith(
+                      color: t.text2,
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
               Text(
                 '$count 条',
                 style: AppType.footnote.copyWith(color: t.text3),
               ),
-              const SizedBox(width: 4),
+              const SizedBox(width: 2),
               TweenAnimationBuilder<double>(
                 tween: Tween(end: expanded ? .5 : 0),
                 duration: reduced ? Duration.zero : _turn.duration,
@@ -421,7 +566,7 @@ class PinnedGroupRow extends StatelessWidget {
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
       Padding(
-        padding: const EdgeInsets.symmetric(horizontal: AppSpace.rowInset),
+        padding: const EdgeInsets.symmetric(horizontal: 12),
         child: Divider(
           height: AppSpace.hairline,
           thickness: AppSpace.hairline,
@@ -430,7 +575,7 @@ class PinnedGroupRow extends StatelessWidget {
       ),
       for (var i = 0; i < count; i++)
         PlainRowScope(
-          inset: AppSpace.rowInset,
+          inset: 12,
           separator: i < count - 1,
           impliesSticky: true,
           child: Builder(builder: (context) => itemBuilder(context, i)),

@@ -87,6 +87,8 @@ void showPostResult(BuildContext context, PostResult result) {
     PostResultKind.needCaptcha => result.message,
     PostResultKind.loginRequired => '需登录',
     PostResultKind.permissionDenied => '没有发布权限',
+    PostResultKind.selfRating ||
+    PostResultKind.ratingQuotaExhausted ||
     PostResultKind.throttled => result.message,
     PostResultKind.failed => result.message,
     PostResultKind.unknown => '提交状态未知，请刷新确认',

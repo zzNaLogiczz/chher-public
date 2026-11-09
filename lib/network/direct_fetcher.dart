@@ -12,7 +12,7 @@ import 'cookie_jar.dart';
 import '../core/app_log.dart';
 import '../core/chh_urls.dart';
 
-class DirectFetcher implements ChhFetcher {
+class DirectFetcher implements ChhFetcher, AjaxFormFetcher {
   final Dio _dio;
 
   /// 登录态 Cookie(由 ChhSession 从 WebView Cookie 仓注入);为空时游客直连
@@ -79,11 +79,23 @@ class DirectFetcher implements ChhFetcher {
   }
 
   @override
-  Future<ChhResponse> postForm(Uri url, Map<String, String> form) async {
+  Future<ChhResponse> postForm(Uri url, Map<String, String> form) =>
+      _postForm(url, form);
+
+  @override
+  Future<ChhResponse> postAjaxForm(Uri url, Map<String, String> form) =>
+      _postForm(url, form, ajax: true);
+
+  Future<ChhResponse> _postForm(
+    Uri url,
+    Map<String, String> form, {
+    bool ajax = false,
+  }) async {
     try {
       final h = <String, String>{
         'Content-Type': 'application/x-www-form-urlencoded',
-        'Referer': url.toString(),
+        'Referer': ajax ? form['referer'] ?? url.toString() : url.toString(),
+        if (ajax) 'X-Requested-With': 'XMLHttpRequest',
       };
       _attachCookies(h);
       // 自己处理重定向:Discuz 写操作成功后常以 3xx 跳转,
@@ -98,6 +110,9 @@ class DirectFetcher implements ChhFetcher {
 
       final status = r.statusCode ?? 0;
       if (status >= 300 && status < 400) {
+        // A rating may already be committed. A failed landing-page GET must
+        // never turn this redirect into a reason to submit through WebView.
+        if (ajax) return ChhResponse(status, r.data ?? '', setCookies: set);
         return await _followRedirect(
           url,
           r.headers.value('location'),

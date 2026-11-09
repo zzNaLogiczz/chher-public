@@ -55,6 +55,15 @@ abstract final class AppType {
     fontWeight: FontWeight.w400,
     height: 1.5,
   );
+
+  /// Compact list filters and pinned previews, matching the approved prototype.
+  static const filter = TextStyle(
+    fontSize: 14,
+    fontWeight: FontWeight.w600,
+    height: 1.4,
+  );
+  static const double sizeFilter = 14;
+
   static const footnote = TextStyle(
     fontSize: 13,
     fontWeight: FontWeight.w400,

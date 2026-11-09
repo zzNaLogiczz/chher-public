@@ -2,6 +2,7 @@
 library;
 
 import '../core/link_target.dart';
+import 'post_interaction.dart';
 
 // ---------- 版块 ----------
 
@@ -37,6 +38,7 @@ class ThreadSummary {
   /// 分类标签,如 [ITX]
   final String? typeName;
   final String author;
+  final String? authorUid;
   final DateTime? createdAt;
   final int replies;
   final int views;
@@ -57,6 +59,7 @@ class ThreadSummary {
     required this.title,
     this.typeName,
     required this.author,
+    this.authorUid,
     this.createdAt,
     required this.replies,
     required this.views,
@@ -243,6 +246,9 @@ class Post {
   /// 点评
   final List<PostComment> comments;
 
+  /// 当前楼层实际观察到的操作能力；缺失链接保持未知。
+  final PostActionCapabilities actions;
+
   const Post({
     required this.pid,
     required this.floor,
@@ -257,7 +263,29 @@ class Post {
     this.notes = const [],
     this.rating,
     this.comments = const [],
+    this.actions = const PostActionCapabilities(),
   });
+
+  Post copyWith({
+    List<ContentBlock>? content,
+    List<PostComment>? comments,
+    PostRating? rating,
+  }) => Post(
+    pid: pid,
+    floor: floor,
+    floorIsKnown: floorIsKnown,
+    author: author,
+    authorUid: authorUid,
+    avatarUrl: avatarUrl,
+    timeRaw: timeRaw,
+    time: time,
+    content: content ?? this.content,
+    lock: lock,
+    notes: notes,
+    rating: rating ?? this.rating,
+    comments: comments ?? this.comments,
+    actions: actions,
+  );
 }
 
 class ThreadDetail {
@@ -757,6 +785,8 @@ enum PostResultKind {
   needCaptcha,
   loginRequired,
   permissionDenied,
+  selfRating,
+  ratingQuotaExhausted,
 
   /// 发帖间隔限制、重复内容等站点节流
   throttled,

@@ -29,6 +29,9 @@ class LargeTitleScaffold extends StatefulWidget {
 
   /// 大标题下方随内容滚动的区域:分段、搜索框、选择按钮
   final Widget? header;
+
+  /// Optional filters stay below the navigation bar while content scrolls.
+  final PreferredSizeWidget? pinnedHeader;
   final AppSurface surface;
   final Widget? bottomNavigationBar;
   final Widget? floatingActionButton;
@@ -43,6 +46,7 @@ class LargeTitleScaffold extends StatefulWidget {
     this.titleAccessory,
     this.eyebrow,
     this.header,
+    this.pinnedHeader,
     this.surface = AppSurface.content,
     this.bottomNavigationBar,
     this.floatingActionButton,
@@ -116,6 +120,11 @@ class _LargeTitleScaffoldState extends State<LargeTitleScaffold> {
                   ),
                   if (widget.header != null)
                     SliverToBoxAdapter(child: widget.header),
+                  if (widget.pinnedHeader case final header?)
+                    SliverPersistentHeader(
+                      pinned: true,
+                      delegate: _PinnedHeader(header, background),
+                    ),
                 ],
                 body: widget.body,
               ),
@@ -126,7 +135,8 @@ class _LargeTitleScaffoldState extends State<LargeTitleScaffold> {
             left: 0,
             right: 0,
             child: NavOverlay(
-              fadeBelowBar: !widget.reserveNavigationBar,
+              fadeBelowBar:
+                  !widget.reserveNavigationBar && widget.pinnedHeader == null,
               leading: widget.showBack
                   ? ChromeButton(
                       icon: AppIcons.back,
@@ -138,7 +148,9 @@ class _LargeTitleScaffoldState extends State<LargeTitleScaffold> {
               inlineTitle: widget.title,
               scrollOffset: _offset,
               collapseAt: _collapseAt,
-              background: background,
+              background: widget.pinnedHeader == null
+                  ? background
+                  : Color.alphaBlend(t.glass, background),
             ),
           ),
         ],
@@ -164,4 +176,31 @@ class _BarSpacer extends SliverPersistentHeaderDelegate {
   @override
   bool shouldRebuild(covariant _BarSpacer oldDelegate) =>
       oldDelegate.extent != extent;
+}
+
+class _PinnedHeader extends SliverPersistentHeaderDelegate {
+  final PreferredSizeWidget header;
+  final Color background;
+  const _PinnedHeader(this.header, this.background);
+  @override
+  double get minExtent => header.preferredSize.height.ceilToDouble();
+  @override
+  double get maxExtent => minExtent;
+  @override
+  Widget build(
+    BuildContext context,
+    double shrinkOffset,
+    bool overlapsContent,
+  ) => SizedBox(
+    height: maxExtent,
+    child: ColoredBox(
+      color: overlapsContent
+          ? Color.alphaBlend(AppTokens.of(context).glass, background)
+          : background,
+      child: header,
+    ),
+  );
+  @override
+  bool shouldRebuild(_PinnedHeader oldDelegate) =>
+      oldDelegate.header != header || oldDelegate.background != background;
 }

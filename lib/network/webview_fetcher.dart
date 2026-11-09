@@ -14,7 +14,7 @@ import 'chh_fetcher.dart';
 import 'serial_queue.dart';
 import 'webview_trust.dart';
 
-class WebViewFetcher implements ChhFetcher {
+class WebViewFetcher implements ChhFetcher, AjaxFormFetcher {
   HeadlessInAppWebView? _headless;
   InAppWebViewController? _controller;
   Completer<void>? _loadCompleter;
@@ -98,7 +98,11 @@ class WebViewFetcher implements ChhFetcher {
 
   @override
   Future<ChhResponse> getHtml(Uri url, {Map<String, String>? headers}) =>
-      _enqueue(() => _getHtml(url));
+      _enqueue(
+        () => headers?['X-Requested-With'] == 'XMLHttpRequest'
+            ? _ajaxRequest(url)
+            : _getHtml(url),
+      );
 
   Future<ChhResponse> _getHtml(Uri url) async {
     final controller = await _ensure();
@@ -179,6 +183,49 @@ class WebViewFetcher implements ChhFetcher {
   @override
   Future<ChhResponse> postForm(Uri url, Map<String, String> form) =>
       _enqueue(() => _postForm(url, form));
+
+  @override
+  Future<ChhResponse> postAjaxForm(Uri url, Map<String, String> form) =>
+      _enqueue(() => _ajaxRequest(url, form: form));
+
+  Future<ChhResponse> _ajaxRequest(Uri url, {Map<String, String>? form}) async {
+    final controller = await _ensure();
+    await _ensureOrigin(controller, url);
+    if (_navigationFailed) return _failedResponse();
+    final result = await controller.callAsyncJavaScript(
+      arguments: {'url': url.toString(), 'fields': form},
+      functionBody: r"""
+        const abort = new AbortController();
+        const timer = setTimeout(() => abort.abort(), 20000);
+        try {
+          const response = await fetch(url, {
+            method: fields ? 'POST' : 'GET', credentials: 'include',
+            // A 307/308 must not replay a submitted rating behind Dart's lock.
+            redirect: fields ? 'error' : 'follow',
+            headers: {
+              ...(fields ? {'Content-Type': 'application/x-www-form-urlencoded'} : {}),
+              'X-Requested-With': 'XMLHttpRequest'
+            },
+            referrer: fields?.referer || url,
+            body: fields ? new URLSearchParams(fields).toString() : undefined,
+            signal: abort.signal
+          });
+          return {status: response.status, text: await response.text()};
+        } catch (e) {
+          return {status: -1, text: '', error: String(e)};
+        } finally { clearTimeout(timer); }
+      """,
+    );
+    final value = result?.value;
+    if (value is Map) {
+      return ChhResponse(
+        (value['status'] as num?)?.toInt() ?? -1,
+        (value['text'] ?? '').toString(),
+        error: value['error']?.toString(),
+      );
+    }
+    return ChhResponse(-1, '', error: result?.error ?? '引擎未返回响应');
+  }
 
   Future<ChhResponse> _postForm(Uri url, Map<String, String> form) async {
     final controller = await _ensure();

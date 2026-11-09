@@ -47,11 +47,14 @@ ThreadListPage parseThreadList(String html) {
 
     final byCells = tbody.querySelectorAll('td.by');
     String author = '';
+    String? authorUid;
     DateTime? createdAt;
     String? lastUser;
     String? lastAt;
     if (byCells.isNotEmpty) {
-      author = byCells[0].querySelector('cite a')?.text.trim() ?? '';
+      final authorLink = byCells[0].querySelector('cite a');
+      author = authorLink?.text.trim() ?? '';
+      authorUid = ChhUrls.uidFromUrl(authorLink?.attributes['href'] ?? '');
       createdAt = ChhUrls.parseTime(byCells[0].querySelector('em')?.text ?? '');
     }
     if (byCells.length > 1) {
@@ -72,6 +75,7 @@ ThreadListPage parseThreadList(String html) {
         title: title,
         typeName: (typeName == null || typeName.isEmpty) ? null : typeName,
         author: author,
+        authorUid: authorUid,
         createdAt: createdAt,
         replies: replies,
         views: views,

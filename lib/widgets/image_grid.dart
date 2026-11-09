@@ -17,7 +17,15 @@ import 'expressive_controls.dart';
 class ImageGrid extends StatelessWidget {
   final List<String> urls;
   final bool preserveAspectRatio;
-  const ImageGrid(this.urls, {super.key, this.preserveAspectRatio = false});
+  final List<String>? gallery;
+  final int galleryStartIndex;
+  const ImageGrid(
+    this.urls, {
+    super.key,
+    this.preserveAspectRatio = false,
+    this.gallery,
+    this.galleryStartIndex = 0,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -31,8 +39,8 @@ class ImageGrid extends StatelessWidget {
               padding: EdgeInsets.only(bottom: i == urls.length - 1 ? 0 : 16),
               child: _ImageTile(
                 url: urls[i],
-                all: urls,
-                index: i,
+                all: gallery ?? urls,
+                index: galleryStartIndex + i,
                 natural: true,
               ),
             ),
@@ -49,8 +57,11 @@ class ImageGrid extends StatelessWidget {
         mainAxisSpacing: 5,
         crossAxisSpacing: 5,
       ),
-      itemBuilder: (context, i) =>
-          _ImageTile(url: urls[i], all: urls, index: i),
+      itemBuilder: (context, i) => _ImageTile(
+        url: urls[i],
+        all: gallery ?? urls,
+        index: galleryStartIndex + i,
+      ),
     );
   }
 }

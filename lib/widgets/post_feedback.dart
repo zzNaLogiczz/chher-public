@@ -9,6 +9,34 @@ import '../models/models.dart';
 import '../ui/press.dart';
 import 'net_image.dart';
 
+/// Keeps notification feedback in the panel’s own palette.
+class PostFeedbackHighlight extends InheritedWidget {
+  final double strength;
+  const PostFeedbackHighlight({
+    super.key,
+    required this.strength,
+    required super.child,
+  });
+
+  static Color backgroundOf(
+    BuildContext context,
+    Color original, {
+    Color? emphasis,
+  }) {
+    final highlight = context
+        .dependOnInheritedWidgetOfExactType<PostFeedbackHighlight>();
+    if (highlight == null || highlight.strength == 0) return original;
+    final t = AppTokens.of(context);
+    final base = Color.alphaBlend(original, t.bg);
+    final target = Color.alphaBlend(emphasis ?? t.fill3, base);
+    return Color.lerp(base, target, highlight.strength)!;
+  }
+
+  @override
+  bool updateShouldNotify(PostFeedbackHighlight oldWidget) =>
+      strength != oldWidget.strength;
+}
+
 // Participation is metadata, not a score type. Unknown summaries stay intact.
 List<RatingSummaryItem> _scores(PostRating rating) =>
     rating.items.where((item) => item.label != '参与人数').toList();
@@ -103,7 +131,11 @@ class _RatingCardState extends State<_RatingCard> {
         : FeedbackMetrics.compactInset;
     return Container(
       decoration: BoxDecoration(
-        color: opening ? t.greenFill : t.greenSoft,
+        color: PostFeedbackHighlight.backgroundOf(
+          context,
+          opening ? t.greenFill : t.greenSoft,
+          emphasis: t.green.withValues(alpha: .10),
+        ),
         borderRadius: BorderRadius.circular(
           opening ? FeedbackMetrics.cardRadius : FeedbackMetrics.floorRadius,
         ),
@@ -353,7 +385,11 @@ class _RatingStrip extends StatelessWidget {
       height: FeedbackMetrics.stripHeight,
       padding: const EdgeInsets.symmetric(horizontal: FeedbackMetrics.gap),
       decoration: BoxDecoration(
-        color: t.greenSoft,
+        color: PostFeedbackHighlight.backgroundOf(
+          context,
+          t.greenSoft,
+          emphasis: t.green.withValues(alpha: .10),
+        ),
         borderRadius: BorderRadius.circular(FeedbackMetrics.panelRadius),
       ),
       child: LayoutBuilder(
@@ -442,6 +478,7 @@ class _CommentsCardState extends State<_CommentsCard> {
         FeedbackMetrics.tinyGap,
       ),
       decoration: BoxDecoration(
+        color: PostFeedbackHighlight.backgroundOf(context, Colors.transparent),
         border: Border.all(color: t.separator, width: AppSpace.hairline),
         borderRadius: BorderRadius.circular(
           widget.opening
@@ -637,7 +674,11 @@ class _CommentFeedbackState extends State<CommentFeedback> {
             _Reveal(
               open: _ratingOpen && _expandable(rating!),
               child: _Panel(
-                color: t.greenSoft,
+                color: PostFeedbackHighlight.backgroundOf(
+                  context,
+                  t.greenSoft,
+                  emphasis: t.green.withValues(alpha: .10),
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [

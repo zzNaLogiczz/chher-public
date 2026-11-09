@@ -2,6 +2,11 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:motor/motor.dart';
+import '../design/motion.dart';
+import '../design/typography.dart';
+import '../ui/app_button.dart';
+import '../models/thread_list_time.dart';
 
 import '../di.dart';
 import '../data/forum_repository.dart';
@@ -39,6 +44,8 @@ class _ForumThreadsPageState extends State<ForumThreadsPage> {
   static final Map<int, ThreadSort> _sortMemory = {};
   late ThreadSort _sort;
   bool _sortPickerOpen = false;
+  final _composeVisible = ValueNotifier<bool>(true);
+  double _dragDistance = 0;
   List<ThreadType> _types = const [];
   int _typeid = 0;
   int _revision = 0;
@@ -54,7 +61,14 @@ class _ForumThreadsPageState extends State<ForumThreadsPage> {
   Future<void> _loadTypes() async {
     try {
       final types = await _repository.threadTypes(widget.fid);
-      if (mounted) setState(() => _types = types);
+      if (mounted) {
+        setState(() {
+          _types = types;
+          if (_typeid != 0 && !types.any((type) => type.typeid == _typeid)) {
+            _typeid = 0;
+          }
+        });
+      }
     } catch (_) {
       /* Categories are optional; discussion remains available. */
     }
@@ -73,9 +87,35 @@ class _ForumThreadsPageState extends State<ForumThreadsPage> {
       value: _sort,
     );
     _sortPickerOpen = false;
-    if (!mounted || picked == null || picked.value == _sort) return;
-    setState(() => _sort = picked.value);
-    _sortMemory[widget.fid] = _sort;
+    if (mounted && picked != null) _selectSort(picked.value);
+  }
+
+  void _selectSort(ThreadSort sort) {
+    if (sort == _sort) return;
+    setState(() => _sort = sort);
+    _sortMemory[widget.fid] = sort;
+    _composeVisible.value = true;
+  }
+
+  bool _trackScroll(ScrollNotification notification) {
+    if (notification.metrics.axis != Axis.vertical) return false;
+    if (notification is ScrollUpdateNotification &&
+        notification.dragDetails != null) {
+      final delta = notification.scrollDelta ?? 0;
+      if (delta.sign != _dragDistance.sign) _dragDistance = 0;
+      _dragDistance += delta;
+      if (_dragDistance.abs() >= 6) {
+        final visible = _dragDistance < 0 || notification.metrics.pixels < 40;
+        if (_composeVisible.value != visible) _composeVisible.value = visible;
+      }
+    }
+    return false;
+  }
+
+  @override
+  void dispose() {
+    _composeVisible.dispose();
+    super.dispose();
   }
 
   Future<void> _openNewThread() async {
@@ -94,6 +134,15 @@ class _ForumThreadsPageState extends State<ForumThreadsPage> {
       for (final type in _types.where((type) => type.typeid != 0))
         PickerOption(value: type.typeid, label: type.name),
     ];
+    final now = DateTime.now();
+    final sort = _sort;
+    final typeid = _typeid;
+    final scaler = MediaQuery.textScalerOf(context);
+    final controlHeight =
+        (scaler.scale(AppType.sizeSubhead) * AppType.subhead.height!).clamp(
+          44.0,
+          double.infinity,
+        );
     return BrowseScaffold(
       title: widget.title,
       actions: [
@@ -120,11 +169,6 @@ class _ForumThreadsPageState extends State<ForumThreadsPage> {
                 ),
               ),
               ChromeGroupItem(
-                tooltip: '发主题',
-                icon: AppIcons.compose,
-                onPressed: _openNewThread,
-              ),
-              ChromeGroupItem(
                 tooltip: favorited ? '取消收藏版块' : '收藏版块',
                 icon: favorited ? AppIcons.bookmarkFilled : AppIcons.bookmark,
                 selected: favorited,
@@ -134,80 +178,119 @@ class _ForumThreadsPageState extends State<ForumThreadsPage> {
           ),
         ),
       ],
-      body: Column(
-        children: [
-          ExpressiveVisibility(
-            visible: options.length > 1,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(
-                AppSpace.screen - 4,
-                0,
-                AppSpace.screen,
-                4,
+      pinnedHeader: options.length <= 1
+          ? null
+          : PreferredSize(
+              preferredSize: Size.fromHeight(controlHeight + 4),
+              child: Padding(
+                key: const ValueKey('forum-filters'),
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpace.screen,
+                  0,
+                  AppSpace.screen,
+                  4,
+                ),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: PickerButton<int>(
+                    sheetTitle: '选择分类',
+                    options: options,
+                    value: _typeid,
+                    onChanged: (id) {
+                      if (id != _typeid) {
+                        setState(() => _typeid = id);
+                        _composeVisible.value = true;
+                      }
+                    },
+                  ),
+                ),
               ),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: PickerButton<int>(
-                  sheetTitle: '选择分类',
-                  options: options,
-                  value: _typeid,
-                  onChanged: (id) {
-                    if (id != _typeid) setState(() => _typeid = id);
-                  },
+            ),
+      floatingActionButton: ValueListenableBuilder<bool>(
+        valueListenable: _composeVisible,
+        child: Tooltip(
+          message: '发主题',
+          child: AppButton(
+            label: '发帖',
+            icon: AppIcons.compose,
+            onPressed: _openNewThread,
+          ),
+        ),
+        builder: (context, visible, child) => IgnorePointer(
+          ignoring: !visible,
+          child: ExcludeSemantics(
+            excluding: !visible,
+            child: SingleMotionBuilder(
+              value: visible ? 1.0 : 0.0,
+              motion: AppMotion.of(context, AppMotion.reveal),
+              active: !MediaQuery.disableAnimationsOf(context),
+              child: child,
+              builder: (context, progress, child) => Opacity(
+                key: const ValueKey('forum-compose-visibility'),
+                opacity: progress.clamp(0.0, 1.0),
+                child: Transform.translate(
+                  offset: Offset(0, 80 * (1 - progress.clamp(0.0, 1.0))),
+                  child: child,
                 ),
               ),
             ),
           ),
-          Expanded(
-            child: BrowseThreadList(
-              key: ValueKey('${widget.fid}-$_typeid-${_sort.name}-$_revision'),
-              loader: (page, {bool refresh = false}) async {
-                final result = await _repository.threadList(
-                  widget.fid,
-                  page: page,
-                  typeid: _typeid == 0 ? null : _typeid,
-                  filter: _sort.filter,
-                  orderby: _sort.orderby,
-                  refresh: refresh,
-                );
-                return Paged(items: result.threads, page: result.page);
-              },
-              onPassword: (fid) async {
-                final success = await showForumPasswordUnlock(
-                  context,
-                  fid,
-                  repository: _repository,
-                );
-                if (success && mounted) await _loadTypes();
-                return success;
-              },
-              emptyMessage: '这个分类还没有帖子',
-              collapsePinned: true,
-              pinnedMemoryKey: widget.fid,
-              // 行级监听:一次 markRead 只重建对应一行
-              itemBuilder: (context, thread) => ReadStateBuilder(
-                tid: thread.tid,
-                replies: thread.replies,
-                builder: (context, state) => ThreadRow(
-                  thread: thread,
-                  readState: state,
-                  eyebrow: thread.typeName,
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => ThreadDetailPage(
-                        tid: thread.tid,
-                        seenReplies: thread.replies,
-                        title: thread.title,
-                        fid: widget.fid,
-                      ),
-                    ),
+        ),
+      ),
+      body: NotificationListener<ScrollNotification>(
+        onNotification: _trackScroll,
+        child: BrowseThreadList(
+          key: ValueKey('${widget.fid}-$_typeid-${_sort.name}-$_revision'),
+          loader: (page, {bool refresh = false}) async {
+            final result = await _repository.threadList(
+              widget.fid,
+              page: page,
+              typeid: typeid == 0 ? null : typeid,
+              filter: sort.filter,
+              orderby: sort.orderby,
+              refresh: refresh,
+            );
+            return Paged(items: result.threads, page: result.page);
+          },
+          onPassword: (fid) async {
+            final success = await showForumPasswordUnlock(
+              context,
+              fid,
+              repository: _repository,
+            );
+            if (success && mounted) await _loadTypes();
+            return success;
+          },
+          emptyMessage: '这个分类还没有帖子',
+          collapsePinned: true,
+          pinnedMemoryKey: widget.fid,
+          sectionLabel: sort.groupsByDate
+              ? (thread) => ThreadListTime.of(thread, sort, now: now).section
+              : null,
+          // 行级监听:一次 markRead 只重建对应一行
+          itemBuilder: (context, thread) => ReadStateBuilder(
+            tid: thread.tid,
+            replies: thread.replies,
+            builder: (context, state) => ThreadRow(
+              thread: thread,
+              readState: state,
+              eyebrow: thread.typeName,
+              showCategory: _typeid == 0,
+              timeLabel: ThreadListTime.of(thread, sort, now: now).label ?? '',
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => ThreadDetailPage(
+                    tid: thread.tid,
+                    seenReplies: thread.replies,
+                    title: thread.title,
+                    fid: widget.fid,
                   ),
                 ),
               ),
             ),
           ),
-        ],
+        ),
       ),
     );
   }

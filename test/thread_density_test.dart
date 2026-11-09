@@ -341,7 +341,7 @@ void main() {
       await mount(tester, const PostCard(post: post, isOpening: true));
       expect(find.text('10-30 12:34 编辑过'), findsOneWidget);
       expect(find.text('无法提取的编辑原文'), findsOneWidget);
-      expect(find.text('楼主补充 · 10-31'), findsOneWidget);
+      expect(find.text('楼主补充 10-31'), findsOneWidget);
       expect(find.text('追加正文'), findsOneWidget);
       final panel = tester
           .widgetList<Container>(find.byType(Container))
@@ -621,7 +621,9 @@ void main() {
         });
     expect(guides, isEmpty);
     final rect = tester.getRect(reply);
-    await tester.tapAt(Offset(rect.right + 7, rect.center.dy));
+    // The adjacent more action now owns the shared horizontal margin.
+    // Verify reply's expanded touch area above its visible bounds instead.
+    await tester.tapAt(Offset(rect.center.dx, rect.top - 8));
     await tester.pumpAndSettle();
     expect(find.byType(ComposerSheet), findsOneWidget);
   });

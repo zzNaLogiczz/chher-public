@@ -198,6 +198,7 @@ void main() {
     expect(target.tid, 123);
     expect(target.gotoUrl, notice.targetUrl);
     expect(target.focusPid, 987);
+    expect(target.focusOpeningFeedback, isFalse);
     expect(
       noticeThreadTarget(
         const Notice(
@@ -210,6 +211,26 @@ void main() {
       isNull,
     );
   });
+
+  for (final category in ['rate', 'pcomment']) {
+    test('$category notice keeps its PID and requests opening feedback', () {
+      final target = noticeThreadTarget(
+        Notice(
+          id: 'feedback-$category',
+          category: category,
+          occurredAtText: notice.occurredAtText,
+          summary: notice.summary,
+          tid: notice.tid,
+          pid: notice.pid,
+          targetUrl: notice.targetUrl,
+        ),
+      )!;
+      expect(target.tid, notice.tid);
+      expect(target.gotoUrl, notice.targetUrl);
+      expect(target.focusPid, notice.pid);
+      expect(target.focusOpeningFeedback, isTrue);
+    });
+  }
 
   testWidgets(
     'failed send retains draft and rapid repeat cannot submit twice',

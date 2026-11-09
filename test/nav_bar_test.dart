@@ -74,7 +74,7 @@ void main() {
         await tester.pumpAndSettle();
         expect(
           tester.widget<ChromeGroup>(find.byType(ChromeGroup)).items,
-          hasLength(4),
+          hasLength(3),
         );
 
         final outer = tester

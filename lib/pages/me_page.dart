@@ -10,6 +10,7 @@ import '../design/tokens.dart';
 import '../ui/grouped.dart';
 import '../update/update_controller.dart';
 import 'favorites_page.dart';
+import 'blocked_users_page.dart';
 import 'medals_page.dart';
 import 'my_threads_page.dart';
 import 'credit_log_page.dart';
@@ -90,6 +91,14 @@ class MeBody extends StatelessWidget {
             ],
             GroupedSection(
               children: [
+                GroupedRow(
+                  title: '黑名单',
+                  icon: const IconTile(
+                    icon: AppIcons.forbidden,
+                    tint: IconTints.gray,
+                  ),
+                  onTap: () => _push(context, const BlockedUsersPage()),
+                ),
                 // 有新版本时带红点,关于在设置里
                 ListenableBuilder(
                   listenable: appUpdater,

@@ -31,6 +31,9 @@ Paged<ThreadSummary> parseTagThreads(String html) {
         tid: tid,
         title: title,
         author: cleanText(findUserLink(tr)?.el.text),
+        authorUid: ChhUrls.uidFromUrl(
+          findUserLink(tr)?.el.attributes['href'] ?? '',
+        ),
         replies: 0,
         views: 0,
         lastPostTimeRaw: cells.isEmpty ? null : cleanText(cells.last.text),
@@ -107,30 +110,35 @@ SiteTable parseSiteTable(String html, {String selector = 'table.dt'}) {
   );
 }
 
-/// 勋章中心(home.php?mod=medal)
+/// 勋章中心及我的勋章(home.php?mod=medal&action=log)
 ///
-/// 排除带 _menu 的说明节点,否则一个勋章会算两次。
+/// 我的勋章中的 .mg_img 没有 id；领取记录和说明节点不属于勋章列表。
 List<MedalItem> parseMedals(String html) {
   final doc = html_parser.parse(html);
   throwIfMessagePage(doc);
 
   final out = <MedalItem>[];
-  for (final el in doc.querySelectorAll('div[id^="medal_"]')) {
+  for (final el in doc.querySelectorAll('div.mg_img')) {
     if (el.id.endsWith('_menu')) continue;
-    if (!el.className.contains('mg_img')) continue;
 
-    final id = el.id.replaceFirst('medal_', '');
     final img = el.querySelector('img');
-    final tip = doc.querySelector('#medal_${id}_menu');
+    final name = cleanText(img?.attributes['alt'] ?? el.text);
+    final src = img?.attributes['src'];
+    final imageUrl = src == null ? null : ChhUrls.absolutize(src);
+    final sourceId = RegExp(r'^medal_(\d+)$').firstMatch(el.id)?.group(1);
+    final tip = sourceId == null
+        ? null
+        : doc.getElementById('medal_${sourceId}_menu');
+    // The owned list has no numeric medal ID. Its source image is a stable key.
+    final id = sourceId ?? imageUrl ?? name;
+    if (id.isEmpty) continue;
 
     out.add(
       MedalItem(
         id: id,
-        name: cleanText(img?.attributes['alt'] ?? el.text),
+        name: name,
         description: cleanText(tip?.text).isEmpty ? null : cleanText(tip?.text),
-        imageUrl: img?.attributes['src'] == null
-            ? null
-            : ChhUrls.absolutize(img!.attributes['src']!),
+        imageUrl: imageUrl,
       ),
     );
   }

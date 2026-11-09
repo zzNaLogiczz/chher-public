@@ -22,6 +22,7 @@ import '../core/chh_urls.dart';
 import '../models/models.dart';
 import 'content_walker.dart';
 import 'dom_utils.dart';
+import 'post_action_parser.dart';
 
 ThreadDetail parseThread(
   String html, {
@@ -100,6 +101,7 @@ ThreadDetail parseThread(
         // 评分与点评挂在楼层容器上,不在正文单元格里
         rating: _ratingOf(doc, pid),
         comments: _commentsOf(doc, pid),
+        actions: parsePostActionCapabilities(table, tid: tid, pid: pid),
       ),
     );
   }

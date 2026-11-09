@@ -317,6 +317,8 @@ enum AppSurface { content, grouped }
 
 /// 圆角令牌(规格 §5.3)。rFull 用 StadiumBorder / CircleBorder,不在此定义。
 abstract final class AppRadii {
+  static const double full = 999;
+
   /// 拖动条、细进度条这类 4–5dp 高的胶囊
   static const double bar = 2.5;
   static const double xs = 8;

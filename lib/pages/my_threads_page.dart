@@ -6,6 +6,7 @@ library;
 
 import 'package:flutter/material.dart';
 import '../ui/segmented.dart';
+import '../ui/app_button.dart';
 import '../ui/picker.dart';
 import '../design/typography.dart';
 import '../ui/press.dart';
@@ -13,6 +14,8 @@ import '../ui/plain_rows.dart';
 
 import '../data/thread_read_index.dart';
 import '../di.dart';
+import '../data/user_block_index.dart';
+import '../ui/user_block_action.dart';
 import '../data/space_repository.dart';
 import '../widgets/large_title_scaffold.dart';
 import '../design/tokens.dart';
@@ -47,46 +50,69 @@ class _MyThreadsPageState extends State<MyThreadsPage> {
   Widget build(BuildContext context) {
     return LargeTitleScaffold(
       title: widget.title,
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(
-              AppSpace.screen,
-              0,
-              AppSpace.screen,
-              8,
-            ),
-            child: AppSegmented<int>(
-              fallbackTitle: '我的帖子',
-              options: [
-                for (var i = 0; i < _labels.length; i++)
-                  PickerOption(value: i, label: _labels[i]),
-              ],
-              value: _seg,
-              onChanged: (i) => setState(() => _seg = i),
-            ),
-          ),
-          Expanded(
-            child: PagedList<MyThread>(
-              key: ValueKey(_seg),
-              emptyMessage: '还没有相关的帖子',
-              padding: const EdgeInsets.only(top: 4, bottom: 40),
-              loader: (page, {bool refresh = false}) =>
-                  (widget.repository ?? spaceRepo).threads(
-                    uid: widget.uid,
-                    type: _types[_seg],
-                    page: page,
-                    refresh: refresh,
+      body: ListenableBuilder(
+        listenable: userBlockIndex,
+        builder: (context, _) {
+          final uid = widget.uid;
+          if (uid != null && userBlockIndex.isBlocked(uid)) {
+            return Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('已屏蔽该用户的内容'),
+                  AppButton(
+                    label: '解除黑名单',
+                    variant: AppButtonVariant.plain,
+                    onPressed: () =>
+                        toggleUserBlock(context, uid: uid, name: widget.title),
                   ),
-              // 行级监听:一次 markRead 只重建对应一行;replies 为空时只分已看/未看
-              itemBuilder: (context, item) => ReadStateBuilder(
-                tid: item.tid,
-                replies: item.replies,
-                builder: (context, state) => _Row(item: item, readState: state),
+                ],
               ),
-            ),
-          ),
-        ],
+            );
+          }
+          return Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpace.screen,
+                  0,
+                  AppSpace.screen,
+                  8,
+                ),
+                child: AppSegmented<int>(
+                  fallbackTitle: '我的帖子',
+                  options: [
+                    for (var i = 0; i < _labels.length; i++)
+                      PickerOption(value: i, label: _labels[i]),
+                  ],
+                  value: _seg,
+                  onChanged: (i) => setState(() => _seg = i),
+                ),
+              ),
+              Expanded(
+                child: PagedList<MyThread>(
+                  key: ValueKey(_seg),
+                  emptyMessage: '还没有相关的帖子',
+                  padding: const EdgeInsets.only(top: 4, bottom: 40),
+                  loader: (page, {bool refresh = false}) =>
+                      (widget.repository ?? spaceRepo).threads(
+                        uid: widget.uid,
+                        type: _types[_seg],
+                        page: page,
+                        refresh: refresh,
+                      ),
+                  // 行级监听:一次 markRead 只重建对应一行;replies 为空时只分已看/未看
+                  itemBuilder: (context, item) => ReadStateBuilder(
+                    tid: item.tid,
+                    replies: item.replies,
+                    builder: (context, state) =>
+                        _Row(item: item, readState: state),
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }

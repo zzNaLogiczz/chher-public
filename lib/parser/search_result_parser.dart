@@ -52,8 +52,11 @@ SearchResultPage parseSearchResult(String html) {
     }
 
     final timeRaw = meta?.querySelector('span')?.text.trim();
-    final author =
-        meta?.querySelector('a[href*="space-uid"]')?.text.trim() ?? '';
+    final authorLink = meta?.querySelector(
+      'a[href*="space-uid"], a[href*="mod=space"][href*="uid="]',
+    );
+    final author = authorLink?.text.trim() ?? '';
+    final authorUid = ChhUrls.uidFromUrl(authorLink?.attributes['href'] ?? '');
     final forumA = meta?.querySelector('a[href*="forum-"], a[href*="fid="]');
     final forumName = forumA?.text.trim();
     final forumFid = forumA == null
@@ -65,6 +68,7 @@ SearchResultPage parseSearchResult(String html) {
         tid: tid,
         title: title,
         author: author,
+        authorUid: authorUid,
         createdAt: ChhUrls.parseTime(timeRaw ?? ''),
         replies: replies,
         views: views,

@@ -77,8 +77,10 @@ Future<void> _mount(
   int fid, {
   bool narrow = false,
 }) async {
-  await tester.binding.setSurfaceSize(Size(narrow ? 320 : 390, 844));
-  addTearDown(() => tester.binding.setSurfaceSize(null));
+  tester.view.physicalSize = Size(narrow ? 320 : 390, 844);
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
   await tester.pumpWidget(
     MaterialApp(
       theme: buildAppTheme(Brightness.light),
@@ -113,33 +115,34 @@ Future<void> _pick(WidgetTester tester, String label) async {
 }
 
 void main() {
-  testWidgets('default sort is unselected and precedes search and compose', (
-    tester,
-  ) async {
-    final repo = _Forums();
-    await _mount(tester, repo, 1101);
-    expect(_sort(tester).selected, isFalse);
-    expect(
-      tester
-          .widget<ChromeGroup>(find.byType(ChromeGroup))
-          .items
-          .map((i) => i.tooltip),
-      ['排序', '搜索帖子', '发主题', '收藏版块'],
-    );
-    expect(repo.requests.single.orderby, isNull);
-  });
+  testWidgets(
+    'default sort returns to navigation alongside search and favorite',
+    (tester) async {
+      final repo = _Forums();
+      await _mount(tester, repo, 1101);
+      expect(_sort(tester).selected, isFalse);
+      expect(
+        tester
+            .widget<ChromeGroup>(find.byType(ChromeGroup))
+            .items
+            .map((i) => i.tooltip),
+        ['排序', '搜索帖子', '收藏版块'],
+      );
+      expect(repo.requests.single.orderby, isNull);
+    },
+  );
 
   testWidgets('reply sort selects the icon and sends site parameters', (
     tester,
   ) async {
     final repo = _Forums();
     await _mount(tester, repo, 1102);
-    await _pick(tester, '回复/查看');
+    await _pick(tester, '回复最多');
     expect(_sort(tester).selected, isTrue);
     expect(repo.requests.last.filter, 'reply');
     expect(repo.requests.last.orderby, 'replies');
     final count = repo.requests.length;
-    await _pick(tester, '回复/查看');
+    await _pick(tester, '回复最多');
     expect(repo.requests.length, count);
   });
 
@@ -153,7 +156,7 @@ void main() {
     await tester.tap(find.text('硬件').last);
     await tester.pump(const Duration(milliseconds: 200));
     await tester.pumpAndSettle();
-    await _pick(tester, '查看');
+    await _pick(tester, '查看最多');
     expect(repo.requests.last.typeid, 1010);
     expect(repo.requests.last.orderby, 'views');
     await tester.tap(find.byType(PickerButton<int>));
@@ -170,7 +173,7 @@ void main() {
   ) async {
     final repo = _Forums();
     await _mount(tester, repo, 1104);
-    await _pick(tester, '发帖时间');
+    await _pick(tester, '最新发布');
     expect(repo.requests.last.filter, 'author');
     expect(repo.requests.last.orderby, 'dateline');
     final count = repo.requests.length;
@@ -187,7 +190,7 @@ void main() {
   ) async {
     final repo = _Forums();
     await _mount(tester, repo, 1105);
-    await _pick(tester, '查看');
+    await _pick(tester, '查看最多');
     await _mount(tester, repo, 1106);
     expect(_sort(tester).selected, isFalse);
     expect(repo.requests.last.orderby, isNull);
@@ -204,7 +207,7 @@ void main() {
     await tester.tap(find.text('硬件').last);
     await tester.pump(const Duration(milliseconds: 200));
     await tester.pumpAndSettle();
-    await _pick(tester, '回复/查看');
+    await _pick(tester, '回复最多');
     for (
       var i = 0;
       i < 8 && !repo.requests.any((r) => r.page == 2 && r.orderby == 'replies');
@@ -231,9 +234,9 @@ void main() {
     final repo = _Forums();
     await _mount(tester, repo, 1108);
     expect(find.byType(PinnedGroupRow), findsOneWidget);
-    await _pick(tester, '查看');
+    await _pick(tester, '查看最多');
     expect(find.byType(PinnedGroupRow), findsNothing);
-    await _pick(tester, '最后发表');
+    await _pick(tester, '最新回复');
     expect(find.byType(PinnedGroupRow), findsOneWidget);
     expect(_sort(tester).selected, isFalse);
   });
@@ -241,7 +244,7 @@ void main() {
   testWidgets('changing sort discards a late default response', (tester) async {
     final repo = _Forums()..pending = Completer<ThreadListPage>();
     await _mount(tester, repo, 1109);
-    await _pick(tester, '查看');
+    await _pick(tester, '查看最多');
     repo.pending!.complete(
       const ThreadListPage(
         threads: [
@@ -262,10 +265,10 @@ void main() {
   });
 
   testWidgets(
-    '320dp at 2x keeps all four labels readable and actions at least 44dp',
+    '320dp at 2x keeps actions reachable and sort sheet labels readable',
     (tester) async {
       await _mount(tester, _Forums(), 1110, narrow: true);
-      for (final tooltip in ['排序', '搜索帖子', '发主题', '收藏版块']) {
+      for (final tooltip in ['排序', '搜索帖子', '收藏版块']) {
         final size = tester.getSize(find.byTooltip(tooltip));
         expect(size.width, greaterThanOrEqualTo(44));
         expect(size.height, greaterThanOrEqualTo(44));
@@ -273,8 +276,8 @@ void main() {
       await tester.tap(find.byTooltip('排序'));
       await tester.pumpAndSettle();
       expect(find.text('排序方式'), findsOneWidget);
-      for (final (index, label) in ['最后发表', '发帖时间', '回复/查看', '查看'].indexed) {
-        final text = tester.widget<Text>(find.text(label));
+      for (final (index, label) in ['最新回复', '最新发布', '回复最多', '查看最多'].indexed) {
+        final text = tester.widget<Text>(find.text(label).last);
         expect(text.maxLines, isNull);
         expect(text.overflow, isNull);
         final size = tester.getSize(

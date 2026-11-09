@@ -5,6 +5,8 @@ import '../core/reading_prefs.dart';
 /// Only reading content consumes these tokens; navigation keeps its own scale.
 class ReadingMetrics {
   static const double commentMetaGap = 8;
+  static const double commentActionHeight = 20;
+  static const double moreVisualWidth = 24;
 
   /// 至少留出回复向上扩展的触区，避免换行后覆盖时间。
   static const double commentMetaRunGap = 12;

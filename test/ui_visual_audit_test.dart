@@ -13,7 +13,6 @@ import 'package:chh_app/pages/articles_view.dart';
 import 'package:chh_app/pages/article_page.dart';
 import 'package:chh_app/widgets/image_grid.dart';
 import 'package:chh_app/parser/thread_list_parser.dart';
-import 'package:chh_app/parser/misc_parser.dart';
 import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/design/tokens.dart';
 import 'package:chh_app/di.dart';
@@ -94,7 +93,10 @@ class _AuditForums extends ForumRepository {
   _AuditForums() : super(ChhClient(fetchers: []));
   @override
   Future<List<ThreadType>> threadTypes(int fid, {bool refresh = false}) async =>
-      parseThreadTypes(_fixture('thread_list_synthetic.html'));
+      const [
+        ThreadType(typeid: 1010, name: 'ITX'),
+        ThreadType(typeid: 1020, name: '硬件'),
+      ];
   @override
   Future<ThreadListPage> threadList(
     int fid, {
@@ -505,6 +507,8 @@ void main() {
           'messages',
           'thread',
         ]) {
+          const only = String.fromEnvironment('CHH_UI_AUDIT_SCREEN');
+          if (only.isNotEmpty && name != only) continue;
           current = '${config.name}-$name';
           final key = GlobalKey();
           await tester.pumpWidget(_app(_screen(name), config, key));

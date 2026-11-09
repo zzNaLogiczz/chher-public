@@ -29,6 +29,10 @@ ThreadDetailPage? noticeThreadTarget(Notice notice) => notice.tid == null
         title: notice.summary,
         gotoUrl: notice.targetUrl,
         focusPid: notice.pid,
+        focusOpeningFeedback: const {
+          'rate',
+          'pcomment',
+        }.contains(notice.category),
       );
 
 class MessagesPage extends StatelessWidget {

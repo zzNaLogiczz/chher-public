@@ -2,6 +2,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import '../data/user_block_index.dart';
 import '../design/icons.dart';
 import '../ui/editor_touch.dart';
 import '../ui/app_button.dart';
@@ -58,6 +59,7 @@ class _SearchPageState extends State<SearchPage> {
   @override
   void initState() {
     super.initState();
+    userBlockIndex.addListener(_blocksChanged);
     if (widget.initialQuery.trim().isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _search();
@@ -125,6 +127,7 @@ class _SearchPageState extends State<SearchPage> {
 
   @override
   void dispose() {
+    userBlockIndex.removeListener(_blocksChanged);
     _request++;
     if (_entryListener != null) {
       _entryAnimation?.removeStatusListener(_entryListener!);
@@ -321,12 +324,31 @@ class _SearchPageState extends State<SearchPage> {
     );
   }
 
+  void _blocksChanged() {
+    if (mounted) setState(() {});
+  }
+
   Widget _content(AppTokens t) {
+    final rows = _rows
+        .where((row) => !userBlockIndex.isBlocked(row.authorUid))
+        .toList();
     if (!_searched) return _ready(t);
-    if (_loading && _rows.isEmpty) return const SearchLoadingPanel();
+    if (_loading && rows.isEmpty) return const SearchLoadingPanel();
     final error = _error;
-    if (error != null && _rows.isEmpty) return _failure(error);
-    if (_rows.isEmpty) {
+    if (error != null && rows.isEmpty) return _failure(error);
+    if (rows.isEmpty && _rows.isNotEmpty) {
+      final canContinue = _last?.nextUrl != null;
+      return SearchStatusPanel(
+        icon: AppIcons.forbidden,
+        title: '已隐藏黑名单用户的帖子',
+        message: _moreError != null
+            ? '后续结果加载失败，请重试。'
+            : (canContinue ? '可以继续查看后续结果。' : '已加载的结果中没有可显示的帖子。'),
+        actionLabel: canContinue ? '继续加载' : null,
+        onAction: canContinue ? _loadMore : null,
+      );
+    }
+    if (rows.isEmpty) {
       return SearchStatusPanel(
         icon: SolarIconsBold.magnifier,
         title: '没有找到相关帖子',
@@ -349,10 +371,10 @@ class _SearchPageState extends State<SearchPage> {
         primary: true,
         keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         padding: const EdgeInsets.fromLTRB(20, 0, 20, 30),
-        itemCount: _rows.length + 1,
+        itemCount: rows.length + 1,
         itemBuilder: (context, index) {
-          if (index == _rows.length) return _footer(t);
-          final thread = _rows[index];
+          if (index == rows.length) return _footer(t);
+          final thread = rows[index];
           return SearchResultCard(
             thread: thread,
             keyword: _submitted,

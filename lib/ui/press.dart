@@ -135,6 +135,9 @@ class PressScale extends StatefulWidget {
   final double scale;
   final String? semanticLabel;
 
+  /// Optional contrast feedback for small inline marks whose scale is subtle.
+  final double pressedOpacity;
+
   const PressScale({
     super.key,
     required this.child,
@@ -142,7 +145,8 @@ class PressScale extends StatefulWidget {
     this.onLongPress,
     this.scale = 0.96,
     this.semanticLabel,
-  });
+    this.pressedOpacity = 1,
+  }) : assert(pressedOpacity > 0 && pressedOpacity <= 1);
 
   @override
   State<PressScale> createState() => _PressScaleState();
@@ -156,6 +160,7 @@ class _PressScaleState extends State<PressScale>
     initialValue: 1,
   );
   bool _reduced = false;
+  bool _pressed = false;
 
   @override
   void didChangeDependencies() {
@@ -165,6 +170,9 @@ class _PressScaleState extends State<PressScale>
   }
 
   void _onPressed(bool down) {
+    if (widget.pressedOpacity < 1 && _pressed != down) {
+      setState(() => _pressed = down);
+    }
     if (_reduced) {
       _scale.value = 1;
     } else {
@@ -189,7 +197,14 @@ class _PressScaleState extends State<PressScale>
       child: ringed,
       builder: (_, child) => Transform.scale(scale: _scale.value, child: child),
     ),
-    child: widget.child,
+    child: widget.pressedOpacity == 1
+        ? widget.child
+        : AnimatedOpacity(
+            opacity: _pressed ? widget.pressedOpacity : 1,
+            duration: _pressed || _reduced ? Duration.zero : AppMotion.fade,
+            curve: Curves.easeOut,
+            child: widget.child,
+          ),
   );
 }
 

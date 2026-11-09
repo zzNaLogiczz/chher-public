@@ -46,10 +46,16 @@ def merge(polls):
 
 def pick_layer(layer_list, package):
     """The Flutter content layer is the BLAST SurfaceView of the package."""
-    matches = [
-        line.strip() for line in layer_list.splitlines()
-        if line.strip().startswith('SurfaceView[' + package + '/')
-    ]
+    names = []
+    for line in layer_list.splitlines():
+        name = line.strip()
+        if name.startswith('RequestedLayerState{'):
+            name = name.removeprefix('RequestedLayerState{').split(' parentId=', 1)[0].rstrip('}')
+        names.append(name)
+    matches = [name for name in names
+               if 'SurfaceView[' + package + '/' in name
+               and not name.startswith('Background for ')
+               and ('(BLAST)' in name or name.startswith('SurfaceView['))]
     if not matches:
         raise ValueError('no SurfaceView layer for ' + package)
     return matches[-1]

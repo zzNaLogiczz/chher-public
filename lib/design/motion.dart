@@ -44,10 +44,29 @@ abstract final class AppMotion {
   /// 封面展开成文章的 hero 弹簧
   static const hero = SpringDescription(mass: 1, stiffness: 350, damping: 38);
 
+  /// 提醒定位：两次缓慢轻闪（2.4秒）、保持2秒，再用800ms恢复原色。
+  static const noticeHighlightDuration = Duration(milliseconds: 5200);
+
+  static double noticeHighlight(double progress, {bool reduced = false}) {
+    final ms = progress * noticeHighlightDuration.inMilliseconds;
+    if (ms >= 4400) {
+      return 1 - Curves.easeOut.transform(((ms - 4400) / 800).clamp(0.0, 1.0));
+    }
+    if (reduced || ms >= 2400) return 1;
+    final phase = ms / 600;
+    final fraction = Curves.easeInOut.transform(phase - phase.floor());
+    return phase.floor().isEven ? 1 - fraction : fraction;
+  }
+
+  static const galleryReduced = Duration(milliseconds: 160);
+
   static const fade = Duration(milliseconds: 180);
 
   /// 发送成功后对勾停留多久再收起(规格 §6.3)
   static const successHold = Duration(milliseconds: 1200);
+
+  /// smooth_sheets requires a positive animateTo duration, including reduced motion.
+  static const immediateSheet = Duration(milliseconds: 1);
   static const reducedFade = Duration(milliseconds: 150);
 
   /// 系统开启「减少动态效果」时,所有弹簧退化为无动效

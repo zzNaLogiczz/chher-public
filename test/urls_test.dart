@@ -118,10 +118,10 @@ void main() {
         ThreadSort.views,
       ]);
       expect(ThreadSort.values.map((sort) => sort.label), [
-        '最后发表',
-        '发帖时间',
-        '回复/查看',
-        '查看',
+        '最新回复',
+        '最新发布',
+        '回复最多',
+        '查看最多',
       ]);
       expect(ThreadSort.latest.filter, isNull);
       expect(ThreadSort.latest.orderby, isNull);

@@ -60,8 +60,20 @@ class ChhClient {
     Uri url, {
     bool refresh = false,
     bool fallback = true,
+  }) => _getHtml(url, refresh: refresh, fallback: fallback);
+
+  /// Discuz interaction forms require an XMLHttpRequest-shaped GET.
+  /// Keep its cached response separate from ordinary full-page HTML.
+  Future<String> getAjaxHtml(Uri url, {bool refresh = false}) =>
+      _getHtml(url, refresh: refresh, ajax: true);
+
+  Future<String> _getHtml(
+    Uri url, {
+    bool refresh = false,
+    bool fallback = true,
+    bool ajax = false,
   }) async {
-    final key = url.toString();
+    final key = '${ajax ? 'ajax:' : ''}$url';
     if (!refresh) {
       final c = _cache[key];
       if (c != null && DateTime.now().difference(c.at) < cacheTtl) {
@@ -72,7 +84,13 @@ class ChhClient {
     final failures = <String>[];
     var wafDetected = false;
     for (final f in fallback ? fetchers : fetchers.take(1)) {
-      final resp = await f.getHtml(url, headers: {'Referer': ChhUrls.base});
+      final resp = await f.getHtml(
+        url,
+        headers: {
+          'Referer': ChhUrls.base,
+          if (ajax) 'X-Requested-With': 'XMLHttpRequest',
+        },
+      );
       if (!resp.isBlocked) {
         _lastFetcherName = f.name;
         _cache[key] = _CacheEntry(resp.body);
@@ -105,17 +123,48 @@ class ChhClient {
   /// 顺序和 GET 相反的理由:WebView 在安卓上会被站点防护当成移动端机器人,
   /// 回机器人挑战页,POST 体在挑战跳转中丢失。直连没有 Chromium 客户端提示,
   /// 反而能带着自洽的桌面请求头直达 PHP。
-  Future<ChhResponse> postForm(Uri url, Map<String, String> form) async {
+  Future<ChhResponse> postForm(
+    Uri url,
+    Map<String, String> form, {
+    bool retryTransportFailures = true,
+  }) => _postForm(url, form, retryTransportFailures: retryTransportFailures);
+
+  Future<ChhResponse> postAjaxForm(
+    Uri url,
+    Map<String, String> form, {
+    bool retryTransportFailures = true,
+  }) => _postForm(
+    url,
+    form,
+    ajax: true,
+    retryTransportFailures: retryTransportFailures,
+  );
+
+  Future<ChhResponse> _postForm(
+    Uri url,
+    Map<String, String> form, {
+    bool ajax = false,
+    bool retryTransportFailures = true,
+  }) async {
     AppLog.i('POST', '${AppLog.url(url)} ${AppLog.fields(form)}');
 
     ChhResponse? last;
     for (final f in fetchers) {
       try {
-        final resp = await f.postForm(url, form);
+        final resp = ajax && f is AjaxFormFetcher
+            ? await (f as AjaxFormFetcher).postAjaxForm(url, form)
+            : await f.postForm(url, form);
         last = resp;
         _lastFetcherName = f.name;
         // 写操作会改变站点状态,缓存里的旧页面全部作废
         _cache.clear();
+
+        if (ajax && resp.status >= 300 && resp.status < 400) return resp;
+
+        // 点评/评分无法确定超时请求是否已被受理，禁止换通道重放。
+        if (!retryTransportFailures && resp.status <= 0) {
+          return resp;
+        }
 
         // 只有在**确定没被站点处理**时才换通道重试。
         // 拿到真实业务响应却重试,会造成重复发帖(站点回「两次发表间隔少于 N 秒」)。

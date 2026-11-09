@@ -21,6 +21,11 @@ class ChhSession extends ChangeNotifier {
   bool loggedIn = false;
   Map<String, String> cookies = const {};
   int _epoch = 0;
+  int _identityRevision = 0;
+
+  /// Changes on logout, auth replacement or account change, even for the same UID.
+  /// Draft keys still use the stable UID; only in-flight forms use this revision.
+  int get identityRevision => _identityRevision;
   bool _initialRefreshComplete = false;
 
   /// 首次 Cookie 恢复与后续显式登录使用不同的收藏同步时机。
@@ -76,6 +81,7 @@ class ChhSession extends ChangeNotifier {
 
     if (next == badges) return;
     AppLog.i('BADGE', '页头变化 $badges → $next');
+    if (badges.uid != next.uid) _identityRevision++;
     badges = next;
     notifyListeners();
   }
@@ -103,9 +109,22 @@ class ChhSession extends ChangeNotifier {
       // 这里如果按登录态过滤,直连提交就会只带 formhash 而被判成 CSRF。
       direct.sessionCookies = map.isEmpty ? null : map;
     }
-    if (hasAuth != loggedIn || map.length != cookies.length) {
-      // 登录态变化时游客期的会话作废,清掉直连罐避免新旧会话混用
-      if (hasAuth != loggedIn) {
+    Map<String, String> authOnly(Map<String, String> source) => {
+      for (final entry in source.entries)
+        if (entry.key.endsWith(_authCookieSuffix)) entry.key: entry.value,
+    };
+    final identityChanged = !mapEquals(authOnly(map), authOnly(cookies));
+    if (identityChanged) {
+      _identityRevision++;
+      // A new auth cookie may belong to another user. Do not infer self-rating
+      // or bind a form using the previous account's header identity.
+      badges = const HeaderBadges(notices: 0, messages: 0);
+    }
+    if (hasAuth != loggedIn ||
+        map.length != cookies.length ||
+        identityChanged) {
+      // auth 轮换也会让旧会话作废，即使前后均为已登录。
+      if (hasAuth != loggedIn || identityChanged) {
         direct?.jar.clear();
         client.clearCache();
         AppLog.i('SESSION', hasAuth ? '登录态建立' : '登录态消失');
@@ -166,6 +185,9 @@ class ChhSession extends ChangeNotifier {
   /// 残留会让下次登录自动填上一个账号,想换号都换不掉。
   Future<void> logout() async {
     _epoch++;
+    _identityRevision++;
+    // Invalidate a pending form before asynchronous cookie deletion finishes.
+    notifyListeners();
     final cm = CookieManager.instance();
     // 覆盖两种域写法,再兜底全量删除
     for (final url in [WebUri(ChhUrls.base), WebUri('https://chiphell.com')]) {

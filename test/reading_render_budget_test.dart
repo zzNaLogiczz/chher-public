@@ -3,8 +3,8 @@ import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/models/models.dart';
 import 'package:chh_app/pages/thread_detail_page.dart';
 import 'package:chh_app/widgets/cached_net_image.dart';
-import 'package:chh_app/widgets/article_image.dart';
 import 'package:chh_app/widgets/image_grid.dart';
+import 'package:chh_app/widgets/image_stack_gallery.dart';
 import 'package:chh_app/widgets/net_image.dart';
 import 'package:chh_app/widgets/editorial_cover.dart';
 import 'package:chh_app/widgets/editorial_article_route.dart';
@@ -84,16 +84,34 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      final stack = find.byType(ImageStackGallery);
+      expect(stack, findsOneWidget);
       final visibleImages = tester
-          .widgetList<ArticleImage>(find.byType(ArticleImage))
+          .widgetList<Image>(
+            find.descendant(of: stack, matching: find.byType(Image)),
+          )
           .toList();
-      expect(visibleImages, isNotEmpty);
-      expect(visibleImages.length, lessThan(8));
-      expect(visibleImages.any((image) => image.url == urls.last), isFalse);
-      // Lazy construction still retains the full original gallery when opened.
-      final first = find.byType(ArticleImage).first;
-      await tester.ensureVisible(first);
-      await tester.tapAt(tester.getTopLeft(first) + const Offset(20, 20));
+      // Deck window (photo + ambience per card) plus one live scrub thumb;
+      // failed probes replace photo slots with flat placeholders.
+      expect(visibleImages.length, lessThanOrEqualTo(11));
+      final visibleUrls = visibleImages.map(
+        (image) =>
+            ((image.image as ResizeImage).imageProvider as ChhCachedImage).url,
+      );
+      // The deck never loops: everything built comes from the head window
+      // around the first photos, nothing from the end of the 80-image list.
+      final headWindow = urls.sublist(0, 11).toSet();
+      expect(visibleUrls.toSet(), everyElement(isIn(headWindow)));
+      for (final image in visibleImages) {
+        final provider = image.image as ResizeImage;
+        expect(provider.width, lessThanOrEqualTo(2048));
+        expect(provider.height, lessThanOrEqualTo(2048));
+        expect(provider.policy, ResizeImagePolicy.fit);
+      }
+      // Only the five native slots load while the viewer retains all 80 images.
+      final stage = find.byKey(const ValueKey('image-stack-stage'));
+      await tester.ensureVisible(stage);
+      await tester.tapAt(tester.getCenter(stage));
       await tester.pumpAndSettle();
       final viewer = tester.widget<ImageViewerPage>(
         find.byType(ImageViewerPage),

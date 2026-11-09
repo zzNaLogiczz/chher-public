@@ -42,6 +42,7 @@ class BrowseScaffold extends StatelessWidget {
   final Widget body;
   final List<Widget> actions;
   final Widget? floatingActionButton;
+  final PreferredSizeWidget? pinnedHeader;
 
   const BrowseScaffold({
     super.key,
@@ -49,6 +50,7 @@ class BrowseScaffold extends StatelessWidget {
     required this.body,
     this.actions = const [],
     this.floatingActionButton,
+    this.pinnedHeader,
   });
 
   @override
@@ -57,6 +59,7 @@ class BrowseScaffold extends StatelessWidget {
     body: body,
     actions: actions,
     floatingActionButton: floatingActionButton,
+    pinnedHeader: pinnedHeader,
   );
 }
 

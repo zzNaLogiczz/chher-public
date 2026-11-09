@@ -261,16 +261,16 @@ void main() {
     expect(find.textContaining('新回复'), findsNothing);
   });
 
-  testWidgets('已看:标题降为 text2,元信息不变', (tester) async {
+  testWidgets('已看:标题降为 text2,气泡显示回复数', (tester) async {
     await tester.pumpWidget(
       app(ThreadRow(thread: thread(1), readState: const ThreadReadSeen())),
     );
     expect(styleOf(tester, '散热器评测')!.color, tokensOf(tester).text2);
     expect(find.textContaining('新回复'), findsNothing);
-    expect(find.text('10 回复'), findsOneWidget);
+    expect(find.text('10'), findsOneWidget);
   });
 
-  testWidgets('有新回复:标题回强色且元信息行出现 +3 新回复', (tester) async {
+  testWidgets('有新回复:标题回强色且独立胶囊出现 +3', (tester) async {
     await tester.pumpWidget(
       app(
         ThreadRow(thread: thread(1), readState: const ThreadReadNewReplies(3)),
@@ -278,8 +278,11 @@ void main() {
     );
     final t = tokensOf(tester);
     expect(styleOf(tester, '散热器评测')!.color, t.text);
-    expect(find.text('+3 新回复'), findsOneWidget);
-    expect(styleOf(tester, '+3 新回复')!.color, t.accent);
+    expect(find.text('+3'), findsOneWidget);
+    expect(
+      DefaultTextStyle.of(tester.element(find.text('+3'))).style.color,
+      t.onAccent,
+    );
     // 仍无分隔符与图标
     expect(find.textContaining('·'), findsNothing);
     expect(
@@ -331,7 +334,7 @@ void main() {
       ),
     );
     expect(tester.takeException(), isNull);
-    final rect = tester.getRect(find.text('+123 新回复'));
+    final rect = tester.getRect(find.text('+123'));
     expect(rect.left, greaterThanOrEqualTo(0));
     expect(rect.right, lessThanOrEqualTo(320));
   });
@@ -454,13 +457,13 @@ void main() {
     final builds = await pumpRows(tester, 2000);
     threadReadIndex.markRead(2005, 7); // 未看 -> 新回复 3
     await tester.pump();
-    expect(find.text('+3 新回复'), findsOneWidget);
+    expect(find.text('+3'), findsOneWidget);
 
     // 同为新回复但数量变了:走 count 比较,必须重建
     var before = Map<int, int>.of(builds);
     threadReadIndex.markRead(2005, 6); // 新回复 4
     await tester.pump();
-    expect(find.text('+4 新回复'), findsOneWidget);
+    expect(find.text('+4'), findsOneWidget);
     expect(changedRows(builds, before), [5]);
 
     // 另一行变化时,数量未变的这一行不重建

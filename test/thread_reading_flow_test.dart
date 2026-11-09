@@ -200,6 +200,65 @@ void main() {
     },
   );
 
+  for (final feedback in ['rating', 'comment', 'both', 'no-pid', 'missing']) {
+    testWidgets('opening $feedback notice locates feedback after long body', (
+      tester,
+    ) async {
+      var gotos = 0;
+      final opening = Post(
+        pid: 1001,
+        floor: 1,
+        author: '楼主',
+        timeRaw: '',
+        content: [
+          for (var i = 0; i < 40; i++) TextBlock('长正文段落 $i\n这里是正文内容。\n第三行内容。'),
+        ],
+        rating: const {'rating', 'both', 'no-pid'}.contains(feedback)
+            ? const PostRating(summary: ['邪恶指数 +1'], entries: [])
+            : null,
+        comments: const {'comment', 'both'}.contains(feedback)
+            ? const [PostComment(author: '点评者', text: '通知对应点评')]
+            : const [],
+      );
+      await _pump(
+        tester,
+        ThreadDetailPage(
+          tid: 123,
+          title: '主楼提醒',
+          focusPid: feedback == 'no-pid' ? null : 1001,
+          focusOpeningFeedback: true,
+          gotoUrl: 'fake://opening',
+          loadGoto: (_) async {
+            gotos++;
+            return _page(1, posts: [opening, _post(2)]);
+          },
+        ),
+      );
+      expect(gotos, 1);
+      if (feedback == 'missing') {
+        expect(
+          find.text('长正文段落 0\n这里是正文内容。\n第三行内容。').hitTestable(),
+          findsOneWidget,
+        );
+      } else {
+        expect(
+          find
+              .textContaining(
+                feedback == 'comment' ? '通知对应点评' : '邪恶指数',
+                findRichText: true,
+              )
+              .hitTestable(),
+          findsOneWidget,
+        );
+        final scroll = tester.state<ScrollableState>(
+          find.byType(Scrollable).first,
+        );
+        expect(scroll.position.pixels, greaterThan(1000));
+      }
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets(
     'author filter from a middle-page entry uses the actual opening author',
     (tester) async {

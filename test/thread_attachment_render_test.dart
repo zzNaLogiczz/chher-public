@@ -2,6 +2,7 @@ import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/models/models.dart';
 import 'package:chh_app/parser/thread_parser.dart';
 import 'package:chh_app/widgets/image_grid.dart';
+import 'package:chh_app/widgets/image_stack_gallery.dart';
 import 'package:chh_app/widgets/post_card.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -61,13 +62,20 @@ void main() {
         );
         await tester.pumpAndSettle();
         if (!lazy) {
-          expect(tester.widget<ImageGrid>(find.byType(ImageGrid)).urls, urls);
+          final stack = tester.widget<ImageStackGallery>(
+            find.byType(ImageStackGallery),
+          );
+          expect(stack.urls, urls);
+          expect(stack.gallery, urls);
+          expect(stack.galleryStartIndex, 0);
         }
-        final imageButton = find.byWidgetPredicate(
-          (widget) =>
-              widget is Semantics &&
-              widget.properties.label == '查看第 ${selectedIndex + 1} 张图片',
-        );
+        final imageButton = lazy
+            ? find.byWidgetPredicate(
+                (widget) =>
+                    widget is Semantics &&
+                    widget.properties.label == '查看第 ${selectedIndex + 1} 张图片',
+              )
+            : find.byKey(const ValueKey('image-stack-stage'));
         expect(imageButton, findsOneWidget);
         await tester.tap(imageButton);
         await tester.pumpAndSettle();

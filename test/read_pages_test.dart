@@ -360,6 +360,40 @@ void main() {
       expect(medals.single.name, '资深会员');
       expect(medals.single.description, contains('三年'));
     });
+
+    test('我的勋章读取无 id 的图片列表,不把领取记录当作勋章', () {
+      final medals = parseMedals(
+        _page('''
+<div id="ct"><div class="mn">
+<ul class="mtm mgcl cl"><li>
+<div class="mg_img"><img src="static/image/common/community.png" alt="社区纪念勋章"></div>
+<p><strong>社区纪念勋章</strong></p>
+</li></ul>
+<h3>勋章记录</h3><ul class="el ptm pbw mbw"><li>
+我在 2026-10-1 12:00 被授予了 <strong>社区纪念勋章</strong> 勋章,永久有效
+</li></ul></div></div>'''),
+      );
+      expect(medals.length, 1);
+      expect(medals.single.name, '社区纪念勋章');
+      expect(
+        medals.single.imageUrl,
+        'https://www.chiphell.com/static/image/common/community.png',
+      );
+      expect(medals.single.id, medals.single.imageUrl);
+      expect(medals.single.description, isNull);
+    });
+
+    test('仅有过期勋章记录时仍返回空列表', () {
+      expect(
+        parseMedals(
+          _page('''
+<ul class="mgcl"></ul><ul class="el"><li>
+曾被授予 <strong>已过期勋章</strong> 勋章
+</li></ul>'''),
+        ),
+        isEmpty,
+      );
+    });
   });
 
   group('门户文章详情', () {

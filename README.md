@@ -9,7 +9,7 @@
 <p align="center">一个用 Flutter 构建的非官方 Android 客户端，把帖子、评测和讨论带进原生界面。</p>
 
 <p align="center">
-  <a href="pubspec.yaml"><img src="https://img.shields.io/badge/version-1.0.6-646464?labelColor=60646c" alt="Version 1.0.6" /></a>
+  <a href="pubspec.yaml"><img src="https://img.shields.io/badge/version-1.0.7-646464?labelColor=60646c" alt="Version 1.0.7" /></a>
   <a href="https://flutter.dev/"><img src="https://img.shields.io/badge/Flutter-3.44.2-0d74ce?logo=flutter&amp;labelColor=60646c" alt="Flutter 3.44.2" /></a>
   <a href="https://dart.dev/"><img src="https://img.shields.io/badge/Dart-3.12.2-0d74ce?logo=dart&amp;labelColor=60646c" alt="Dart 3.12.2" /></a>
   <a href="https://developer.android.com/about/versions/nougat"><img src="https://img.shields.io/badge/Android-7.0%2B-218358?logo=android&amp;logoColor=ffffff&amp;labelColor=60646c" alt="Android 7.0+" /></a>
@@ -73,12 +73,12 @@ cp android/key.properties.example android/key.properties
 在 `android/key.properties` 中填写 keystore 路径、别名和密码，然后构建：
 
 ```sh
-tool/build_release.sh 1.0.6             # 生成包含全部支持架构的通用包
+tool/build_release.sh 1.0.7             # 生成包含全部支持架构的通用包
 ```
 
-安装包位于 `build/release/1.0.6/chher-1.0.6.apk`，同时包含 ARM64、ARMv7 和 x86_64。新旧客户端统一获取通用包，无需按原安装包类型分组。
+安装包位于 `build/release/1.0.7/chher-1.0.7.apk`，同时包含 ARM64、ARMv7 和 x86_64。新旧客户端统一获取通用包，无需按原安装包类型分组。
 
-原生库采用压缩打包，调试符号单独保存在同目录的 `symbols/` 中，维护者应保留它们以便解析崩溃日志。版本号 `1.0.6` 对应 versionCode `10006`，不要使用会增加版本号偏移的 `--split-per-abi`。
+原生库采用压缩打包，调试符号单独保存在同目录的 `symbols/` 中，维护者应保留它们以便解析崩溃日志。版本号 `1.0.7` 对应 versionCode `10007`，不要使用会增加版本号偏移的 `--split-per-abi`。
 
 自行签名的包不能覆盖维护者签名的版本。分发衍生版本时，请使用自己的应用标识、签名及更新服务，并遵守项目许可。
 
@@ -128,3 +128,16 @@ Chher 是个人维护的非官方项目，与 Chiphell 官方没有隶属或背�
 PolyForm Noncommercial 属于源码可用许可，**不是 OSI 定义的开源许可证**。教育、慈善、公共研究等组织的明确许可，以及其他权利和义务，均以 `LICENSE` 原文为准。
 
 第三方组件与图形保留各自的许可，详见 [第三方声明](THIRD_PARTY_NOTICES.md)。Chiphell 的商标、站点内容和用户作品不在本项目授权范围内。第三方贡献的版权仍属于其权利人，额外商业授权须覆盖相应权利。
+
+
+## 测试包版本规范
+
+测试 App 固定名为 **chher-preview**，使用独立包名 `com.chhreader.chh_app.preview`。测试版本从 **90.0.1** 开始，后续依次使用 `90.0.2`、`90.0.3`，不修改或占用 `pubspec.yaml` 中的正式版版本号；构建结束后恢复 Android 本地正式版本元数据。正式版仅在用户明确要求正式发布时递增。
+
+```sh
+python3 tool/build_preview.py 90.0.1
+```
+
+产物：`build/preview/90.0.1/chher-preview-90.0.1.apk`。脚本使用正常 `lib/main.dart`，保留完整功能，默认构建包含 ARM32、ARM64 和 x86_64 的通用 APK，并核对各架构的应用及 Flutter 引擎库；应用内版本与 Android 版本一致，`90.0.1` 对应 versionCode `900001`。后续每次新的测试交付传入下一个版本，已有交付不覆盖。
+
+测试包与正式 App 独立安装，使用同一测试包签名覆盖时保留测试数据。不要同时运行正式与测试构建。没有用户明确指令，不提交或推送代码，不发布安装包或更新清单。

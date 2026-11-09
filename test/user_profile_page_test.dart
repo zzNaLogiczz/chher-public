@@ -80,7 +80,9 @@ void main() {
     expect(find.text('主题 120，回帖 4800'), findsOneWidget);
     final rows = tester
         .widgetList<GroupedRow>(find.byType(GroupedRow))
+        .where((row) => row.title != '加入黑名单')
         .toList();
+    expect(find.text('加入黑名单'), findsOneWidget);
     expect(rows.map((row) => row.title), ['注册时间', '最后访问', '上次发表', '好友']);
     expect(rows.map((row) => row.value), [
       '2001-01-01 00:00',
@@ -147,7 +149,9 @@ void main() {
     expect(find.text('UID 42'), findsOneWidget);
     expect(find.byKey(UserPage.threadsKey), findsOneWidget);
     expect(find.byKey(UserPage.statsKey), findsNothing);
-    expect(find.byType(GroupedSection), findsNothing);
+    expect(find.byType(GroupedSection), findsOneWidget);
+    expect(find.text('加入黑名单'), findsOneWidget);
+    expect(find.text('解除黑名单'), findsNothing);
     for (final text in [
       '在线时长',
       '积分',

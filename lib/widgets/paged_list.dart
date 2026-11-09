@@ -5,6 +5,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import '../data/user_block_index.dart';
 import '../ui/app_button.dart';
 
 import '../design/tokens.dart';
@@ -79,13 +80,31 @@ class PagedListState<T> extends State<PagedList<T>> {
     }
   }
 
+  void _blocksChanged() {
+    if (mounted) setState(() {});
+  }
+
+  List<T> get _visibleItems => _items
+      .where(
+        (item) =>
+            item is! ThreadSummary || !userBlockIndex.isBlocked(item.authorUid),
+      )
+      .toList();
+
   @override
   void initState() {
     super.initState();
+    userBlockIndex.addListener(_blocksChanged);
     _load(1);
   }
 
   /// 取某一页。page == 1 视为重置,其余为追加。
+  @override
+  void dispose() {
+    userBlockIndex.removeListener(_blocksChanged);
+    super.dispose();
+  }
+
   Future<void> _load(int page, {bool refresh = false}) async {
     if (_loading) return;
     setState(() {
@@ -131,12 +150,13 @@ class PagedListState<T> extends State<PagedList<T>> {
 
   @override
   Widget build(BuildContext context) {
+    final items = _visibleItems;
     final err = _error;
     final headerCount = widget.header == null ? 0 : 1;
-    final rowCount = widget.groupBuilder == null ? _items.length : 1;
+    final rowCount = widget.groupBuilder == null ? items.length : 1;
     return ExpressivePageReveal(
       active: true,
-      revision: (_firstLoadDone, _contentRevision, _items.isEmpty ? err : null),
+      revision: (_firstLoadDone, _contentRevision, items.isEmpty ? err : null),
       child: RefreshIndicator(
         onRefresh: refresh,
         child: BrowsePaginationObserver(
@@ -147,11 +167,11 @@ class PagedListState<T> extends State<PagedList<T>> {
             primary: true,
             physics: const AlwaysScrollableScrollPhysics(),
             padding: widget.padding,
-            itemCount: headerCount + (_items.isEmpty ? 1 : rowCount + 1),
+            itemCount: headerCount + (items.isEmpty ? 1 : rowCount + 1),
             itemBuilder: (context, rawIndex) {
               if (headerCount == 1 && rawIndex == 0) return widget.header!;
               final index = rawIndex - headerCount;
-              if (_items.isEmpty) {
+              if (items.isEmpty) {
                 Widget state;
                 if (!_firstLoadDone) {
                   state = StateView.loading();
@@ -167,7 +187,22 @@ class PagedListState<T> extends State<PagedList<T>> {
                 } else if (err != null) {
                   state = StateView.error(err, onRetry: refresh);
                 } else {
-                  state = StateView.empty(message: widget.emptyMessage);
+                  state = _items.isNotEmpty
+                      ? Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Text('已隐藏黑名单用户的帖子'),
+                            if (_hasNext)
+                              AppButton(
+                                label: '继续加载',
+                                variant: AppButtonVariant.plain,
+                                onPressed: _loading
+                                    ? null
+                                    : () => _load(_page + 1),
+                              ),
+                          ],
+                        )
+                      : StateView.empty(message: widget.emptyMessage);
                 }
                 return SizedBox(height: 320, child: state);
               }
@@ -176,10 +211,10 @@ class PagedListState<T> extends State<PagedList<T>> {
                 if (group != null) {
                   return group(
                     context,
-                    _items.map((e) => widget.itemBuilder(context, e)).toList(),
+                    items.map((e) => widget.itemBuilder(context, e)).toList(),
                   );
                 }
-                return widget.itemBuilder(context, _items[index]);
+                return widget.itemBuilder(context, items[index]);
               }
               if (err != null) {
                 return Center(

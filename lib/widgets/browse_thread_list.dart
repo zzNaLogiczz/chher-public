@@ -2,11 +2,14 @@
 library;
 
 import 'package:flutter/material.dart';
+import '../data/user_block_index.dart';
 import '../ui/app_button.dart';
 
 import '../ui/plain_rows.dart';
 import '../ui/feedback.dart';
 import '../models/models.dart';
+import '../design/tokens.dart';
+import '../design/typography.dart';
 import 'browse_controls.dart';
 import 'paged_list.dart' show PageLoader;
 import 'password_sheet.dart';
@@ -17,6 +20,7 @@ class BrowseThreadList extends StatefulWidget {
   final PageLoader<ThreadSummary> loader;
   final Widget Function(BuildContext context, ThreadSummary thread) itemBuilder;
   final Widget? header;
+  final String? Function(ThreadSummary thread)? sectionLabel;
   final String emptyMessage;
   final Future<bool> Function(int fid)? onPassword;
 
@@ -31,6 +35,7 @@ class BrowseThreadList extends StatefulWidget {
     required this.loader,
     required this.itemBuilder,
     this.header,
+    this.sectionLabel,
     this.emptyMessage = '这里还没有帖子',
     this.onPassword,
     this.collapsePinned = false,
@@ -48,23 +53,6 @@ class _BrowseThreadListState extends State<BrowseThreadList> {
   final _items = <ThreadSummary>[];
   late bool _pinnedExpanded =
       _pinnedMemory[widget.pinnedMemoryKey ?? Object()] ?? false;
-
-  /// 开头连续的置顶帖数量;不折叠时为 0
-  int get _pinned {
-    if (!widget.collapsePinned) return 0;
-    var n = 0;
-    while (n < _items.length && _items[n].sticky) {
-      n++;
-    }
-    return n;
-  }
-
-  /// 列表格数(不含页脚):置顶帖无论展开与否都收在第 0 格的卡片里
-  int get _visibleCount {
-    final pinned = _pinned;
-    if (pinned == 0) return _items.length;
-    return 1 + _items.length - pinned;
-  }
 
   void _togglePinned() {
     setState(() => _pinnedExpanded = !_pinnedExpanded);
@@ -94,10 +82,25 @@ class _BrowseThreadListState extends State<BrowseThreadList> {
     }
   }
 
+  void _blocksChanged() {
+    if (mounted) setState(() {});
+  }
+
+  List<ThreadSummary> get _visibleItems => _items
+      .where((item) => !userBlockIndex.isBlocked(item.authorUid))
+      .toList();
+
   @override
   void initState() {
     super.initState();
+    userBlockIndex.addListener(_blocksChanged);
     _load(1);
+  }
+
+  @override
+  void dispose() {
+    userBlockIndex.removeListener(_blocksChanged);
+    super.dispose();
   }
 
   Future<void> _load(int page, {bool refresh = false}) async {
@@ -140,6 +143,25 @@ class _BrowseThreadListState extends State<BrowseThreadList> {
 
   @override
   Widget build(BuildContext context) {
+    final items = _visibleItems;
+    var pinned = 0;
+    if (widget.collapsePinned) {
+      while (pinned < items.length && items[pinned].sticky) {
+        pinned++;
+      }
+    }
+    final slots = <({int index, String? section})>[];
+    if (pinned > 0) slots.add((index: -1, section: null));
+    String? previousSection;
+    for (var i = pinned; i < items.length; i++) {
+      final section = widget.sectionLabel?.call(items[i]);
+      if (section != null && section != previousSection) {
+        slots.add((index: i, section: section));
+      }
+      previousSection = section;
+      slots.add((index: i, section: null));
+    }
+    final visibleCount = slots.length;
     final error = _error;
     return ExpressivePageReveal(
       active: true,
@@ -152,25 +174,27 @@ class _BrowseThreadListState extends State<BrowseThreadList> {
           child: ListView.builder(
             primary: true,
             physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.only(top: 4, bottom: 96),
+            padding: EdgeInsets.only(
+              top: widget.collapsePinned ? 0 : 4,
+              bottom: 96,
+            ),
             itemCount:
                 (widget.header == null ? 0 : 1) +
-                (_items.isEmpty ? 1 : _visibleCount + 1),
+                (items.isEmpty ? 1 : visibleCount + 1),
             itemBuilder: (context, rawIndex) {
               if (widget.header != null && rawIndex == 0) return widget.header!;
               final slot = rawIndex - (widget.header == null ? 0 : 1);
-              final pinned = _pinned;
               // 置顶组:第 0 格是卡片,展开时置顶帖排在卡片内
-              if (pinned > 0 && slot == 0 && _items.isNotEmpty) {
+              if (pinned > 0 && slot == 0 && items.isNotEmpty) {
                 return PinnedGroupRow(
                   count: pinned,
+                  firstTitle: items.first.title,
                   expanded: _pinnedExpanded,
                   onToggle: _togglePinned,
                   itemBuilder: (context, i) =>
-                      widget.itemBuilder(context, _items[i]),
+                      widget.itemBuilder(context, items[i]),
                 );
               }
-              final index = pinned == 0 ? slot : slot - 1 + pinned;
               if (_first) {
                 // 首屏用静态骨架,不跑闪光动画
                 return const SizedBox(
@@ -178,7 +202,7 @@ class _BrowseThreadListState extends State<BrowseThreadList> {
                   child: SkeletonList(rows: 3),
                 );
               }
-              if (_items.isEmpty && error != null) {
+              if (items.isEmpty && error != null) {
                 return SizedBox(
                   height: 300,
                   child: error is PageMessage
@@ -196,13 +220,28 @@ class _BrowseThreadListState extends State<BrowseThreadList> {
                         ),
                 );
               }
-              if (_items.isEmpty) {
+              if (items.isEmpty) {
                 return SizedBox(
                   height: 300,
-                  child: StateView.empty(message: widget.emptyMessage),
+                  child: _items.isNotEmpty
+                      ? Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Text('已隐藏黑名单用户的帖子'),
+                            if (_hasNext)
+                              AppButton(
+                                label: '继续加载',
+                                variant: AppButtonVariant.plain,
+                                onPressed: _loading
+                                    ? null
+                                    : () => _load(_page + 1),
+                              ),
+                          ],
+                        )
+                      : StateView.empty(message: widget.emptyMessage),
                 );
               }
-              if (slot == _visibleCount) {
+              if (slot == visibleCount) {
                 if (error != null) {
                   return Padding(
                     padding: const EdgeInsets.only(top: 18),
@@ -219,7 +258,32 @@ class _BrowseThreadListState extends State<BrowseThreadList> {
                 }
                 return ListFooter(loading: _loading, exhausted: !_hasNext);
               }
-              return widget.itemBuilder(context, _items[index]);
+              final entry = slots[slot];
+              if (entry.section case final section?) {
+                return Semantics(
+                  header: true,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                      AppSpace.screen,
+                      18,
+                      AppSpace.screen,
+                      6,
+                    ),
+                    child: Text(
+                      section,
+                      style: AppType.footnote.copyWith(
+                        color: AppTokens.of(context).text3,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                );
+              }
+              final thread = items[entry.index];
+              return KeyedSubtree(
+                key: ValueKey('browse-thread-${thread.tid}'),
+                child: widget.itemBuilder(context, thread),
+              );
             },
           ),
         ),

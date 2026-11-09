@@ -5,6 +5,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import '../data/user_block_index.dart';
 import '../ui/app_button.dart';
 
 import '../design/tokens.dart';
@@ -51,15 +52,28 @@ class SliverPagedListState<T> extends State<SliverPagedList<T>> {
   bool _checkScheduled = false;
   int _contentRevision = 0;
 
+  void _blocksChanged() {
+    if (mounted) setState(() {});
+  }
+
+  List<T> get _visibleItems => _items
+      .where(
+        (item) =>
+            item is! ThreadSummary || !userBlockIndex.isBlocked(item.authorUid),
+      )
+      .toList();
+
   @override
   void initState() {
     super.initState();
+    userBlockIndex.addListener(_blocksChanged);
     widget.controller.addListener(_onScroll);
     load(1);
   }
 
   @override
   void dispose() {
+    userBlockIndex.removeListener(_blocksChanged);
     widget.controller.removeListener(_onScroll);
     super.dispose();
   }
@@ -149,14 +163,15 @@ class SliverPagedListState<T> extends State<SliverPagedList<T>> {
   );
 
   Widget _buildSliver(BuildContext context) {
-    if (_first && _items.isEmpty) {
+    final items = _visibleItems;
+    if (_first && items.isEmpty) {
       return SliverToBoxAdapter(
         child: SizedBox(height: 240, child: StateView.loading()),
       );
     }
 
     final err = _error;
-    if (err != null && _items.isEmpty) {
+    if (err != null && items.isEmpty) {
       return SliverToBoxAdapter(
         child: SizedBox(
           height: 280,
@@ -173,11 +188,24 @@ class SliverPagedListState<T> extends State<SliverPagedList<T>> {
       );
     }
 
-    if (_items.isEmpty) {
+    if (items.isEmpty) {
       return SliverToBoxAdapter(
         child: SizedBox(
           height: 240,
-          child: StateView.empty(message: widget.emptyMessage),
+          child: _items.isNotEmpty
+              ? Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Text('已隐藏黑名单用户的帖子'),
+                    if (_hasNext)
+                      AppButton(
+                        label: '继续加载',
+                        variant: AppButtonVariant.plain,
+                        onPressed: _loading ? null : () => load(_page + 1),
+                      ),
+                  ],
+                )
+              : StateView.empty(message: widget.emptyMessage),
         ),
       );
     }
@@ -196,15 +224,15 @@ class SliverPagedListState<T> extends State<SliverPagedList<T>> {
       return SliverMainAxisGroup(
         slivers: [
           SliverList.builder(
-            itemCount: _items.length,
+            itemCount: items.length,
             itemBuilder: (context, index) =>
-                widget.itemBuilder(context, _items[index]),
+                widget.itemBuilder(context, items[index]),
           ),
           SliverToBoxAdapter(child: footer),
         ],
       );
     }
-    final rows = _items.map((e) => widget.itemBuilder(context, e)).toList();
+    final rows = items.map((e) => widget.itemBuilder(context, e)).toList();
     final group = widget.groupBuilder;
 
     return SliverPadding(

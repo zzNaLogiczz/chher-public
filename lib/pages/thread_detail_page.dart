@@ -21,11 +21,20 @@ import '../ui/chrome_button.dart';
 import '../ui/nav_bar.dart';
 import '../di.dart';
 import '../models/models.dart';
+import '../models/image_stack_group.dart';
+import '../models/post_interaction.dart';
+import '../data/post_interaction_repository.dart';
+import '../data/user_block_index.dart';
+import '../data/blocked_post_projection.dart';
+import '../ui/user_block_action.dart';
+import '../widgets/post_action_menu.dart';
+import '../widgets/post_interaction_sheet.dart';
 import '../attachments/attachment_controller.dart';
 import '../widgets/composer_sheet.dart';
 import 'source_page_drawer.dart';
 import '../widgets/expressive_controls.dart';
 import '../widgets/post_card.dart';
+import '../widgets/post_feedback.dart';
 import '../widgets/state_view.dart';
 import '../data/thread_conversation_index.dart';
 import '../data/forum_repository.dart';
@@ -55,11 +64,16 @@ class ThreadDetailPage extends StatefulWidget {
   final int? focusPid;
   final bool initialThreaded;
 
+  /// 点评/评分提醒仅在目标为主楼时定位附属模块。
+  final bool focusOpeningFeedback;
+
   /// 测试与离线预览可注入读取/提交；默认仍使用真实仓库。
   final ThreadPageLoader? loadPage;
   final ThreadGotoLoader? loadGoto;
   final ThreadReplySubmitter? submitReply;
   final ForumRepository? repository;
+  final PostInteractionRepository? interactions;
+  final UserBlockIndex? blockIndex;
 
   const ThreadDetailPage({
     super.key,
@@ -71,10 +85,13 @@ class ThreadDetailPage extends StatefulWidget {
     this.gotoUrl,
     this.focusPid,
     this.initialThreaded = true,
+    this.focusOpeningFeedback = false,
     this.loadPage,
     this.loadGoto,
     this.submitReply,
     this.repository,
+    this.interactions,
+    this.blockIndex,
   });
 
   @override
@@ -84,6 +101,7 @@ class ThreadDetailPage extends StatefulWidget {
 class _ThreadDetailPageState extends State<ThreadDetailPage>
     with TickerProviderStateMixin {
   final _scroll = ScrollController();
+  final _readListKey = GlobalKey();
 
   /// 顶栏渐隐与居中小标题跟随的滚动距离
   final _navOffset = ValueNotifier<double>(0);
@@ -97,6 +115,13 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
   bool _springing = false;
   final _collapsedTitle = ValueNotifier<bool>(false);
   final _focusKey = GlobalKey();
+  final _feedbackKey = GlobalKey();
+  late bool _focusOpeningFeedback = widget.focusOpeningFeedback;
+  late final _focusHighlight = AnimationController(
+    vsync: this,
+    duration: AppMotion.noticeHighlightDuration,
+    value: 1,
+  );
   final _pages = <int, ThreadDetail>{};
   final _postPages = <int, int>{};
   final _knownPids = <int>{};
@@ -110,6 +135,15 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
   bool _markedRead = false;
   bool _focusDone = false;
   bool _composerOpen = false;
+  bool _postActionOpen = false;
+  UserBlockIndex get _blocks => widget.blockIndex ?? userBlockIndex;
+  PostInteractionRepository get _interactions =>
+      widget.interactions ?? postInteractionRepo;
+  bool _blocked(Post post) => _blocks.isBlocked(post.authorUid);
+  List<Post> _conversationReplies(int pid) =>
+      _index.repliesFor(pid).where((p) => !_blocked(p)).toList();
+  int get _shownReplyCount =>
+      _orderedPosts.where((p) => !postIsOpening(p) && !_blocked(p)).length;
   final _unlocking = <int>{};
   bool _forumPasswordOpen = false;
   ForumRepository get _repository => widget.repository ?? forumRepo;
@@ -148,7 +182,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
 
   late bool _threaded = widget.initialThreaded;
   late int? _focusTargetPid = widget.focusPid;
-  late int? _highlightPid = widget.focusPid;
+  int? _highlightPid;
   bool _pauseHiddenAppend = false;
   final _pinnedRoots = <int>{};
   final _visibleReplies = <int, int>{};
@@ -186,7 +220,9 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (MediaQuery.disableAnimationsOf(context)) _finishReplyReveal();
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _finishReplyReveal();
+    }
   }
 
   String? _replyToAuthor(Post post) {
@@ -199,6 +235,9 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
         target.tid != widget.tid ||
         target.pid == resolution.rootPid) {
       return null;
+    }
+    if (_blocks.isBlocked(_index.postsByPid[target.pid]?.authorUid)) {
+      return '已屏蔽用户';
     }
     final author = _index.postsByPid[target.pid]?.author.trim();
     return author == null || author.isEmpty ? null : author;
@@ -242,9 +281,17 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
         commentsStarted = true;
         _entries.add(_ThreadReadEntry(post, _ThreadEntryKind.commentsHeading));
       }
-      _addPostEntries(post);
+      final replies = _grouped
+          ? _conversationReplies(post.pid)
+          : const <Post>[];
+      if (_blocked(post)) {
+        if (!postIsOpening(post) && _grouped && replies.isNotEmpty) {
+          _entries.add(_ThreadReadEntry(post, _ThreadEntryKind.blocked));
+        }
+      } else {
+        _addPostEntries(post);
+      }
       if (_grouped && !postIsOpening(post)) {
-        final replies = _index.repliesFor(post.pid);
         final visible = (_visibleReplies[post.pid] ?? 0).clamp(
           0,
           replies.length,
@@ -272,17 +319,29 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
   }
 
   void _addPostEntries(Post post, {bool nested = false}) {
+    post = projectBlockedPost(
+      post,
+      tid: widget.tid,
+      knownPosts: _index.postsByPid,
+      isBlocked: _blocks.isBlocked,
+    );
     final hideQuotes =
         !postIsOpening(post) &&
         (_grouped || _index.directTargetFor(post.pid) != null);
-    final blocks = hideQuotes
-        ? post.content
-              .where((block) => block is! QuoteBlock || block.isNotice)
-              .toList()
-        : post.content;
-    final images = blocks.whereType<ImageBlock>().map((b) => b.url).toList();
-    if (post.lock != null ||
-        (!postIsOpening(post) && images.length <= 3 && blocks.length <= 12)) {
+    final blocks = post.content;
+    final images = blocks
+        .whereType<ImageBlock>()
+        .map((b) => b.url)
+        .toList(growable: false);
+    final smallReply =
+        !postIsOpening(post) && images.length <= 3 && blocks.length <= 12;
+    // Only inspect short candidates here. Long runs are grouped once below.
+    final smallSegments = post.lock == null && smallReply && images.length >= 2
+        ? groupPostImages(blocks)
+        : null;
+    final shortImageGroup =
+        smallSegments?.any((segment) => segment.imageStack != null) ?? false;
+    if (post.lock != null || (smallReply && !shortImageGroup)) {
       _entries.add(
         _ThreadReadEntry(post, _ThreadEntryKind.whole, nested: nested),
       );
@@ -292,21 +351,25 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     _entries.add(
       _ThreadReadEntry(post, _ThreadEntryKind.header, nested: nested),
     );
-    var imageIndex = 0;
-    for (var n = 0; n < blocks.length; n++) {
-      final block = blocks[n];
+    var firstContent = true;
+    for (final segment in smallSegments ?? groupPostImages(blocks)) {
+      final block = segment.block;
+      if (hideQuotes && block is QuoteBlock && !block.isNotice) continue;
+      final group = segment.imageStack;
       _entries.add(
         _ThreadReadEntry(
           post,
-          _ThreadEntryKind.block,
+          group == null ? _ThreadEntryKind.block : _ThreadEntryKind.imageStack,
           block: block,
-          blockIndex: n,
+          imageStack: group,
+          firstContent: firstContent,
+          blockIndex: segment.blockIndex,
           gallery: gallery,
-          imageIndex: imageIndex,
+          imageIndex: segment.galleryIndex,
           nested: nested,
         ),
       );
-      if (block is ImageBlock) imageIndex++;
+      firstContent = false;
     }
     _entries.add(
       _ThreadReadEntry(post, _ThreadEntryKind.footer, nested: nested),
@@ -329,6 +392,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     _sessionLoggedIn = chhSession.loggedIn;
     _sessionUid = chhSession.badges.uid;
     chhSession.addListener(_sessionChanged);
+    _blocks.addListener(_blocksChanged);
     _loadInitial(useGoto: true);
   }
 
@@ -700,6 +764,183 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
         refresh: refresh,
       );
 
+  bool get _openingIsBlocked =>
+      _orderedPosts.any((p) => postIsOpening(p) && _blocked(p));
+
+  void _blocksChanged() {
+    if (!mounted) return;
+    final offset = _scroll.hasClients ? _scroll.offset : null;
+    _update(_rebuildReadIndex);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && offset != null && _scroll.hasClients) {
+        _scroll.jumpTo(offset.clamp(0.0, _scroll.position.maxScrollExtent));
+      }
+    });
+  }
+
+  Widget _blockedOpening(AppTokens t) {
+    final opening = _orderedPosts.firstWhere(
+      (p) => postIsOpening(p) && _blocked(p),
+    );
+    return Scaffold(
+      backgroundColor: t.bg,
+      body: Stack(
+        children: [
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(AppIcons.forbidden, color: t.text2, size: 32),
+                  const SizedBox(height: 16),
+                  Text(
+                    '已屏蔽该用户的帖子',
+                    style: AppType.headline.copyWith(color: t.text),
+                  ),
+                  const SizedBox(height: 16),
+                  AppButton(
+                    label: '解除黑名单',
+                    onPressed: () => toggleUserBlock(
+                      context,
+                      uid: opening.authorUid!,
+                      name: opening.author,
+                      avatarUrl: opening.avatarUrl,
+                      index: _blocks,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          NavOverlay(
+            leading: ChromeButton(
+              icon: AppIcons.back,
+              tooltip: '返回',
+              onPressed: () => Navigator.of(context).maybePop(),
+            ),
+            inlineTitle: '帖子',
+            collapseAt: 1,
+            scrollOffset: _navOffset,
+            background: t.bg,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _refreshPostPage(Post post) async {
+    final generation = _generation;
+    final page = _postPages[post.pid];
+    if (page == null) throw StateError('目标楼层尚未加载');
+    final detail = await _read(page, refresh: true);
+    if (!mounted || generation != _generation) return;
+    final updated = detail.posts.where((p) => p.pid == post.pid).firstOrNull;
+    if (detail.page.current != page || updated == null) {
+      throw StateError('目标楼层未返回，请刷新帖子核对');
+    }
+    final offset = _scroll.hasClients ? _scroll.offset : null;
+    _update(() {
+      _remember(detail);
+      _beforeAuthor = _beforeAuthor?.withPost(updated);
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && offset != null && _scroll.hasClients) {
+        _scroll.jumpTo(offset.clamp(0.0, _scroll.position.maxScrollExtent));
+      }
+    });
+  }
+
+  Future<void> _openPostActions(Post post) async {
+    if (_postActionOpen) return;
+    _postActionOpen = true;
+    final generation = _generation;
+    try {
+      PostRateForm? checkedRating;
+      final action = await showPostActionMenu(
+        context,
+        post: post,
+        opening: postIsOpening(post),
+        loggedIn: chhSession.loggedIn,
+        blocked: _blocked(post),
+        sessionChanges: chhSession,
+        sessionIdentity: () =>
+            chhSession.loggedIn ? chhSession.badges.uid : null,
+        sessionRevision: () => chhSession.identityRevision,
+        checkRating: () async {
+          final form = await _interactions.rateForm(
+            tid: widget.tid,
+            pid: post.pid,
+            pageUrl: post.actions.ratingUrl,
+          );
+          checkedRating = form;
+          return form;
+        },
+        isSelf:
+            post.authorUid != null && post.authorUid == chhSession.badges.uid,
+      );
+      if (!mounted || generation != _generation || action == null) return;
+      if (action == PostMenuAction.reply) {
+        _postActionOpen = false;
+        _openComposer(post);
+        return;
+      }
+      if (action == PostMenuAction.blockUser) {
+        final uid = post.authorUid;
+        if (uid != null) {
+          await toggleUserBlock(
+            context,
+            uid: uid,
+            name: post.author,
+            avatarUrl: post.avatarUrl,
+            index: _blocks,
+          );
+        }
+        return;
+      }
+      if (action == PostMenuAction.login || !chhSession.loggedIn) {
+        await Navigator.of(context).pushNamed('/login');
+        return;
+      }
+      if (chhSession.badges.uid == null) {
+        AppToast.show(context, '登录信息读取中，请稍后再试');
+        return;
+      }
+      final rating = action == PostMenuAction.rating;
+      final result = await showPostInteractionSheet(
+        context,
+        kind: rating ? PostInteractionKind.rating : PostInteractionKind.comment,
+        tid: widget.tid,
+        post: post,
+        repository: _interactions,
+        sessionIdentity: () =>
+            chhSession.loggedIn ? chhSession.badges.uid : null,
+        sessionChanges: chhSession,
+        sessionRevision: () => chhSession.identityRevision,
+        pageUrl: rating ? post.actions.ratingUrl : post.actions.commentUrl,
+        initialRatingForm: rating ? checkedRating : null,
+        onCheckResult: () => _refreshPostPage(post),
+      );
+      if (!mounted || generation != _generation || result == null) return;
+      if (result.isSuccess) {
+        try {
+          await _refreshPostPage(post);
+          if (mounted) {
+            AppToast.show(context, rating ? '评分成功' : '点评已发表');
+          }
+        } catch (_) {
+          if (mounted) AppToast.show(context, '已提交，内容刷新失败，请刷新核对');
+        }
+      }
+    } catch (_) {
+      if (mounted && generation == _generation) {
+        AppToast.show(context, '读取未完成，请重试');
+      }
+    } finally {
+      _postActionOpen = false;
+    }
+  }
+
   Future<void> _unlockPost(Post post) async {
     if (!_unlocking.add(post.pid)) return;
     final generation = _generation;
@@ -908,22 +1149,45 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     }
   }
 
+  bool get _focusOnFeedback {
+    final post = _index.postsByPid[_focusTargetPid];
+    return _focusOpeningFeedback &&
+        post != null &&
+        postIsOpening(post) &&
+        post.lock == null &&
+        (post.rating?.isEmpty == false || post.comments.isNotEmpty);
+  }
+
+  bool _isFocusEntry(_ThreadReadEntry entry) =>
+      entry.post.pid == _focusTargetPid &&
+      (_focusOnFeedback
+          ? entry.kind == _ThreadEntryKind.footer
+          : entry.isStart);
+
   Future<void> _locateFocusedPost() async {
-    if (_focusDone || _focusTargetPid == null) return;
+    if (_focusDone) return;
+    if (_focusTargetPid == null && _focusOpeningFeedback) {
+      _focusTargetPid = _orderedPosts.where(postIsOpening).firstOrNull?.pid;
+    }
+    if (_focusTargetPid == null) return;
+    final generation = _generation;
+    final targetPid = _focusTargetPid;
     final groupedRoot = _index.rootPidFor(_focusTargetPid!);
     if (_grouped && groupedRoot != null && groupedRoot != _focusTargetPid) {
-      final replies = _index.repliesFor(groupedRoot);
+      final replies = _conversationReplies(groupedRoot);
       final position = replies.indexWhere((p) => p.pid == _focusTargetPid);
       _update(() {
         _visibleReplies[groupedRoot] = position + 1;
         _rebuildReadIndex();
       });
     }
-    final index = _entries.indexWhere(
-      (entry) => entry.isStart && entry.post.pid == _focusTargetPid,
-    );
+    final index = _entries.indexWhere(_isFocusEntry);
     if (index < 0) {
       _focusDone = true;
+      if (_blocks.isBlocked(_index.postsByPid[_focusTargetPid]?.authorUid)) {
+        if (mounted) AppToast.show(context, '该楼层已被黑名单隐藏');
+        return;
+      }
       AppLog.w('FOCUS', 'pid=$_focusTargetPid 不在提醒落地页');
       if (mounted) {
         AppToast.show(context, '暂时无法定位该楼层，已显示可阅读的内容');
@@ -932,9 +1196,16 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     }
     _focusDone = true;
     for (var attempt = 0; attempt < 12; attempt++) {
+      WidgetsBinding.instance.scheduleFrame();
       await WidgetsBinding.instance.endOfFrame;
-      if (!mounted || !_scroll.hasClients) return;
-      final context = _focusKey.currentContext;
+      if (!mounted ||
+          generation != _generation ||
+          targetPid != _focusTargetPid ||
+          !_scroll.hasClients) {
+        return;
+      }
+      final context =
+          (_focusOnFeedback ? _feedbackKey : _focusKey).currentContext;
       if (context != null && context.mounted) {
         await Scrollable.ensureVisible(
           context,
@@ -944,6 +1215,13 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
           curve: AppMotion.revealCurve,
           alignment: .14,
         );
+        if (!mounted ||
+            generation != _generation ||
+            targetPid != _focusTargetPid) {
+          return;
+        }
+        _update(() => _highlightPid = targetPid);
+        _focusHighlight.forward(from: 0);
         return;
       }
       final max = _scroll.position.maxScrollExtent;
@@ -957,6 +1235,16 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
   Widget? _referenceContext(Post post) {
     final reference = _index.directTargetFor(post.pid);
     if (_grouped || reference == null || postIsOpening(post)) return null;
+    if (reference.tid == widget.tid &&
+        _blocks.isBlocked(_index.postsByPid[reference.pid]?.authorUid)) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 8),
+        child: Text(
+          '引用已屏蔽楼层',
+          style: AppType.footnote.copyWith(color: AppTokens.of(context).text2),
+        ),
+      );
+    }
     return ThreadReplyContext(
       reference: reference,
       target: reference.tid == widget.tid
@@ -979,7 +1267,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     _update(() => _expandingRoot = rootPid);
     // Read at most one source page per click. Cache surplus replies for the
     // next click; sparse pages must not trigger an unbounded whole-thread scan.
-    if (_index.repliesFor(rootPid).length < target && _hasNext) {
+    if (_conversationReplies(rootPid).length < target && _hasNext) {
       await _append(retry: _tailError != null, fromExpansion: true);
     }
     if (!mounted ||
@@ -991,7 +1279,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     final previous = _entries.map((entry) => entry.key).toSet();
     _update(() {
       _visibleReplies[rootPid] = _tailError == null
-          ? target.clamp(0, _index.repliesFor(rootPid).length)
+          ? target.clamp(0, _conversationReplies(rootPid).length)
           : visible;
       _expandingRoot = null;
       _pauseHiddenAppend = true;
@@ -1014,7 +1302,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     final metrics = ReadingMetrics.of(context);
     final t = AppTokens.of(context);
     final visible = _visibleReplies[post.pid] ?? 0;
-    final remaining = _index.repliesFor(post.pid).length - visible;
+    final remaining = _conversationReplies(post.pid).length - visible;
     final finished = remaining <= 0 && !_hasNext && _tailError == null;
     final loading = _expandingRoot == post.pid;
     final label = loading
@@ -1090,7 +1378,9 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     _update(() {
       _threaded = false;
       _focusTargetPid = post.pid;
-      _highlightPid = post.pid;
+      _highlightPid = null;
+      _focusHighlight.value = 1;
+      _focusOpeningFeedback = false;
       _focusDone = false;
       _pinnedRoots.clear();
       _visibleReplies.clear();
@@ -1226,6 +1516,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     _generation++;
     _authorEpoch++;
     chhSession.removeListener(_sessionChanged);
+    _blocks.removeListener(_blocksChanged);
     _scroll.dispose();
     _collapsedTitle.dispose();
     _navOffset.dispose();
@@ -1235,6 +1526,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     _commentsFade.dispose();
     _replyRevealCurve.dispose();
     _replyReveal.dispose();
+    _focusHighlight.dispose();
     super.dispose();
   }
 
@@ -1246,277 +1538,374 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && _scroll.hasClients) _syncInComments();
     });
+    if (_openingIsBlocked) return _blockedOpening(t);
     return Scaffold(
       extendBody: true,
       backgroundColor: t.bg,
-      body: Stack(
-        children: [
-          ExpressivePageReveal(
-            active: true,
-            // 只在整页内容出现时播放;切换查看方式只淡入评论区
-            revision: _pages.isEmpty,
-            child: _pages.isEmpty
-                ? _initialState()
-                : RefreshIndicator(
-                    onRefresh: () =>
-                        _loadInitial(page: _firstPage, refresh: true),
-                    child: NotificationListener<ScrollNotification>(
-                      onNotification: (notification) {
-                        if (notification.depth == 0 &&
-                            notification is ScrollStartNotification &&
-                            notification.dragDetails != null) {
-                          _stopSpring();
-                        }
-                        if (notification.depth == 0 &&
-                            notification is ScrollStartNotification &&
-                            notification.dragDetails != null &&
-                            _pauseHiddenAppend) {
-                          _pauseHiddenAppend = false;
-                          WidgetsBinding.instance.addPostFrameCallback((_) {
-                            if (mounted) _considerAppend();
-                          });
-                        }
-                        return false;
-                      },
-                      child: MediaQuery(
-                        data: MediaQuery.of(context).copyWith(
-                          textScaler: metrics.textScaler(
-                            MediaQuery.textScalerOf(context),
-                          ),
-                        ),
-                        child: ListView.builder(
-                          controller: _scroll,
-                          physics: const AlwaysScrollableScrollPhysics(),
-                          padding: EdgeInsets.only(
-                            top: top + NavOverlay.barHeight,
-                            bottom: 120,
-                          ),
-                          itemCount: _entries.length + 2,
-                          findChildIndexCallback: (key) {
-                            if (key == _focusKey) {
-                              final index = _entries.indexWhere(
-                                (e) =>
-                                    e.isStart && e.post.pid == _focusTargetPid,
-                              );
-                              return index < 0 ? null : index + 1;
+      body: Builder(
+        builder: (bodyContext) {
+          // Capture extendBody's real reading-bar insets before ListView removes
+          // edge padding. Only image rows restore these for viewport sizing.
+          final readerInsets = MediaQuery.paddingOf(bodyContext);
+          return Stack(
+            children: [
+              ExpressivePageReveal(
+                active: true,
+                // 只在整页内容出现时播放;切换查看方式只淡入评论区
+                revision: _pages.isEmpty,
+                child: _pages.isEmpty
+                    ? _initialState()
+                    : RefreshIndicator(
+                        onRefresh: () =>
+                            _loadInitial(page: _firstPage, refresh: true),
+                        child: NotificationListener<ScrollNotification>(
+                          onNotification: (notification) {
+                            if (notification.depth == 0 &&
+                                notification is ScrollStartNotification &&
+                                notification.dragDetails != null) {
+                              _stopSpring();
                             }
-                            return key is ValueKey<String>
-                                ? _entryIndices[key.value]
-                                : null;
+                            if (notification.depth == 0 &&
+                                notification is ScrollStartNotification &&
+                                notification.dragDetails != null &&
+                                _pauseHiddenAppend) {
+                              _pauseHiddenAppend = false;
+                              WidgetsBinding.instance.addPostFrameCallback((_) {
+                                if (mounted) _considerAppend();
+                              });
+                            }
+                            return false;
                           },
-                          itemBuilder: (context, index) {
-                            final metrics = ReadingMetrics.of(context);
-                            if (index == 0) return _heading(t);
-                            // 标题之后的内容随查看方式切换淡化/淡入
-                            final heading =
-                                _entryIndices[_ThreadReadEntry.headingKey] ??
-                                _entries.length + 1;
-                            if (index == _entries.length + 1) {
-                              return FadeTransition(
-                                opacity: _commentsOpacity,
-                                child: _tail(t),
-                              );
-                            }
-                            final entry = _entries[index - 1];
-                            final post = entry.post;
-                            final focused = post.pid == _highlightPid;
-                            final author =
-                                post.authorUid != null &&
-                                post.authorUid == _openingAuthor;
-                            void onReply() {
-                              _openComposer(post);
-                            }
-
-                            final card = switch (entry.kind) {
-                              _ThreadEntryKind.whole => PostCard(
-                                post: post,
-                                isOpening: postIsOpening(post),
-                                commentStyle: _grouped && !postIsOpening(post),
-                                nested: entry.nested,
-                                replyToAuthor: _replyToAuthor(post),
-                                isAuthor: author,
-                                onReply: onReply,
-                                onUnlock: () => _unlockPost(post),
-                                replyContext: _referenceContext(post),
+                          child: MediaQuery(
+                            data: MediaQuery.of(context).copyWith(
+                              textScaler: metrics.textScaler(
+                                MediaQuery.textScalerOf(context),
                               ),
-                              _ThreadEntryKind.header => PostCard.header(
-                                post: post,
-                                isOpening: postIsOpening(post),
-                                commentStyle: _grouped && !postIsOpening(post),
-                                nested: entry.nested,
-                                isAuthor: author,
-                                onReply: onReply,
-                                onUnlock: () => _unlockPost(post),
-                                replyContext: _referenceContext(post),
+                            ),
+                            child: ListView.builder(
+                              key: _readListKey,
+                              controller: _scroll,
+                              physics: const AlwaysScrollableScrollPhysics(),
+                              padding: EdgeInsets.only(
+                                top: top + NavOverlay.barHeight,
+                                bottom: 120,
                               ),
-                              _ThreadEntryKind.block => PostCard.block(
-                                post: post,
-                                isOpening: postIsOpening(post),
-                                commentStyle: _grouped && !postIsOpening(post),
-                                nested: entry.nested,
-                                replyToAuthor: entry.blockIndex == 0
-                                    ? _replyToAuthor(post)
-                                    : null,
-                                isAuthor: author,
-                                contentBlock: entry.block!,
-                                paragraphGapBefore: entry.blockIndex > 0,
-                                gallery: entry.gallery,
-                                galleryIndex: entry.imageIndex,
-                              ),
-                              _ThreadEntryKind.footer => PostCard.footer(
-                                post: post,
-                                isOpening: postIsOpening(post),
-                                commentStyle: _grouped && !postIsOpening(post),
-                                nested: entry.nested,
-                                isAuthor: author,
-                                onReply: onReply,
-                                onUnlock: () => _unlockPost(post),
-                              ),
-                              _ThreadEntryKind.commentsHeading => Padding(
-                                key: _commentsKey,
-                                padding: EdgeInsets.fromLTRB(
-                                  metrics.gutter,
-                                  metrics.postVPad + 8,
-                                  metrics.gutter,
-                                  8,
-                                ),
-                                child: ThreadCommentHeading(
-                                  loadedCount: _orderedPosts
-                                      .where((p) => !postIsOpening(p))
-                                      .length,
-                                  complete: _index.sourceComplete,
-                                  mode: _shownMode,
-                                  busy: _pendingMode != null,
-                                  onModeChanged: _setViewMode,
-                                ),
-                              ),
-                              _ThreadEntryKind.replies => _replyExpansion(post),
-                            };
-                            final content = ColoredBox(
-                              color: focused ? t.accentFill : t.bg,
-                              child: entry.nested
-                                  ? Container(
-                                      margin: EdgeInsets.only(
-                                        left:
-                                            metrics.gutter +
-                                            metrics.avatar +
-                                            10,
-                                        right: metrics.gutter - 8,
-                                      ),
-                                      // Keep the visible gutter unchanged while
-                                      // letting reply hit slop reach this inset.
-                                      padding: const EdgeInsets.only(
-                                        left: 10,
-                                        right: 8,
-                                      ),
-                                      child: card,
-                                    )
-                                  : card,
-                            );
-                            final reveal = _revealingEntries.contains(entry.key)
-                                ? _replyRevealCurve
-                                : const AlwaysStoppedAnimation<double>(1);
-                            final row = Column(
-                              key: focused && entry.isStart
-                                  ? _focusKey
-                                  : ValueKey(entry.key),
-                              // 默认居中会给子项宽松约束,不足一行的段落随之居中
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                if (entry.kind ==
-                                    _ThreadEntryKind.commentsHeading)
-                                  ColoredBox(
-                                    color: t.threadSectionBand,
-                                    child: SizedBox(
-                                      height: metrics.sectionBand,
-                                    ),
-                                  ),
-                                // 紧跟评论区标题的第一条不画分隔线,分段控件已隔开
-                                if (entry.isStart &&
-                                    !entry.nested &&
+                              itemCount: _entries.length + 2,
+                              findChildIndexCallback: (key) {
+                                if (key == _focusKey) {
+                                  final index = _entries.indexWhere(
+                                    _isFocusEntry,
+                                  );
+                                  return index < 0 ? null : index + 1;
+                                }
+                                return key is ValueKey<String>
+                                    ? _entryIndices[key.value]
+                                    : null;
+                              },
+                              itemBuilder: (context, index) {
+                                final metrics = ReadingMetrics.of(context);
+                                if (index == 0) return _heading(t);
+                                // 标题之后的内容随查看方式切换淡化/淡入
+                                final heading =
+                                    _entryIndices[_ThreadReadEntry
+                                        .headingKey] ??
+                                    _entries.length + 1;
+                                if (index == _entries.length + 1) {
+                                  return FadeTransition(
+                                    opacity: _commentsOpacity,
+                                    child: _tail(t),
+                                  );
+                                }
+                                final entry = _entries[index - 1];
+                                final originalPost = entry.post;
+                                final post = originalPost;
+                                final focused =
+                                    post.pid == _highlightPid &&
                                     entry.kind !=
                                         _ThreadEntryKind.commentsHeading &&
-                                    index > 1 &&
-                                    index != heading + 1)
-                                  Padding(
-                                    padding: EdgeInsets.only(
-                                      left:
-                                          metrics.gutter + metrics.avatar + 10,
-                                      right: metrics.gutter,
+                                    entry.kind != _ThreadEntryKind.replies &&
+                                    (!_focusOnFeedback || _isFocusEntry(entry));
+                                final author =
+                                    post.authorUid != null &&
+                                    post.authorUid == _openingAuthor;
+                                void onReply() {
+                                  _openComposer(post);
+                                }
+
+                                final card = switch (entry.kind) {
+                                  _ThreadEntryKind.blocked => Padding(
+                                    padding: EdgeInsets.fromLTRB(
+                                      metrics.gutter,
+                                      12,
+                                      metrics.gutter,
+                                      4,
                                     ),
-                                    child: Divider(
-                                      height: 1,
-                                      thickness: AppSpace.hairline,
-                                      color: t.separator,
+                                    child: Text(
+                                      '已屏蔽用户的发言',
+                                      style: AppType.footnote.copyWith(
+                                        color: t.text2,
+                                      ),
                                     ),
                                   ),
-                                if (entry.nested)
-                                  SizeTransition(
-                                    sizeFactor: reveal,
-                                    alignment: Alignment.topCenter,
-                                    child: FadeTransition(
-                                      opacity: reveal,
-                                      child: content,
+                                  _ThreadEntryKind.whole => PostCard(
+                                    post: post,
+                                    isOpening: postIsOpening(post),
+                                    commentStyle:
+                                        _grouped && !postIsOpening(post),
+                                    nested: entry.nested,
+                                    replyToAuthor: _replyToAuthor(post),
+                                    isAuthor: author,
+                                    onReply: onReply,
+                                    onMore: () =>
+                                        _openPostActions(originalPost),
+                                    onUnlock: () => _unlockPost(post),
+                                    replyContext: _referenceContext(post),
+                                  ),
+                                  _ThreadEntryKind.header => PostCard.header(
+                                    post: post,
+                                    isOpening: postIsOpening(post),
+                                    commentStyle:
+                                        _grouped && !postIsOpening(post),
+                                    nested: entry.nested,
+                                    isAuthor: author,
+                                    onReply: onReply,
+                                    onMore: () =>
+                                        _openPostActions(originalPost),
+                                    onUnlock: () => _unlockPost(post),
+                                    replyContext: _referenceContext(post),
+                                  ),
+                                  _ThreadEntryKind.block ||
+                                  _ThreadEntryKind.imageStack => PostCard.block(
+                                    post: post,
+                                    isOpening: postIsOpening(post),
+                                    commentStyle:
+                                        _grouped && !postIsOpening(post),
+                                    nested: entry.nested,
+                                    replyToAuthor: entry.firstContent
+                                        ? _replyToAuthor(post)
+                                        : null,
+                                    isAuthor: author,
+                                    contentBlock: entry.block,
+                                    imageStack: entry.imageStack,
+                                    paragraphGapBefore:
+                                        !entry.firstContent &&
+                                        entry.imageStack == null,
+                                    gallery: entry.gallery,
+                                    galleryIndex: entry.imageIndex,
+                                  ),
+                                  _ThreadEntryKind.footer => PostCard.footer(
+                                    feedbackKey:
+                                        _isFocusEntry(entry) && _focusOnFeedback
+                                        ? _feedbackKey
+                                        : null,
+                                    post: post,
+                                    isOpening: postIsOpening(post),
+                                    commentStyle:
+                                        _grouped && !postIsOpening(post),
+                                    nested: entry.nested,
+                                    isAuthor: author,
+                                    onReply: onReply,
+                                    onMore: () =>
+                                        _openPostActions(originalPost),
+                                    onUnlock: () => _unlockPost(post),
+                                  ),
+                                  _ThreadEntryKind.commentsHeading => Padding(
+                                    key: _commentsKey,
+                                    padding: EdgeInsets.fromLTRB(
+                                      metrics.gutter,
+                                      metrics.postVPad + 8,
+                                      metrics.gutter,
+                                      8,
                                     ),
-                                  )
-                                else
-                                  content,
-                              ],
-                            );
-                            return index > heading
-                                ? FadeTransition(
-                                    opacity: _commentsOpacity,
-                                    child: row,
-                                  )
-                                : row;
-                          },
+                                    child: ThreadCommentHeading(
+                                      loadedCount: _shownReplyCount,
+                                      complete:
+                                          _index.sourceComplete &&
+                                          !_orderedPosts.any(_blocked),
+                                      mode: _shownMode,
+                                      busy: _pendingMode != null,
+                                      onModeChanged: _setViewMode,
+                                    ),
+                                  ),
+                                  _ThreadEntryKind.replies => _replyExpansion(
+                                    post,
+                                  ),
+                                };
+                                final wideImageRow =
+                                    entry.imageStack != null;
+                                final imageCard = wideImageRow
+                                    ? MediaQuery(
+                                        data: MediaQuery.of(
+                                          context,
+                                        ).copyWith(padding: readerInsets),
+                                        child: card,
+                                      )
+                                    : card;
+                                final cardContent =
+                                    entry.nested && !wideImageRow
+                                    ? Container(
+                                        margin: EdgeInsets.only(
+                                          left:
+                                              metrics.gutter +
+                                              metrics.avatar +
+                                              10,
+                                          right: metrics.gutter - 8,
+                                        ),
+                                        // Keep the visible gutter unchanged while
+                                        // letting reply hit slop reach this inset.
+                                        padding: const EdgeInsets.only(
+                                          left: 10,
+                                          right: 8,
+                                        ),
+                                        child: card,
+                                      )
+                                    : imageCard;
+                                final content = !focused
+                                    ? ColoredBox(
+                                        color: t.bg,
+                                        child: cardContent,
+                                      )
+                                    : AnimatedBuilder(
+                                        animation: _focusHighlight,
+                                        child: cardContent,
+                                        builder: (context, child) {
+                                          final strength =
+                                              AppMotion.noticeHighlight(
+                                                _focusHighlight.value,
+                                                reduced:
+                                                    MediaQuery.disableAnimationsOf(
+                                                      context,
+                                                    ),
+                                              );
+                                          return PostFeedbackHighlight(
+                                            strength: strength,
+                                            child: ColoredBox(
+                                              color: _focusOnFeedback
+                                                  ? t.bg
+                                                  : Color.lerp(
+                                                      t.bg,
+                                                      Color.alphaBlend(
+                                                        t.accentFill,
+                                                        t.bg,
+                                                      ),
+                                                      strength,
+                                                    )!,
+                                              child: child,
+                                            ),
+                                          );
+                                        },
+                                      );
+                                final reveal =
+                                    _revealingEntries.contains(entry.key)
+                                    ? _replyRevealCurve
+                                    : const AlwaysStoppedAnimation<double>(1);
+                                final row = Column(
+                                  key: _isFocusEntry(entry)
+                                      ? _focusKey
+                                      : ValueKey(entry.key),
+                                  // 默认居中会给子项宽松约束,不足一行的段落随之居中
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    if (entry.kind ==
+                                        _ThreadEntryKind.commentsHeading)
+                                      ColoredBox(
+                                        color: t.threadSectionBand,
+                                        child: SizedBox(
+                                          height: metrics.sectionBand,
+                                        ),
+                                      ),
+                                    // 紧跟评论区标题的第一条不画分隔线,分段控件已隔开
+                                    if (entry.isStart &&
+                                        !entry.nested &&
+                                        entry.kind !=
+                                            _ThreadEntryKind.commentsHeading &&
+                                        index > 1 &&
+                                        index != heading + 1)
+                                      Padding(
+                                        padding: EdgeInsets.only(
+                                          left:
+                                              metrics.gutter +
+                                              metrics.avatar +
+                                              10,
+                                          right: metrics.gutter,
+                                        ),
+                                        child: Divider(
+                                          height: 1,
+                                          thickness: AppSpace.hairline,
+                                          color: t.separator,
+                                        ),
+                                      ),
+                                    if (entry.nested)
+                                      SizeTransition(
+                                        sizeFactor: reveal,
+                                        alignment: Alignment.topCenter,
+                                        child: FadeTransition(
+                                          opacity: reveal,
+                                          child: content,
+                                        ),
+                                      )
+                                    else
+                                      content,
+                                  ],
+                                );
+                                return index > heading
+                                    ? FadeTransition(
+                                        key: _ThreadRowKey(entry.key),
+                                        opacity: _commentsOpacity,
+                                        child: row,
+                                      )
+                                    : row;
+                              },
+                            ),
+                          ),
                         ),
                       ),
+              ),
+              // 顶栏只有返回圆钮;滚动后居中显示标题,顶部渐隐代替硬切
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: ValueListenableBuilder<bool>(
+                  valueListenable: _collapsedTitle,
+                  builder: (context, collapsed, _) => NavOverlay(
+                    leading: ChromeButton(
+                      icon: AppIcons.back,
+                      tooltip: '返回',
+                      onPressed: () => Navigator.of(context).maybePop(),
                     ),
-                  ),
-          ),
-          // 顶栏只有返回圆钮;滚动后居中显示标题,顶部渐隐代替硬切
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: ValueListenableBuilder<bool>(
-              valueListenable: _collapsedTitle,
-              builder: (context, collapsed, _) => NavOverlay(
-                leading: ChromeButton(
-                  icon: AppIcons.back,
-                  tooltip: '返回',
-                  onPressed: () => Navigator.of(context).maybePop(),
-                ),
-                // 原页面与阅读设置共用顶栏操作胶囊。
-                actions: [
-                  ChromeGroup(
-                    key: const ValueKey('thread-reading-settings'),
-                    items: [
-                      ChromeGroupItem(
-                        icon: AppIcons.webPage,
-                        tooltip: '查看原页面',
-                        onPressed: () => showSourcePage(
-                          context,
-                          threadSourceUrl(widget.tid, page: _firstPage),
-                        ),
-                      ),
-                      ChromeGroupItem(
-                        icon: CupertinoIcons.textformat_size,
-                        tooltip: '阅读设置',
-                        onPressed: () => showReadingSettingsSheet(context),
+                    // 原页面与阅读设置共用顶栏操作胶囊。
+                    actions: [
+                      ChromeGroup(
+                        key: const ValueKey('thread-reading-settings'),
+                        items: [
+                          ChromeGroupItem(
+                            icon: AppIcons.webPage,
+                            tooltip: '查看原页面',
+                            onPressed: () => showSourcePage(
+                              context,
+                              threadSourceUrl(widget.tid, page: _firstPage),
+                            ),
+                          ),
+                          ChromeGroupItem(
+                            icon: CupertinoIcons.textformat_size,
+                            tooltip: '阅读设置',
+                            onPressed: () => showReadingSettingsSheet(context),
+                          ),
+                        ],
                       ),
                     ],
+                    inlineTitle: _loadedDetail?.title ?? widget.title,
+                    scrollOffset: _navOffset,
+                    collapseAt: 140,
+                    background: t.bg,
                   ),
-                ],
-                inlineTitle: _loadedDetail?.title ?? widget.title,
-                scrollOffset: _navOffset,
-                collapseAt: 140,
-                background: t.bg,
+                ),
               ),
-            ),
-          ),
-        ],
+            ],
+          );
+        },
       ),
       bottomNavigationBar: _pages.isEmpty ? null : _toolbar(),
     );
@@ -1679,7 +2068,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
       builder: (context, favorited, busy, toggle) => ReadingBar(
         placeholder: '写回复…',
         onCompose: () => _openComposer(null),
-        count: _orderedPosts.where((p) => !postIsOpening(p)).length,
+        count: _shownReplyCount,
         inComments: inComments,
         onShowComments: _showComments,
         onBackToTop: _backToTop,
@@ -1691,27 +2080,42 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
   );
 }
 
-enum _ThreadEntryKind { whole, header, block, footer, commentsHeading, replies }
+enum _ThreadEntryKind {
+  whole,
+  header,
+  block,
+  imageStack,
+  footer,
+  blocked,
+  commentsHeading,
+  replies,
+}
 
 class _ThreadReadEntry {
   final Post post;
   final _ThreadEntryKind kind;
   final ContentBlock? block;
+  final ImageStackGroup? imageStack;
   final int blockIndex;
   final List<String> gallery;
   final int imageIndex;
   final bool nested;
+  final bool firstContent;
   const _ThreadReadEntry(
     this.post,
     this.kind, {
     this.block,
+    this.imageStack,
     this.blockIndex = -1,
     this.gallery = const [],
     this.imageIndex = 0,
     this.nested = false,
+    this.firstContent = false,
   });
   bool get isStart =>
-      kind == _ThreadEntryKind.whole || kind == _ThreadEntryKind.header;
+      kind == _ThreadEntryKind.whole ||
+      kind == _ThreadEntryKind.header ||
+      kind == _ThreadEntryKind.blocked;
 
   /// 评论区标题的键与首条评论无关,切换查看方式时标题保持同一个元素
   static const headingKey = 'comments-heading';
@@ -1751,4 +2155,9 @@ class _ReadSnapshot {
       loadedDetail == null ? null : replace(loadedDetail!),
     );
   }
+}
+
+// Keep the list child's identity distinct from the inner focus/inspection key.
+class _ThreadRowKey extends ValueKey<String> {
+  const _ThreadRowKey(super.value);
 }

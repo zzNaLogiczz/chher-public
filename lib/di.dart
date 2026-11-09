@@ -14,6 +14,8 @@ import 'data/link_preview_repository.dart';
 import 'data/message_repository.dart';
 import 'data/portal_repository.dart';
 import 'data/post_repository.dart';
+import 'data/post_interaction_repository.dart';
+import 'data/user_block_index.dart';
 import 'data/space_repository.dart';
 import 'core/app_log.dart';
 import 'core/app_paths.dart';
@@ -41,6 +43,12 @@ final MessageRepository messageRepo = MessageRepository(chhClient);
 final SpaceRepository spaceRepo = SpaceRepository(chhClient);
 final UserGroupLevels userGroupLevels = UserGroupLevels(chhClient);
 final PostRepository postRepo = PostRepository(chhClient);
+final PostInteractionRepository postInteractionRepo = PostInteractionRepository(
+  chhClient,
+  loggedIn: () => chhSession.loggedIn,
+  sessionIdentity: () => chhSession.loggedIn ? chhSession.badges.uid : null,
+  sessionRevision: () => chhSession.identityRevision,
+);
 final FavoriteIndex favoriteIndex = FavoriteIndex(null);
 final FavoriteRepository favoriteRepo = FavoriteRepository(
   chhClient,
@@ -71,6 +79,7 @@ void setupDependencies() {
   unawaited(_attachImageCache());
   // 已读账本放在 filesDir(系统不得回收),同样异步解析;就绪前的标记留在内存,接线时补写
   unawaited(_attachReadIndex());
+  unawaited(_attachUserBlocks());
   unawaited(_attachGroupLevels());
   chhSession.addListener(_favoriteSessionChanged);
   _favoriteStorage = _attachFavoriteIndex();
@@ -142,6 +151,13 @@ Future<void> _attachReadIndex() async {
   await threadReadIndex.attach(File('${dir.path}/threads-v1.json'));
 }
 
+Future<void> _attachUserBlocks() async {
+  final dir = await AppPaths.instance.subdir('blocks');
+  if (dir != null) {
+    await userBlockIndex.attach(File('${dir.path}/users-v1.json'));
+  }
+}
+
 Future<void> _attachGroupLevels() async {
   final dir = await AppPaths.instance.subdir('groups');
   if (dir != null) await userGroupLevels.attach(dir);
@@ -158,6 +174,7 @@ class LifecycleFlusher with WidgetsBindingObserver {
         state == AppLifecycleState.hidden ||
         state == AppLifecycleState.detached) {
       unawaited(threadReadIndex.flush());
+      unawaited(userBlockIndex.flush());
       unawaited(favoriteIndex.flush());
       unawaited(AppLog.flush());
     }

@@ -77,6 +77,12 @@ abstract class ChhFetcher {
   Future<void> dispose() async {}
 }
 
+/// Optional XMLHttpRequest-shaped form transport. Ordinary forms keep their
+/// existing navigation semantics; rating explicitly selects this capability.
+abstract interface class AjaxFormFetcher {
+  Future<ChhResponse> postAjaxForm(Uri url, Map<String, String> form);
+}
+
 /// multipart 里的一个文件项
 class UploadFile {
   final String field;
