@@ -35,7 +35,7 @@ class ChhApp extends StatelessWidget {
           routes: {
             '/login': (_) => const LoginPage(),
             '/messages': (_) => const MessagesPage(),
-            '/me': (_) => const MePage(),
+            '/me': (_) => const MeFallbackPage(),
             '/favorites': (_) => const FavoritesPage(),
             '/settings': (_) => const SettingsPage(),
             '/logs': (_) => const LogPage(),

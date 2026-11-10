@@ -5,6 +5,8 @@ import 'package:chh_app/widgets/search_entry_route.dart';
 import 'package:chh_app/widgets/expressive_controls.dart';
 import 'package:chh_app/ui/press.dart';
 import 'package:chh_app/ui/app_button.dart';
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -278,9 +280,12 @@ void main() {
     );
     final text = tester.widget<Text>(find.text('发送'));
     final tokens = AppTokens.of(tester.element(find.byType(AppButton)));
+    // 主按钮 v2 是漆面渐变底,最浅端 btnTop,按它取最坏对比
     final foreground = text.style!.color!.computeLuminance();
-    final background = tokens.accent.computeLuminance();
-    final ratio = (background + .05) / (foreground + .05);
+    final background = tokens.btnTop.computeLuminance();
+    final lighter = math.max(background, foreground);
+    final darker = math.min(background, foreground);
+    final ratio = (lighter + .05) / (darker + .05);
     expect(ratio, greaterThanOrEqualTo(4.5));
   });
 }

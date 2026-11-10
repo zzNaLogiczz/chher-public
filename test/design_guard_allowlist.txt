@@ -15,3 +15,5 @@ lib/widgets/editorial_article_route.dart:raw duration:Duration(milliseconds: _re
 lib/widgets/editorial_article_route.dart:raw duration:Duration(milliseconds: _reduced ? 100 : 520);
 # 鼠标滚轮手势去抖间隔,不是界面动画
 lib/widgets/thread_conversation_sheet.dart:raw duration:const Duration(milliseconds: 180)) {
+# 消息深链被占住时重试导航的等待间隔,不是界面动画
+lib/pages/home_page.dart:raw duration:const Duration(milliseconds: 500),

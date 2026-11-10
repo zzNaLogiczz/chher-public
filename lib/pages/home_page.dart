@@ -10,6 +10,7 @@ import '../design/tokens.dart';
 import '../core/app_log.dart';
 import '../widgets/app_shell.dart';
 import '../widgets/expressive_controls.dart';
+import '../widgets/launch_splash.dart';
 import '../widgets/state_view.dart';
 import '../update/update_controller.dart';
 import '../widgets/update_sheet.dart';
@@ -36,7 +37,51 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
+    messageNotifications.openRequests.addListener(_openMessages);
     _restoreSession();
+  }
+
+  int _handledOpenRequest = 0;
+  int _messagesRevision = 0;
+  Timer? _pendingMessageOpen;
+
+  void _openMessages() {
+    if (!mounted ||
+        !_sessionReady ||
+        messageNotifications.openRequests.value == _handledOpenRequest) {
+      return;
+    }
+    _pendingMessageOpen?.cancel();
+    // Keep a submitting composer alive; retry the navigation after it unlocks.
+    var blocked = false;
+    Navigator.of(context).popUntil((route) {
+      if (route.isFirst) return true;
+      if (route.popDisposition == RoutePopDisposition.doNotPop) {
+        blocked = true;
+        return true;
+      }
+      return false;
+    });
+    if (blocked) {
+      _pendingMessageOpen = Timer(
+        const Duration(milliseconds: 500),
+        _openMessages,
+      );
+      return;
+    }
+    _handledOpenRequest = messageNotifications.openRequests.value;
+    setState(() {
+      _messagesRevision++;
+      _visited.remove(AppDestination.messages);
+      _dest = AppDestination.messages;
+    });
+  }
+
+  @override
+  void dispose() {
+    _pendingMessageOpen?.cancel();
+    messageNotifications.openRequests.removeListener(_openMessages);
+    super.dispose();
   }
 
   Future<void> _restoreSession() async {
@@ -45,6 +90,7 @@ class _HomePageState extends State<HomePage> {
       await (widget.initialiseSession ?? chhSession.refresh)();
       if (!mounted) return;
       setState(() => _sessionReady = true);
+      _openMessages();
       if (widget.initialiseSession == null) {
         unawaited(chhSession.ensureIdentity());
         // 会话就绪、首页已显示后再检查更新,不和首屏请求抢网络
@@ -61,11 +107,12 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     if (!_sessionReady) {
-      return Scaffold(
-        body: _sessionError == null
-            ? StateView.loading()
-            : StateView.error(_sessionError!, onRetry: _restoreSession),
-      );
+      // 会话恢复期间显示品牌启动屏;失败仍是纸面错误态
+      return _sessionError == null
+          ? const LaunchSplash()
+          : Scaffold(
+              body: StateView.error(_sessionError!, onRetry: _restoreSession),
+            );
     }
     _visited.putIfAbsent(_dest, () => _screenFor(_dest));
     return PopScope(
@@ -120,28 +167,28 @@ class _HomePageState extends State<HomePage> {
   Widget _screenFor(AppDestination destination) {
     final builder = widget.screenBuilders?[destination];
     if (builder != null) return builder(context);
+    // 四个一级页都是漆面骨架:标题住进漆面,内容在纸面上
     if (destination == AppDestination.feed) {
       return const FeedPage();
     }
-    return AppShell(
-      title: destination.label,
-      current: destination,
-      body: _bodyFor(destination),
-    );
+    if (destination == AppDestination.forums) {
+      return const ForumIndexView();
+    }
+    if (destination == AppDestination.messages) {
+      return MessagesTabPage(key: ValueKey('messages-$_messagesRevision'));
+    }
+    return const MePage();
   }
 
   void _navigate(AppDestination d) {
     if (_dest == d) return;
     FocusManager.instance.primaryFocus?.unfocus();
-    setState(() => _dest = d);
-  }
-
-  Widget _bodyFor(AppDestination d) {
-    return switch (d) {
-      AppDestination.feed => const SizedBox.shrink(),
-      AppDestination.forums => const ForumIndexView(),
-      AppDestination.messages => const MessagesBody(),
-      AppDestination.me => const MeBody(),
-    };
+    setState(() {
+      if (d == AppDestination.messages && chhSession.badges.hasAny) {
+        _messagesRevision++;
+        _visited.remove(d);
+      }
+      _dest = d;
+    });
   }
 }

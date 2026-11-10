@@ -125,100 +125,88 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets(
-    'directory uses short category navigation and keeps source names searchable',
-    (tester) async {
-      await _phone(tester);
-      await tester.pumpWidget(
-        _app(
-          Scaffold(
-            body: ForumIndexView(
-              loadForums: (_) async => const [
-                ForumCategory(
-                  name: '互动区-勋章和活动的会场',
-                  forums: [
-                    Forum(fid: 1, name: 'iGame Mini 桌搭小钢炮装机赛', threadCount: 15),
-                  ],
-                ),
-                ForumCategory(
-                  name: '分享区-产品开箱与用户体验的分享',
-                  forums: [Forum(fid: 2, name: '产品开箱')],
-                ),
-              ],
-            ),
+  testWidgets('directory uses short category navigation', (tester) async {
+    await _phone(tester);
+    await tester.pumpWidget(
+      _app(
+        Scaffold(
+          body: ForumIndexView(
+            loadForums: (_) async => const [
+              ForumCategory(
+                name: '互动区-勋章和活动的会场',
+                forums: [
+                  Forum(fid: 1, name: 'iGame Mini 桌搭小钢炮装机赛', threadCount: 15),
+                ],
+              ),
+              ForumCategory(
+                name: '分享区-产品开箱与用户体验的分享',
+                forums: [Forum(fid: 2, name: '产品开箱')],
+              ),
+            ],
           ),
         ),
-      );
-      await tester.pumpAndSettle();
-      expect(find.text('勋章和活动的会场'), findsOneWidget);
-      // 分区导航收进选择面板,面板里用可区分的短名
-      await tester.tap(find.text('全部分区'));
-      await tester.pumpAndSettle();
-      Finder option(int i, String label) => find.descendant(
-        of: find.byKey(ValueKey('picker-option-$i')),
-        matching: find.text(label),
-      );
-      expect(option(1, '互动区'), findsOneWidget);
-      expect(option(2, '分享区'), findsOneWidget);
-      await tester.tap(find.byTooltip('关闭'));
-      await tester.pumpAndSettle();
-      expect(find.byType(SliverGrid), findsNothing);
-      await tester.enterText(find.byType(EditableText), '会场');
-      await tester.pumpAndSettle();
-      expect(find.text('iGame Mini 桌搭小钢炮装机赛'), findsOneWidget);
-      expect(find.text('产品开箱'), findsNothing);
-      expect(find.text('15 个主题'), findsOneWidget);
-      expect(tester.takeException(), isNull);
-    },
-  );
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('勋章和活动的会场'), findsOneWidget);
+    // 分区导航收进选择面板,面板里用可区分的短名
+    await tester.tap(find.text('全部分区'));
+    await tester.pumpAndSettle();
+    Finder option(int i, String label) => find.descendant(
+      of: find.byKey(ValueKey('picker-option-$i')),
+      matching: find.text(label),
+    );
+    expect(option(1, '互动区'), findsOneWidget);
+    expect(option(2, '分享区'), findsOneWidget);
+    await tester.tap(find.byTooltip('关闭'));
+    await tester.pumpAndSettle();
+    expect(find.byType(SliverGrid), findsNothing);
+    // 目录不再有本地关键字搜索(设计定稿),两个版块都常驻可见
+    expect(find.text('iGame Mini 桌搭小钢炮装机赛'), findsOneWidget);
+    expect(find.text('产品开箱'), findsOneWidget);
+    expect(find.text('15 个主题'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 
-  testWidgets(
-    'forum directory filters actual forums locally and clears the query',
-    (tester) async {
-      await _phone(tester);
-      var loads = 0;
-      await tester.pumpWidget(
-        _app(
-          Scaffold(
-            body: ForumIndexView(
-              loadForums: (_) async {
-                loads++;
-                return const [
-                  ForumCategory(
-                    name: '硬件',
-                    forums: [Forum(fid: 1, name: '电脑讨论', threadCount: 7)],
-                  ),
-                  ForumCategory(
-                    name: '生活',
-                    forums: [Forum(fid: 2, name: '摄影讨论')],
-                  ),
-                ];
-              },
-            ),
+  testWidgets('forum directory filters by category without reloading', (
+    tester,
+  ) async {
+    await _phone(tester);
+    var loads = 0;
+    await tester.pumpWidget(
+      _app(
+        Scaffold(
+          body: ForumIndexView(
+            loadForums: (_) async {
+              loads++;
+              return const [
+                ForumCategory(
+                  name: '硬件',
+                  forums: [Forum(fid: 1, name: '电脑讨论', threadCount: 7)],
+                ),
+                ForumCategory(
+                  name: '生活',
+                  forums: [Forum(fid: 2, name: '摄影讨论')],
+                ),
+              ];
+            },
           ),
         ),
-      );
-      await tester.pumpAndSettle();
-      expect(find.text('电脑讨论'), findsOneWidget);
-      expect(find.text('摄影讨论'), findsOneWidget);
-      await tester.enterText(find.byType(EditableText), '摄影');
-      await tester.pump();
-      expect(find.text('电脑讨论'), findsNothing);
-      expect(find.text('摄影讨论'), findsOneWidget);
-      await tester.pump(const Duration(milliseconds: 200));
-      await tester.tap(find.byTooltip('清除搜索'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('全部分区'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('硬件').last);
-      await tester.pump(const Duration(milliseconds: 200));
-      await tester.pumpAndSettle();
-      expect(find.text('电脑讨论'), findsOneWidget);
-      expect(find.text('摄影讨论'), findsNothing);
-      expect(loads, 1);
-      expect(tester.takeException(), isNull);
-    },
-  );
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('电脑讨论'), findsOneWidget);
+    expect(find.text('摄影讨论'), findsOneWidget);
+    await tester.tap(find.text('全部分区'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('硬件').last);
+    await tester.pump(const Duration(milliseconds: 200));
+    await tester.pumpAndSettle();
+    expect(find.text('电脑讨论'), findsOneWidget);
+    expect(find.text('摄影讨论'), findsNothing);
+    expect(loads, 1);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets(
     'clearing an in-flight search prevents its response restoring results',

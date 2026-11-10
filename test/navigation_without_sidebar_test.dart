@@ -3,7 +3,9 @@ import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/di.dart';
 import 'package:chh_app/pages/me_page.dart';
 import 'package:chh_app/widgets/app_shell.dart';
+import 'package:chh_app/widgets/large_title_scaffold.dart';
 import 'package:chh_app/ui/grouped.dart';
+import 'package:chh_app/widgets/account_widgets.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -14,9 +16,9 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: buildAppTheme(Brightness.light),
-        home: AppShell(
+        home: LargeTitleScaffold(
           title: '版块',
-          current: AppDestination.forums,
+          showBack: false,
           body: ListView(children: const [Text('版块内容')]),
         ),
       ),
@@ -53,11 +55,11 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: buildAppTheme(Brightness.light),
-        home: const Scaffold(body: MeBody()),
+        home: const Scaffold(body: MeBody(withIdentity: true)),
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.widgetWithText(EntryTile, '我的收藏'), findsOneWidget);
+    expect(find.widgetWithText(EntryCell, '我的收藏'), findsOneWidget);
     // 运行日志从"我的"移到设置页内,路由保持可达(见下方 routes 断言)
     await tester.scrollUntilVisible(
       find.text('设置'),

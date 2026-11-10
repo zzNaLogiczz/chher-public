@@ -6,13 +6,15 @@ library;
 
 import 'package:flutter/material.dart';
 
+import '../core/reading_prefs.dart';
+export '../core/reading_prefs.dart' show CommentViewMode;
+
 import '../design/tokens.dart';
 import '../design/typography.dart';
 import '../ui/picker.dart';
 import '../ui/segmented.dart';
 
 /// 三种查看方式互斥:按回复归组的评论、站点原始顺序、只看作者本人
-enum CommentViewMode { threaded, floors, author }
 
 /// 全宽三段分段:评论 / 原楼层 / 只看楼主(文章为"只看作者")。
 /// 宽度固定占满一行,不随计数文字长短换行;放不下时降级为选择按钮。

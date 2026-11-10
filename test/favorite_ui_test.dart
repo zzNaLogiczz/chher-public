@@ -257,7 +257,7 @@ void main() {
   );
 
   testWidgets(
-    'directory favorites lead categories, preserve order and respect search and category',
+    'directory favorites lead categories, preserve order and respect category',
     (tester) async {
       chhSession.loggedIn = true;
       favoriteIndex.setUid(1);
@@ -299,15 +299,6 @@ void main() {
         tester.getTopLeft(find.text('收藏摄影版块')).dy,
         lessThan(tester.getTopLeft(find.text('收藏电脑版块')).dy),
       );
-      await tester.enterText(find.byType(EditableText), '摄影');
-      await tester.pumpAndSettle();
-      expect(find.text('收藏摄影版块'), findsOneWidget);
-      expect(find.text('收藏电脑版块'), findsNothing);
-      await tester.enterText(find.byType(EditableText), '不匹配');
-      await tester.pumpAndSettle();
-      expect(find.text('收藏'), findsNothing);
-      await tester.tap(find.byTooltip('清除搜索'));
-      await tester.pumpAndSettle();
       await tester.tap(find.text('全部分区'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('硬件').last);

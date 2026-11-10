@@ -18,8 +18,6 @@ import 'package:chh_app/pages/settings_page.dart';
 import 'package:chh_app/ui/app_button.dart';
 import 'package:chh_app/ui/grouped.dart';
 import 'package:chh_app/ui/picker.dart';
-import 'package:chh_app/ui/search_field.dart';
-import 'package:chh_app/widgets/large_title_scaffold.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -233,7 +231,7 @@ void main() {
 
   for (final scale in [1.0, 2.0]) {
     testWidgets(
-      'nested directory keeps controls reachable after filtering, scrolling and resize scale $scale',
+      'nested directory keeps lazy rendering and collapse coordination scale $scale',
       (tester) async {
         tester.view.physicalSize = Size(scale == 2 ? 320 : 390, 844);
         tester.view.devicePixelRatio = 1;
@@ -241,23 +239,19 @@ void main() {
         var loads = 0;
         await tester.pumpWidget(
           _app(
-            LargeTitleScaffold(
-              title: '版块',
-              showBack: false,
-              body: ForumIndexView(
-                loadForums: (_) async {
-                  loads++;
-                  return [
-                    ForumCategory(
-                      name: '交流区',
-                      forums: List.generate(
-                        1000,
-                        (i) => Forum(fid: i + 1, name: '版块 $i'),
-                      ),
+            ForumIndexView(
+              loadForums: (_) async {
+                loads++;
+                return [
+                  ForumCategory(
+                    name: '交流区',
+                    forums: List.generate(
+                      1000,
+                      (i) => Forum(fid: i + 1, name: '版块 $i'),
                     ),
-                  ];
-                },
-              ),
+                  ),
+                ];
+              },
             ),
             Brightness.light,
             scale,
@@ -276,88 +270,15 @@ void main() {
           greaterThan(0),
           reason: 'Results retain nested title collapse coordination',
         );
-        final field = find.byType(EditableText);
-        expect(
-          field.hitTestable(),
-          findsOneWidget,
-          reason: 'Filter must stay available while only results scroll',
-        );
-        await tester.tap(field);
-        tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+        // 朱漆红 v2:目录无本地搜索;漆面滚走后内联小标题接管,回顶可交互
+        final picker = find.byType(PickerButton<int>);
+        nested.outerController.jumpTo(0);
         await tester.pumpAndSettle();
-        await tester.enterText(field, 'no-match');
-        await tester.pumpAndSettle();
-        expect(find.text('没有找到相关版块'), findsOneWidget);
-        final editable = tester.widget<EditableText>(field);
-        editable.controller.selection = const TextSelection(
-          baseOffset: 1,
-          extentOffset: 4,
-        );
-        for (final height in [700.0, 844.0]) {
-          tester.view.physicalSize = Size(
-            tester.view.physicalSize.width,
-            height,
-          );
-          await tester.pumpAndSettle();
-          final clear = find.byType(SearchClearButton);
-          expect(field.hitTestable(), findsOneWidget);
-          expect(clear.hitTestable(), findsOneWidget);
-          final rect = tester.getRect(clear);
-          expect(rect.bottom, lessThan(height - 300));
-          expect(rect.shortestSide, greaterThanOrEqualTo(44));
-          expect(
-            rect.center.dy,
-            closeTo(tester.getRect(find.byType(SearchCapsule)).center.dy, .01),
-          );
-          expect(tester.widget<EditableText>(field).focusNode.hasFocus, isTrue);
-          expect(
-            tester.widget<EditableText>(field).controller.selection,
-            const TextSelection(baseOffset: 1, extentOffset: 4),
-          );
-          final render = tester.state<EditableTextState>(field).renderEditable;
-          expect(
-            render.size.height,
-            greaterThanOrEqualTo(render.preferredLineHeight),
-          );
-        }
-        await _shot(tester, 'forum-empty-$scale');
-        await tester.tap(find.byType(SearchClearButton));
-        await tester.pumpAndSettle();
-        expect(tester.widget<EditableText>(field).controller.text, isEmpty);
-        expect(tester.widget<EditableText>(field).focusNode.hasFocus, isTrue);
+        expect(picker.hitTestable(), findsOneWidget);
         expect(find.text('版块 0'), findsOneWidget);
         expect(find.byType(GroupedRow).evaluate().length, lessThan(40));
         expect(loads, 1);
-        expect(find.byType(PickerButton<int>).hitTestable(), findsOneWidget);
         expect(tester.takeException(), isNull);
-        await _shot(tester, 'forum-restored-$scale');
-        tester.view.viewInsets = FakeViewPadding.zero;
-        await tester.pumpAndSettle();
-        await tester.tap(find.byType(PickerButton<int>));
-        await tester.pumpAndSettle();
-        await tester.tap(find.byKey(const ValueKey('picker-option-1')));
-        await tester.pump(const Duration(milliseconds: 250));
-        await tester.pumpAndSettle();
-        expect(
-          tester
-              .widget<PickerButton<int>>(find.byType(PickerButton<int>))
-              .value,
-          0,
-        );
-        expect(loads, 1);
-        await tester.tap(field);
-        await tester.enterText(field, 'no-match');
-        await tester.pumpAndSettle();
-        await tester.tap(find.byType(SearchClearButton));
-        await tester.pumpAndSettle();
-        expect(
-          tester
-              .widget<PickerButton<int>>(find.byType(PickerButton<int>))
-              .value,
-          0,
-        );
-        expect(find.text('版块 0'), findsOneWidget);
-        expect(loads, 1);
         await tester.drag(results, const Offset(0, 1000));
         await tester.pumpAndSettle();
         expect(loads, 2, reason: 'Pull to refresh is preserved');
@@ -366,7 +287,7 @@ void main() {
   }
   for (final scale in [1.0, 2.0]) {
     testWidgets(
-      'home forum toolbar stays below navigation after full collapse scale $scale',
+      'home forum picker rides the title row and nav stays steady on collapse scale $scale',
       (tester) async {
         tester.view.devicePixelRatio = 1;
         tester.view.physicalSize = Size(scale == 2 ? 320 : 390, 844);
@@ -380,23 +301,19 @@ void main() {
               initialiseSession: () async {},
               screenBuilders: {
                 AppDestination.feed: (_) => const Scaffold(body: Text('本地示例')),
-                AppDestination.forums: (_) => AppShell(
-                  title: '版块',
-                  current: AppDestination.forums,
-                  body: ForumIndexView(
-                    loadForums: (_) async {
-                      loads++;
-                      return [
-                        ForumCategory(
-                          name: '交流区',
-                          forums: List.generate(
-                            1000,
-                            (i) => Forum(fid: i + 1, name: '版块 $i'),
-                          ),
+                AppDestination.forums: (_) => ForumIndexView(
+                  loadForums: (_) async {
+                    loads++;
+                    return [
+                      ForumCategory(
+                        name: '交流区',
+                        forums: List.generate(
+                          1000,
+                          (i) => Forum(fid: i + 1, name: '版块 $i'),
                         ),
-                      ];
-                    },
-                  ),
+                      ),
+                    ];
+                  },
                 ),
               },
             ),
@@ -415,8 +332,6 @@ void main() {
         final nested = tester.state<NestedScrollViewState>(
           find.byType(NestedScrollView),
         );
-        final field = find.byType(EditableText);
-        final capsule = find.byType(SearchCapsule);
         final picker = find.byType(PickerButton<int>);
         final nav = find.byType(NavOverlay);
         final bar = find.descendant(
@@ -426,44 +341,37 @@ void main() {
                 widget is Positioned && widget.height == NavOverlay.barHeight,
           ),
         );
-        void expectToolbarVisible({bool hitTest = true}) {
+        // 漆面顶栏条本身固定;分区筛选住大标题行右侧(朱漆红 v2)
+        void expectBarSteady() {
           final barRect = tester.getRect(bar);
           expect(barRect.top, 32);
           expect(barRect.height, NavOverlay.barHeight);
           expect(
             tester.getRect(nav).bottom,
-            barRect.bottom,
-            reason: 'Reserved navigation must not fade over the fixed toolbar',
+            closeTo(barRect.bottom + NavOverlay.fadeBand, .01),
           );
-          expect(
-            tester.getRect(capsule).top,
-            greaterThanOrEqualTo(barRect.bottom),
-            reason:
-                'The filter must not paint behind the actual navigation bar',
-          );
+        }
+
+        void expectPickerBelowNav({bool hitTest = true}) {
+          expectBarSteady();
           expect(
             tester.getRect(picker).top,
-            greaterThanOrEqualTo(barRect.bottom),
+            greaterThanOrEqualTo(tester.getRect(bar).bottom),
+            reason:
+                'The picker must not paint behind the actual navigation bar',
           );
           if (hitTest) {
-            expect(field.hitTestable(), findsOneWidget);
             expect(picker.hitTestable(), findsOneWidget);
           }
         }
 
         expect(nested.outerController.offset, 0);
-        expectToolbarVisible();
-        final initialTop = tester.getRect(capsule).top;
+        expectPickerBelowNav();
+        // 分区筛选随标题行住漆面,不下沉进 mast 区
         expect(
-          initialTop,
-          closeTo(
-            tester.getRect(bar).bottom +
-                tester.getSize(find.byType(LargeTitleHeader)).height +
-                8,
-            .01,
-          ),
-          reason:
-              'Reserve the navigation bar once, preserving the initial title/body spacing',
+          tester.getRect(picker).top,
+          lessThan(tester.getRect(find.byType(LargeTitleHeader)).bottom),
+          reason: 'Picker rides the title row accessory',
         );
         expect(find.byType(AppBottomNavigation), findsOneWidget);
         expect(find.byType(GroupedRow).evaluate().length, lessThan(40));
@@ -474,68 +382,26 @@ void main() {
           for (var step = 0; step < 4; step++) {
             await drag.moveBy(const Offset(0, -175));
             await tester.pump(const Duration(milliseconds: 16));
-            expectToolbarVisible(hitTest: false);
+            expectBarSteady();
           }
           await drag.up();
           await tester.pumpAndSettle();
-          expectToolbarVisible();
+          expectBarSteady();
         }
         expect(
           nested.outerController.offset,
           closeTo(nested.outerController.position.maxScrollExtent, .01),
         );
         expect(nested.outerController.offset, greaterThan(0));
-        expect(tester.getRect(capsule).top, lessThan(initialTop));
-        expectToolbarVisible();
+        // 漆面滚走后内联小标题接管顶栏
         expect(
           tester.widget<Opacity>(find.byKey(NavOverlay.inlineTitleKey)).opacity,
           closeTo(1, .01),
         );
         await _shot(tester, 'home-forum-collapsed-$scale');
-        await tester.tap(field);
-        final editor = tester.widget<EditableText>(field);
-        tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+        nested.outerController.jumpTo(0);
         await tester.pumpAndSettle();
-        await tester.enterText(field, 'no-match');
-        await tester.pumpAndSettle();
-        editor.controller.selection = const TextSelection(
-          baseOffset: 1,
-          extentOffset: 4,
-        );
-        for (final height in [700.0, 844.0]) {
-          tester.view.physicalSize = Size(
-            tester.view.physicalSize.width,
-            height,
-          );
-          await tester.pumpAndSettle();
-          await tester.drag(results, const Offset(0, -400));
-          await tester.pumpAndSettle();
-          expectToolbarVisible();
-          expect(editor.focusNode.hasFocus, isTrue);
-          expect(
-            editor.controller.selection,
-            const TextSelection(baseOffset: 1, extentOffset: 4),
-          );
-          expect(
-            tester.getRect(find.byType(SearchClearButton)).bottom,
-            lessThan(height - 300),
-          );
-        }
-        expect(find.byType(AppBottomNavigation), findsNothing);
-        await _shot(tester, 'home-forum-keyboard-empty-$scale');
-        await tester.tap(find.byType(SearchClearButton));
-        await tester.pumpAndSettle();
-        expectToolbarVisible();
-        expect(editor.focusNode.hasFocus, isTrue);
-        expect(editor.controller.text, isEmpty);
-        expect(find.text('版块 0'), findsOneWidget);
-        expect(loads, 1);
-        expect(find.byType(GroupedRow).evaluate().length, lessThan(40));
-        tester.view.viewInsets = FakeViewPadding.zero;
-        await tester.pumpAndSettle();
-        expectToolbarVisible();
-        expect(find.byType(AppBottomNavigation), findsOneWidget);
-        await _shot(tester, 'home-forum-restored-$scale');
+        expectPickerBelowNav();
         await tester.tap(picker);
         await tester.pumpAndSettle();
         await tester.tap(find.byKey(const ValueKey('picker-option-1')));
@@ -555,8 +421,7 @@ void main() {
               'One actual pull refresh issues exactly one extra catalog load',
         );
         expect(tester.widget<PickerButton<int>>(picker).value, 0);
-        expectToolbarVisible();
-
+        expectPickerBelowNav();
         expect(tester.takeException(), isNull);
       },
     );

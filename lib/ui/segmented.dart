@@ -23,6 +23,9 @@ class AppSegmented<T> extends StatefulWidget {
   /// 紧凑型:高 32,宽度按文字,放在分区标题右侧
   final bool compact;
 
+  /// 压在漆面顶栏上:奶白轨道、奶白滑块、选中字深红
+  final bool onLac;
+
   /// 降级为选择面板时的面板标题
   final String? fallbackTitle;
 
@@ -32,6 +35,7 @@ class AppSegmented<T> extends StatefulWidget {
     required this.value,
     required this.onChanged,
     this.compact = false,
+    this.onLac = false,
     this.fallbackTitle,
   }) : assert(options.length >= 2 && options.length <= 4);
 
@@ -147,7 +151,9 @@ class _AppSegmentedState<T> extends State<AppSegmented<T>>
         }
         return DecoratedBox(
           decoration: BoxDecoration(
-            color: t.fill,
+            color: widget.onLac
+                ? const Color.fromRGBO(255, 248, 245, .18)
+                : t.fill,
             borderRadius: BorderRadius.circular(height / 2),
           ),
           child: SizedBox(
@@ -167,11 +173,23 @@ class _AppSegmentedState<T> extends State<AppSegmented<T>>
                       child: DecoratedBox(
                         key: AppSegmented.thumbKey,
                         decoration: BoxDecoration(
-                          color: t.isDark ? const Color(0xFF636366) : t.surface,
+                          color: widget.onLac
+                              ? const Color(0xFFFFF8F5)
+                              : t.isDark
+                              ? const Color(0xFF636366)
+                              : t.surface,
                           borderRadius: BorderRadius.circular(
                             height / 2 - _inset,
                           ),
-                          boxShadow: t.shadowE1,
+                          boxShadow: widget.onLac
+                              ? const [
+                                  BoxShadow(
+                                    color: Color(0x4D5A0508),
+                                    offset: Offset(0, 1),
+                                    blurRadius: 5,
+                                  ),
+                                ]
+                              : t.shadowE1,
                         ),
                       ),
                     ),
@@ -201,6 +219,9 @@ class _AppSegmentedState<T> extends State<AppSegmented<T>>
   Widget _segment(AppTokens t, int i, double position, TextStyle style) {
     // 文字颜色随滑块距离渐变,滑块经过时就亮起,不等动画结束
     final emphasis = (1 - (position - i).abs()).clamp(0.0, 1.0);
+    // 漆面上:滑块后的字是深红,未到的字是淡朱
+    final selectedColor = widget.onLac ? const Color(0xFF5A0E10) : t.text;
+    final restingColor = widget.onLac ? t.onLac2 : t.text2;
     // 合并成一个节点:读屏器在同一个按钮上读到名称和"已选中"
     return MergeSemantics(
       key: ValueKey('segment-$i'),
@@ -214,7 +235,7 @@ class _AppSegmentedState<T> extends State<AppSegmented<T>>
               widget.options[i].label,
               maxLines: 1,
               style: style.copyWith(
-                color: Color.lerp(t.text2, t.text, emphasis),
+                color: Color.lerp(restingColor, selectedColor, emphasis),
               ),
             ),
           ),

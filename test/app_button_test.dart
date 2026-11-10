@@ -27,9 +27,16 @@ Color fillOf(WidgetTester tester) =>
         .color!;
 
 void main() {
-  testWidgets('primary uses accent fill and onAccent text', (tester) async {
+  testWidgets('primary is the lacquer gradient with onAccent text', (
+    tester,
+  ) async {
     await tester.pumpWidget(app(AppButton(label: '发布', onPressed: () {})));
-    expect(fillOf(tester), AppTokens.light.accent);
+    final decoration =
+        tester.widget<DecoratedBox>(
+          find.byKey(AppButton.surfaceKey),
+        ).decoration as BoxDecoration;
+    expect(decoration.gradient, AppTokens.light.btnGradient);
+    expect(decoration.color, isNull);
     expect(
       tester.widget<Text>(find.text('发布')).style!.color,
       AppTokens.light.onAccent,

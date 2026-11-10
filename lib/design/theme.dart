@@ -80,6 +80,14 @@ ThemeData buildAppTheme(Brightness brightness) {
       color: t.accent,
       linearMinHeight: 2,
     ),
+    // 编辑器选区朱 200、光标朱 700(回复框里红色只在这两处)
+    textSelectionTheme: TextSelectionThemeData(
+      cursorColor: t.accent,
+      selectionColor: t.isDark
+          ? const Color(0x5A5A2A27)
+          : const Color(0xFFFFD4CC),
+      selectionHandleColor: t.accent,
+    ),
     snackBarTheme: _snackBarTheme(t),
     bottomSheetTheme: _bottomSheetTheme(t),
     filledButtonTheme: FilledButtonThemeData(

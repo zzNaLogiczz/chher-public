@@ -1,11 +1,15 @@
-/// Personal space keeps the account and frequent destinations within reach.
+/// 我的页:漆面身份卡 + 纸面四列入口行 + 工具分组(朱漆红 v2)
+///
+/// 一级页结构照真机:身份卡住进漆面(头像/昵称/UID),纸面上是
+/// 无底色的四列入口行与黑名单/设置分组;等级与统计属于用户主页。
 library;
 
 import 'package:flutter/material.dart';
 import '../di.dart';
 import '../widgets/large_title_scaffold.dart';
-import '../widgets/expressive_controls.dart';
+import '../widgets/lac_scaffold.dart';
 import '../widgets/account_widgets.dart';
+import '../widgets/expressive_controls.dart';
 import '../design/tokens.dart';
 import '../ui/grouped.dart';
 import '../update/update_controller.dart';
@@ -16,18 +20,64 @@ import 'my_threads_page.dart';
 import 'credit_log_page.dart';
 import 'user_page.dart';
 
+/// 一级页入口(底栏"我的"):漆面骨架。
 class MePage extends StatelessWidget {
   const MePage({super.key});
   @override
-  Widget build(BuildContext context) => LargeTitleScaffold(
+  Widget build(BuildContext context) => LacScaffold(
     title: '我的',
-    surface: AppSurface.grouped,
+    mast: const _MemberCard(),
+    // 整头固定(用户定稿):身份卡与大标题不许上收,正文在纸面内独立滚动
+    pinned: true,
     body: const MeBody(),
   );
 }
 
+/// 推送路由用的纸面版本(二级页不上漆)
+class MeFallbackPage extends StatelessWidget {
+  const MeFallbackPage({super.key});
+  @override
+  Widget build(BuildContext context) => LargeTitleScaffold(
+    title: '我的',
+    surface: AppSurface.grouped,
+    body: const MeBody(withIdentity: true),
+  );
+}
+
+/// 漆面身份卡:头像/昵称/UID,点进个人主页(或登录)
+class _MemberCard extends StatelessWidget {
+  const _MemberCard();
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: chhSession,
+    builder: (context, _) {
+      final me = chhSession.badges;
+      final logged = chhSession.loggedIn;
+      return AccountIdentityRow(
+        name: logged ? (me.userName ?? '已登录') : '登录 CHH',
+        avatarUrl: logged ? me.avatarUrl : null,
+        detail: logged
+            ? (me.uid == null ? null : 'UID ${me.uid}')
+            : '收藏内容，参与讨论',
+        onLac: true,
+        onTap: !logged
+            ? () => Navigator.of(context).pushNamed('/login')
+            : me.uid == null
+            ? null
+            : () => Navigator.of(
+                context,
+              ).push(MaterialPageRoute(builder: (_) => UserPage(uid: me.uid!))),
+      );
+    },
+  );
+}
+
+/// 纸面内容:四列入口行 + 工具分组。[withIdentity] 供推送路由补身份行。
 class MeBody extends StatelessWidget {
-  const MeBody({super.key});
+  final bool withIdentity;
+  const MeBody({super.key, this.withIdentity = false});
+
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: chhSession,
@@ -40,55 +90,53 @@ class MeBody extends StatelessWidget {
         child: ListView(
           padding: const EdgeInsets.only(bottom: 112),
           children: [
-            // 身份一行:已登录进个人主页,未登录进登录页
-            GroupedSection(
-              children: [
-                AccountIdentityRow(
-                  name: logged ? (me.userName ?? '已登录') : '登录 CHH',
-                  avatarUrl: logged ? me.avatarUrl : null,
-                  detail: logged
-                      ? (me.uid == null ? null : 'UID ${me.uid}')
-                      : '收藏内容，参与讨论',
-                  onTap: !logged
-                      ? () => Navigator.of(context).pushNamed('/login')
-                      : me.uid == null
-                      ? null
-                      : () => _push(context, UserPage(uid: me.uid!)),
-                ),
-              ],
-            ),
-            // 常用的四个入口做成方块;设置留在下方列表
-            if (logged) ...[
-              const SizedBox(height: 16),
-              EntryGrid(
-                tiles: [
-                  EntryTile(
+            if (withIdentity)
+              GroupedSection(
+                children: [
+                  AccountIdentityRow(
+                    name: logged ? (me.userName ?? '已登录') : '登录 CHH',
+                    avatarUrl: logged ? me.avatarUrl : null,
+                    detail: logged
+                        ? (me.uid == null ? null : 'UID ${me.uid}')
+                        : '收藏内容，参与讨论',
+                    onTap: !logged
+                        ? () => Navigator.of(context).pushNamed('/login')
+                        : me.uid == null
+                        ? null
+                        : () => _push(context, UserPage(uid: me.uid!)),
+                  ),
+                ],
+              ),
+            // 定稿入口行:无卡片无底色,直接排在纸面上
+            if (logged)
+              EntryRow(
+                cells: [
+                  EntryCell(
                     icon: AppIcons.article,
-                    tint: IconTints.blue,
+                    tint: AppTokens.of(context).tintZhu,
                     label: '我的帖子',
                     onTap: () => _push(context, const MyThreadsPage()),
                   ),
-                  EntryTile(
+                  EntryCell(
                     icon: AppIcons.bookmark,
-                    tint: IconTints.orange,
+                    tint: AppTokens.of(context).tintDai,
                     label: '我的收藏',
                     onTap: () => _push(context, const FavoritesPage()),
                   ),
-                  EntryTile(
+                  EntryCell(
                     icon: AppIcons.credits,
-                    tint: IconTints.green,
+                    tint: AppTokens.of(context).tintTan,
                     label: '积分记录',
                     onTap: () => _push(context, const CreditLogPage()),
                   ),
-                  EntryTile(
+                  EntryCell(
                     icon: AppIcons.medal,
-                    tint: IconTints.violet,
+                    tint: AppTokens.of(context).tintZhe,
                     label: '勋章',
                     onTap: () => _push(context, const MedalsPage()),
                   ),
                 ],
               ),
-            ],
             GroupedSection(
               children: [
                 GroupedRow(

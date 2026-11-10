@@ -15,6 +15,9 @@ class BrowseSearchField extends StatelessWidget {
   final ValueChanged<String>? onSubmitted;
   final bool autofocus;
 
+  /// 压在漆面顶栏上:奶白玻璃、奶白字
+  final bool onLac;
+
   const BrowseSearchField({
     super.key,
     required this.controller,
@@ -23,6 +26,7 @@ class BrowseSearchField extends StatelessWidget {
     this.onChanged,
     this.onSubmitted,
     this.autofocus = false,
+    this.onLac = false,
   });
 
   @override
@@ -33,6 +37,7 @@ class BrowseSearchField extends StatelessWidget {
     onChanged: onChanged,
     onSubmitted: onSubmitted,
     autofocus: autofocus,
+    onLac: onLac,
   );
 }
 

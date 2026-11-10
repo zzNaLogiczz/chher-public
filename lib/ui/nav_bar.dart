@@ -42,6 +42,9 @@ class NavOverlay extends StatefulWidget {
   /// 正文已固定在顶栏下方时,不再把渐隐遮罩画到工具栏上。
   final bool fadeBelowBar;
 
+  /// 漆面顶栏:小标题与遮罩在奶白(漆面)和纸面色之间随滚动切换
+  final bool onLac;
+
   const NavOverlay({
     super.key,
     this.leading,
@@ -52,6 +55,7 @@ class NavOverlay extends StatefulWidget {
     required this.background,
     this.titleInset = 72,
     this.fadeBelowBar = true,
+    this.onLac = false,
   });
 
   @override
@@ -104,7 +108,6 @@ class _NavOverlayState extends State<NavOverlay>
 
   @override
   Widget build(BuildContext context) {
-    final t = AppTokens.of(context);
     final top = MediaQuery.paddingOf(context).top;
     final solid = top + NavOverlay.barHeight;
     final height = solid + (widget.fadeBelowBar ? NavOverlay.fadeBand : 0);
@@ -119,27 +122,43 @@ class _NavOverlayState extends State<NavOverlay>
         children: [
           Positioned.fill(
             child: IgnorePointer(
-              child: ValueListenableBuilder<double>(
-                valueListenable: widget.scrollOffset,
-                builder: (_, offset, child) => Opacity(
-                  key: NavOverlay.edgeKey,
-                  opacity: (offset / NavOverlay.fadeDistance).clamp(0.0, 1.0),
-                  child: child,
-                ),
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        widget.background,
-                        widget.background,
-                        widget.background.withValues(alpha: 0),
-                      ],
-                      stops: [0, solid / height, 1],
+              // 遮罩色随 _title(漆面→纸面)过渡、透明度随滚动距离。
+              // 颜色必须在动画 builder 内现算:build 局部变量会被闭包
+              // 捕获成首帧值,弹簧走到 1 也不会重算。
+              child: AnimatedBuilder(
+                animation: _title,
+                builder: (context, _) {
+                  final v = _title.value.clamp(0.0, 1.0);
+                  final tt = AppTokens.of(context);
+                  final topColor = widget.onLac
+                      ? Color.lerp(tt.lacTop, widget.background, v)!
+                      : widget.background;
+                  return ValueListenableBuilder<double>(
+                    valueListenable: widget.scrollOffset,
+                    builder: (_, offset, child) => Opacity(
+                      key: NavOverlay.edgeKey,
+                      opacity: (offset / NavOverlay.fadeDistance).clamp(
+                        0.0,
+                        1.0,
+                      ),
+                      child: child,
                     ),
-                  ),
-                ),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            topColor,
+                            topColor,
+                            topColor.withValues(alpha: 0),
+                          ],
+                          stops: [0, solid / height, 1],
+                        ),
+                      ),
+                    ),
+                  );
+                },
               ),
             ),
           ),
@@ -162,19 +181,27 @@ class _NavOverlayState extends State<NavOverlay>
                   ),
                 ),
                 middle: IgnorePointer(
+                  // 小标题颜色随 _title 过渡(漆面奶白→纸面正文),builder 内现算
                   child: AnimatedBuilder(
                     animation: _title,
-                    builder: (_, child) => Opacity(
-                      key: NavOverlay.inlineTitleKey,
-                      opacity: _title.value.clamp(0.0, 1.0),
-                      child: child,
-                    ),
-                    child: Text(
-                      widget.inlineTitle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppType.headline.copyWith(color: t.text),
-                    ),
+                    builder: (context, _) {
+                      final v = _title.value.clamp(0.0, 1.0);
+                      final tt = AppTokens.of(context);
+                      return Opacity(
+                        key: NavOverlay.inlineTitleKey,
+                        opacity: v,
+                        child: Text(
+                          widget.inlineTitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppType.headline.copyWith(
+                            color: widget.onLac
+                                ? Color.lerp(tt.onLac, tt.text, v)!
+                                : tt.text,
+                          ),
+                        ),
+                      );
+                    },
                   ),
                 ),
                 trailing: ConstrainedBox(
@@ -205,11 +232,15 @@ class LargeTitleHeader extends StatelessWidget {
   final String? eyebrow;
   final Widget? accessory;
 
+  /// 压在漆面顶栏上:眉题淡朱、标题奶白
+  final bool onLac;
+
   const LargeTitleHeader({
     super.key,
     required this.title,
     this.eyebrow,
     this.accessory,
+    this.onLac = false,
   });
 
   @override
@@ -218,34 +249,43 @@ class LargeTitleHeader extends StatelessWidget {
     return Padding(
       padding: EdgeInsets.fromLTRB(
         AppSpace.screen,
-        2,
+        0,
         accessory == null ? AppSpace.screen : 10,
-        10,
+        4,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (eyebrow != null)
-            Text(
-              eyebrow!,
-              style: AppType.footnote.copyWith(
-                color: t.text3,
-                fontWeight: FontWeight.w600,
-              ),
+          // 眉题行恒占一行(无眉题渲染空文本):四个一级页大标题从
+          // 同一高度开始,折叠点与纸面岛才对得齐
+          Text(
+            eyebrow ?? '',
+            style: AppType.footnote.copyWith(
+              color: onLac ? t.onLac2 : t.text3,
+              fontWeight: FontWeight.w600,
             ),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppType.largeTitle.copyWith(color: t.text),
+          ),
+          // 标题行最小高 44:单行标题(四个一级页)行高一致,accessory
+          // 圆钮/胶囊不撑出差异;二级页长标题换行时行自然长高不裁字
+          ConstrainedBox(
+            constraints: BoxConstraints(minHeight: AppSpace.titleRow),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Expanded(
+                  child: Text(
+                    title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppType.largeTitle.copyWith(
+                      color: onLac ? t.onLac : t.text,
+                    ),
+                  ),
                 ),
-              ),
-              ?accessory,
-            ],
+                ?accessory,
+              ],
+            ),
           ),
         ],
       ),

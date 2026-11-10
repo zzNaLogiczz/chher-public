@@ -26,6 +26,7 @@ class MainActivity : FlutterActivity() {
     private var editorTouchBridge: EditorTouchBridge? = null
     private var updateBridge: UpdateBridge? = null
     private var imageBridge: ImageBridge? = null
+    private var notificationBridge: NotificationBridge? = null
     private var surfaceVoteHz = 0f
     private var lastError: String? = null
     private var originalModeId = 0
@@ -51,6 +52,8 @@ class MainActivity : FlutterActivity() {
         updateBridge = UpdateBridge(this, flutterEngine)
         imageBridge?.dispose()
         imageBridge = ImageBridge(this, flutterEngine)
+        notificationBridge?.dispose()
+        notificationBridge = NotificationBridge(this, flutterEngine)
         sessionChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "chh/session")
         sessionChannel?.setMethodCallHandler { call, result ->
             if (call.method != "flushCookies") {
@@ -81,6 +84,17 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        notificationBridge?.onNewIntent(intent)
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        if (notificationBridge?.onRequestPermissionsResult(requestCode) == true) return
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -132,6 +146,8 @@ class MainActivity : FlutterActivity() {
         updateBridge = null
         imageBridge?.dispose()
         imageBridge = null
+        notificationBridge?.dispose()
+        notificationBridge = null
         flutterSurface?.holder?.removeCallback(surfaceCallback)
         flutterSurface = null
         channel?.setMethodCallHandler(null)

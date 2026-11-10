@@ -87,7 +87,8 @@ class _RichContentTextState extends State<RichContentText> {
     ),
   );
 
-  /// 链接文字用强调色;后面的小箭头说明点开会离开 App
+  /// 正文链接不写红字(v1 规则:大段正文里的红字会被读成警告):
+  /// 墨色 500 + 浅朱下划线;后面的小箭头说明点开会离开 App
   List<InlineSpan> _link(
     BuildContext context,
     AppTokens t,
@@ -102,7 +103,13 @@ class _RichContentTextState extends State<RichContentText> {
       TextSpan(
         text: text,
         recognizer: recognizer,
-        style: TextStyle(color: t.accent, fontWeight: FontWeight.w500),
+        style: TextStyle(
+          color: t.text,
+          fontWeight: FontWeight.w500,
+          decoration: TextDecoration.underline,
+          decorationColor: t.linkLine,
+          decorationThickness: 1.2,
+        ),
       ),
       WidgetSpan(
         alignment: PlaceholderAlignment.middle,

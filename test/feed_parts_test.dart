@@ -16,7 +16,7 @@ Widget app(Widget child) => MaterialApp(
 void main() {
   test('feed title row carries search and the bell is gone', () {
     final source = File('lib/pages/feed_page.dart').readAsStringSync();
-    expect(source, contains('LargeTitleHeader('));
+    expect(source, contains('LacScaffold('));
     expect(source, contains("tag: 'search-entry-feed'"));
     expect(source, isNot(contains('MessagesAction')));
     expect(source, isNot(contains('SliverAppBar(')));

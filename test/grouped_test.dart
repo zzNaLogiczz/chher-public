@@ -2,6 +2,7 @@ import 'package:chh_app/design/icons.dart';
 import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/design/tokens.dart';
 import 'package:chh_app/ui/grouped.dart';
+import 'package:chh_app/widgets/account_widgets.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -131,10 +132,10 @@ void main() {
   });
 
   Widget grid(double scale) => app(
-    EntryGrid(
-      tiles: [
+    EntryRow(
+      cells: [
         for (final label in ['我的帖子', '我的收藏', '积分记录', '勋章'])
-          EntryTile(
+          EntryCell(
             icon: AppIcons.article,
             tint: IconTints.blue,
             label: label,
@@ -145,7 +146,7 @@ void main() {
     textScale: scale,
   );
 
-  testWidgets('entry grid uses two columns at normal text', (tester) async {
+  testWidgets('entry row lays four cells on one line at normal text', (tester) async {
     await tester.pumpWidget(grid(1));
     expect(
       tester.getCenter(find.text('我的帖子')).dy,
@@ -153,11 +154,16 @@ void main() {
     );
   });
 
-  testWidgets('entry grid drops to one column at 1.5x text', (tester) async {
+  testWidgets('entry row wraps to two columns at 1.5x text', (tester) async {
     await tester.pumpWidget(grid(1.5));
+    // 前两个仍在同一行,后两个换行:大字号下标签不截断
+    expect(
+      tester.getCenter(find.text('积分记录')).dy,
+      greaterThan(tester.getCenter(find.text('我的帖子')).dy),
+    );
     expect(
       tester.getCenter(find.text('我的收藏')).dy,
-      greaterThan(tester.getCenter(find.text('我的帖子')).dy),
+      tester.getCenter(find.text('我的帖子')).dy,
     );
     expect(tester.takeException(), isNull);
   });

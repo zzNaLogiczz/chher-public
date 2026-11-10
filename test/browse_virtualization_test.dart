@@ -229,9 +229,11 @@ void main() {
 
   testWidgets('forum directory keeps large categories lazy', (tester) async {
     await _phone(tester);
+    // ForumIndexView 自带漆面骨架,直接挂到 MaterialApp 下
     await tester.pumpWidget(
-      _app(
-        ForumIndexView(
+      MaterialApp(
+        theme: buildAppTheme(Brightness.light),
+        home: ForumIndexView(
           loadForums: (_) async => [
             ForumCategory(
               name: '硬件',

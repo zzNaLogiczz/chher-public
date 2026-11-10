@@ -22,6 +22,9 @@ class ChhClient {
   final Duration cacheTtl;
   final _cache = <String, _CacheEntry>{};
   String? _lastFetcherName;
+  int _cacheGeneration = 0;
+  int _requestSequence = 0;
+  int _lastObservedHeaderSequence = 0;
 
   ChhClient({
     List<ChhFetcher>? fetchers,
@@ -43,10 +46,11 @@ class ChhClient {
 
   String? get lastFetcherName => _lastFetcherName;
 
-  /// 每次成功取到页面时的回调
+  /// 每次成功取到新页面时的回调（缓存不重放旧未读计数）
   ///
-  /// 用来顺带读页头的未读计数:走已有请求,不为了一个角标额外打扰站点。
-  void Function(String html)? htmlObserver;
+  /// 用来顺带读页头账号与未读计数；会话失效前发出的请求不再回调。
+  /// 返回 true 表示识别到页头，用于拦截并发请求反序到达的旧计数。
+  bool Function(String html)? htmlObserver;
 
   /// WebView 引擎(登录 POST 等需要 Cookie 自动落仓的写操作专用)
   WebViewFetcher? get webviewFetcher =>
@@ -73,14 +77,15 @@ class ChhClient {
     bool fallback = true,
     bool ajax = false,
   }) async {
+    final generation = _cacheGeneration;
     final key = '${ajax ? 'ajax:' : ''}$url';
     if (!refresh) {
       final c = _cache[key];
       if (c != null && DateTime.now().difference(c.at) < cacheTtl) {
-        htmlObserver?.call(c.html);
         return c.html;
       }
     }
+    final sequence = ++_requestSequence;
     final failures = <String>[];
     var wafDetected = false;
     for (final f in fallback ? fetchers : fetchers.take(1)) {
@@ -93,13 +98,19 @@ class ChhClient {
       );
       if (!resp.isBlocked) {
         _lastFetcherName = f.name;
-        _cache[key] = _CacheEntry(resp.body);
+        if (generation == _cacheGeneration) {
+          _cache[key] = _CacheEntry(resp.body);
+        }
         AppLog.i(
           'GET',
           '${f.name} ${AppLog.url(url)} '
               'status=${resp.status} len=${resp.body.length}',
         );
-        htmlObserver?.call(resp.body);
+        if (generation == _cacheGeneration &&
+            sequence >= _lastObservedHeaderSequence &&
+            htmlObserver?.call(resp.body) == true) {
+          _lastObservedHeaderSequence = sequence;
+        }
         return resp.body;
       }
       wafDetected = wafDetected || resp.hasWafFeatures;
@@ -157,7 +168,7 @@ class ChhClient {
         last = resp;
         _lastFetcherName = f.name;
         // 写操作会改变站点状态,缓存里的旧页面全部作废
-        _cache.clear();
+        clearCache();
 
         if (ajax && resp.status >= 300 && resp.status < 400) return resp;
 
@@ -219,5 +230,8 @@ class ChhClient {
     return last ?? const ChhResponse(-1, '', error: '没有可用的上传通道');
   }
 
-  void clearCache() => _cache.clear();
+  void clearCache() {
+    _cacheGeneration++;
+    _cache.clear();
+  }
 }

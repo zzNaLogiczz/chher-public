@@ -62,7 +62,7 @@ class ThreadDetailPage extends StatefulWidget {
   final int? seenReplies;
   final String? gotoUrl;
   final int? focusPid;
-  final bool initialThreaded;
+  final bool? initialThreaded;
 
   /// 点评/评分提醒仅在目标为主楼时定位附属模块。
   final bool focusOpeningFeedback;
@@ -84,7 +84,7 @@ class ThreadDetailPage extends StatefulWidget {
     this.seenReplies,
     this.gotoUrl,
     this.focusPid,
-    this.initialThreaded = true,
+    this.initialThreaded,
     this.focusOpeningFeedback = false,
     this.loadPage,
     this.loadGoto,
@@ -180,7 +180,9 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
   late bool _sessionLoggedIn;
   late String? _sessionUid;
 
-  late bool _threaded = widget.initialThreaded;
+  late bool _threaded = widget.initialThreaded ?? true;
+  bool _preferencesApplied = false;
+  bool _preferAuthor = false;
   late int? _focusTargetPid = widget.focusPid;
   int? _highlightPid;
   bool _pauseHiddenAppend = false;
@@ -220,6 +222,29 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    final prefs = ReadingScope.maybeOf(context);
+    if (!_preferencesApplied && (prefs?.ready ?? true)) {
+      _preferencesApplied = true;
+      final mode = prefs?.prefs.commentMode;
+      if (widget.initialThreaded == null) {
+        _threaded = mode != ThreadViewMode.floors;
+        // 通知与跳楼入口必须保留目标楼层，不能被楼主筛选隐藏。
+        _preferAuthor =
+            mode == ThreadViewMode.author &&
+            widget.gotoUrl == null &&
+            widget.focusPid == null &&
+            widget.initialPage == 1;
+        if (_loadedDetail != null && !_loading) {
+          _rebuildReadIndex();
+          if (_preferAuthor) {
+            _preferAuthor = false;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) _enterAuthorMode(null);
+            });
+          }
+        }
+      }
+    }
     if (MediaQuery.disableAnimationsOf(context)) {
       _finishReplyReveal();
     }
@@ -539,6 +564,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
   /// 三种查看方式互斥。切换时评论区标题停在屏幕原处,只替换它下方的评论;
   /// 新的选择会取消尚未完成的读取
   Future<void> _setViewMode(ThreadViewMode mode) async {
+    _preferencesApplied = true;
     if (mode == _shownMode) return;
     final anchor = _headingDy();
     if (_pendingMode != null) {
@@ -546,6 +572,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
       _update(() => _pendingMode = null);
       if (mode == _viewMode) {
         _fadeComments(to: 1);
+        _rememberViewMode(mode);
         return;
       }
     }
@@ -557,6 +584,14 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
       _regroup(mode == ThreadViewMode.threaded);
       _settleAfterSwitch(anchor);
     }
+    if (mounted && _pendingMode == null && _viewMode == mode) {
+      _rememberViewMode(mode);
+    }
+  }
+
+  void _rememberViewMode(ThreadViewMode mode) {
+    final prefs = ReadingScope.maybeOf(context);
+    if (prefs != null) prefs.set(prefs.prefs.copyWith(commentMode: mode));
   }
 
   /// 评论 ⇄ 原楼层:只对已读楼层重新排列,不读网络
@@ -1042,6 +1077,11 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
         if (refresh) _beforeAuthor = null;
         _resetPages(detail);
       });
+      if (_preferAuthor) {
+        _preferAuthor = false;
+        await _enterAuthorMode(null);
+        if (!mounted) return;
+      }
       // 等首次有效加载成功后再通知列表；刷新和分页不推进本次打开的已看计数。
       if (!_markedRead && widget.seenReplies != null) {
         _markedRead = true;
@@ -1731,8 +1771,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
                                     post,
                                   ),
                                 };
-                                final wideImageRow =
-                                    entry.imageStack != null;
+                                final wideImageRow = entry.imageStack != null;
                                 final imageCard = wideImageRow
                                     ? MediaQuery(
                                         data: MediaQuery.of(

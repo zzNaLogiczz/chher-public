@@ -10,6 +10,7 @@ import 'package:chh_app/pages/thread_detail_page.dart';
 import 'package:chh_app/ui/chrome_button.dart';
 import 'package:chh_app/ui/nav_bar.dart';
 import 'package:chh_app/widgets/app_shell.dart';
+import 'package:chh_app/widgets/lac_scaffold.dart';
 import 'package:chh_app/widgets/large_title_scaffold.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -157,9 +158,9 @@ void main() {
           .state<NavigatorState>(find.byType(Navigator))
           .push(
             MaterialPageRoute<void>(
-              builder: (_) => const AppShell(
+              builder: (_) => const LargeTitleScaffold(
                 title: '消息',
-                current: AppDestination.messages,
+                showBack: false,
                 body: SizedBox(),
               ),
             ),
@@ -211,7 +212,7 @@ void main() {
 
   testWidgets('inline title appears once the large title scrolls away', (
     tester,
-  ) async {
+    ) async {
     await tester.pumpWidget(app(LargeTitleScaffold(title: '设置', body: rows())));
     expect(opacityOf(tester, NavOverlay.inlineTitleKey), 0);
 
@@ -228,6 +229,43 @@ void main() {
     expect(opacityOf(tester, NavOverlay.inlineTitleKey), 0);
     await gesture.up();
     await tester.pumpAndSettle();
+  });
+
+  testWidgets('lacquer nav crossfades title and fade band to paper on collapse', (
+    tester,
+    ) async {
+    // 回归:标题色与遮罩色必须在动画 builder 内取值,否则停在首帧(漆红/奶白)
+    BoxDecoration fadeOf() => tester.widget<DecoratedBox>(
+          find.descendant(
+            of: find.byKey(NavOverlay.edgeKey),
+            matching: find.byType(DecoratedBox),
+          ),
+        ).decoration as BoxDecoration;
+
+    await tester.pumpWidget(app(LacScaffold(title: '精选', body: rows())));
+    await tester.pumpAndSettle();
+    expect(fadeOf().gradient!.colors.first, AppTokens.light.lacTop);
+
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.text('row3')),
+    );
+    await gesture.moveBy(const Offset(0, -20));
+    await gesture.moveBy(const Offset(0, -200));
+    await tester.pumpAndSettle();
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    final color = tester
+        .widget<Text>(
+          find.descendant(
+            of: find.byKey(NavOverlay.inlineTitleKey),
+            matching: find.byType(Text),
+          ),
+        )
+        .style!
+        .color;
+    expect(color, AppTokens.light.text);
+    expect(fadeOf().gradient!.colors.first, AppTokens.light.bg);
   });
 
   testWidgets('title accessory sits on the large title row', (tester) async {
@@ -249,6 +287,24 @@ void main() {
       tester.getCenter(find.byKey(const ValueKey('accessory'))).dy,
       closeTo(tester.getCenter(find.text('精选').first).dy, 2),
     );
+  });
+
+  testWidgets('two-line large title grows the row instead of clipping', (
+    tester,
+  ) async {
+    // 回归:标题行定高曾把二级页换行长标题拦腰裁断(版块内页"装机赛")
+    const longTitle = 'iGame Mini 桌搭小钢炮装机赛延期至十一月十一日公告';
+    await tester.pumpWidget(
+      app(LargeTitleScaffold(title: longTitle, showBack: false, body: rows())),
+    );
+    await tester.pumpAndSettle();
+    final titleRect = tester.getRect(find.text(longTitle).first);
+    expect(
+      titleRect.height,
+      greaterThan(AppSpace.titleRow + 8),
+      reason: 'The wrapped title must expand the row, not clip at 44dp',
+    );
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('messages badge renders on the bottom navigation', (
@@ -276,9 +332,9 @@ void main() {
   testWidgets('shell renders no notification bell', (tester) async {
     await tester.pumpWidget(
       app(
-        const AppShell(
+        const LargeTitleScaffold(
           title: '版块',
-          current: AppDestination.forums,
+          showBack: false,
           body: SizedBox(),
         ),
       ),

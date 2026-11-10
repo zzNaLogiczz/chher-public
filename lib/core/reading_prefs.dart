@@ -13,26 +13,36 @@ enum ReadingLineHeight { compact, standard, loose }
 
 enum ReadingLayout { comfy, compact }
 
+enum CommentViewMode { threaded, floors, author }
+
 @immutable
 class ReadingPrefs {
   final ReadingFontSize fontSize;
   final ReadingLineHeight lineHeight;
   final ReadingLayout layout;
+  final bool imagesExpanded;
+  final CommentViewMode commentMode;
 
   const ReadingPrefs({
     this.fontSize = ReadingFontSize.m,
     this.lineHeight = ReadingLineHeight.standard,
     this.layout = ReadingLayout.comfy,
+    this.imagesExpanded = false,
+    this.commentMode = CommentViewMode.threaded,
   });
 
   ReadingPrefs copyWith({
     ReadingFontSize? fontSize,
     ReadingLineHeight? lineHeight,
     ReadingLayout? layout,
+    bool? imagesExpanded,
+    CommentViewMode? commentMode,
   }) => ReadingPrefs(
     fontSize: fontSize ?? this.fontSize,
     lineHeight: lineHeight ?? this.lineHeight,
     layout: layout ?? this.layout,
+    imagesExpanded: imagesExpanded ?? this.imagesExpanded,
+    commentMode: commentMode ?? this.commentMode,
   );
 
   bool get isDefault => this == const ReadingPrefs();
@@ -42,10 +52,13 @@ class ReadingPrefs {
       other is ReadingPrefs &&
       other.fontSize == fontSize &&
       other.lineHeight == lineHeight &&
-      other.layout == layout;
+      other.layout == layout &&
+      other.imagesExpanded == imagesExpanded &&
+      other.commentMode == commentMode;
 
   @override
-  int get hashCode => Object.hash(fontSize, lineHeight, layout);
+  int get hashCode =>
+      Object.hash(fontSize, lineHeight, layout, imagesExpanded, commentMode);
 }
 
 class ReadingPrefsController extends ChangeNotifier {
@@ -55,12 +68,14 @@ class ReadingPrefsController extends ChangeNotifier {
   Future<void> _writes = Future<void>.value();
   int _revision = 0;
   bool _disposed = false;
+  bool _ready = false;
 
   /// 注入偏好目录后不访问平台通道。
   ReadingPrefsController({Future<Directory?> Function()? directory})
     : _directory = directory ?? (() => AppPaths.instance.subdir('prefs'));
 
   ReadingPrefs get prefs => _prefs;
+  bool get ready => _ready;
 
   Future<void> load() => _loading ??= _read();
 
@@ -82,6 +97,10 @@ class ReadingPrefsController extends ChangeNotifier {
               decoded['lineHeight'] as String,
             ),
             layout: ReadingLayout.values.byName(decoded['layout'] as String),
+            imagesExpanded: decoded['imagesExpanded'] as bool? ?? false,
+            commentMode: CommentViewMode.values.byName(
+              decoded['commentMode'] as String? ?? 'threaded',
+            ),
           );
         }
       }
@@ -89,14 +108,18 @@ class ReadingPrefsController extends ChangeNotifier {
       // 缺失或损坏的偏好不阻断启动。
     }
     // 启动读取超时后,用户的新选择优先于迟到的磁盘数据。
-    if (_disposed || revision != _revision || stored == _prefs) return;
+    if (_disposed || revision != _revision) return;
+    final changed = !_ready || stored != _prefs;
+    _ready = true;
     _prefs = stored;
-    notifyListeners();
+    if (changed) notifyListeners();
   }
 
   Future<void> set(ReadingPrefs prefs) {
     _revision++;
-    if (_prefs != prefs) {
+    final changed = !_ready || _prefs != prefs;
+    _ready = true;
+    if (changed) {
       _prefs = prefs;
       notifyListeners();
     }
@@ -122,6 +145,8 @@ class ReadingPrefsController extends ChangeNotifier {
           'fontSize': prefs.fontSize.name,
           'lineHeight': prefs.lineHeight.name,
           'layout': prefs.layout.name,
+          'imagesExpanded': prefs.imagesExpanded,
+          'commentMode': prefs.commentMode.name,
         }),
         flush: true,
       );

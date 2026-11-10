@@ -401,8 +401,8 @@ void main() {
         brightness: brightness,
       );
       final green = brightness == Brightness.light
-          ? const Color.fromRGBO(33, 131, 88, .16)
-          : const Color.fromRGBO(61, 214, 140, .18);
+          ? AppTokens.light.greenLine
+          : AppTokens.dark.greenLine;
       final separator = brightness == Brightness.light
           ? AppTokens.light.separator
           : AppTokens.dark.separator;

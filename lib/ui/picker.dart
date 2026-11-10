@@ -190,6 +190,9 @@ class PickerButton<T> extends StatefulWidget {
   /// 当前值不在选项里时显示的文字;不给则退回第一项
   final String? placeholder;
 
+  /// 压在漆面顶栏上:文字与箭头改奶白,无底
+  final bool onLac;
+
   const PickerButton({
     super.key,
     required this.sheetTitle,
@@ -197,6 +200,7 @@ class PickerButton<T> extends StatefulWidget {
     required this.value,
     required this.onChanged,
     this.placeholder,
+    this.onLac = false,
   });
 
   @override
@@ -273,7 +277,7 @@ class _PickerButtonState<T> extends State<PickerButton<T>>
     final t = AppTokens.of(context);
     final style = AppType.subhead.copyWith(
       fontWeight: FontWeight.w600,
-      color: t.accent,
+      color: widget.onLac ? t.onLac : t.accent,
     );
     final current = _labelOf(widget.value);
     return PressScale(
@@ -323,7 +327,11 @@ class _PickerButtonState<T> extends State<PickerButton<T>>
               animation: _turn,
               builder: (_, child) =>
                   Transform.rotate(angle: math.pi * _turn.value, child: child),
-              child: Icon(AppIcons.down, size: 15, color: t.accent),
+              child: Icon(
+                AppIcons.down,
+                size: 15,
+                color: widget.onLac ? t.onLac : t.accent,
+              ),
             ),
           ],
         ),

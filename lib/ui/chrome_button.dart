@@ -27,6 +27,9 @@ class ChromeButton extends StatelessWidget {
   final bool selected;
   final int badgeCount;
 
+  /// 压在漆面顶栏上时用奶白玻璃 + 奶白图标,不投影
+  final bool onLac;
+
   const ChromeButton({
     super.key,
     required this.icon,
@@ -35,6 +38,7 @@ class ChromeButton extends StatelessWidget {
     this.onImage = false,
     this.selected = false,
     this.badgeCount = 0,
+    this.onLac = false,
   });
 
   @override
@@ -61,13 +65,21 @@ class ChromeButton extends StatelessWidget {
                 DecoratedBox(
                   key: surfaceKey,
                   decoration: BoxDecoration(
-                    color: onImage ? t.glassOnImage : t.glass,
+                    color: onImage
+                        ? t.glassOnImage
+                        : onLac
+                        ? const Color.fromRGBO(255, 248, 245, .16)
+                        : t.glass,
                     shape: BoxShape.circle,
-                    boxShadow: onImage ? null : t.shadowE1,
+                    boxShadow: onImage || onLac ? null : t.shadowE1,
                   ),
                   child: SizedBox.square(
                     dimension: _visual,
-                    child: Icon(icon, size: _iconSize, color: color),
+                    child: Icon(
+                      icon,
+                      size: _iconSize,
+                      color: onLac ? t.onLac : color,
+                    ),
                   ),
                 ),
                 Positioned(
@@ -107,7 +119,15 @@ class ChromeGroup extends StatelessWidget {
   final List<ChromeGroupItem> items;
   final bool onImage;
 
-  const ChromeGroup({super.key, required this.items, this.onImage = false});
+  /// 压在漆面顶栏上:奶白玻璃、无投影、图标奶白
+  final bool onLac;
+
+  const ChromeGroup({
+    super.key,
+    required this.items,
+    this.onImage = false,
+    this.onLac = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -125,9 +145,13 @@ class ChromeGroup extends StatelessWidget {
             child: DecoratedBox(
               key: surfaceKey,
               decoration: BoxDecoration(
-                color: onImage ? t.glassOnImage : t.glass,
+                color: onImage
+                    ? t.glassOnImage
+                    : onLac
+                    ? const Color.fromRGBO(255, 248, 245, .16)
+                    : t.glass,
                 borderRadius: radius,
-                boxShadow: onImage ? null : t.shadowE1,
+                boxShadow: onImage || onLac ? null : t.shadowE1,
               ),
             ),
           ),
@@ -152,7 +176,9 @@ class ChromeGroup extends StatelessWidget {
                         child: Icon(
                           item.icon,
                           size: _iconSize,
-                          color: onImage
+                          color: onLac
+                              ? t.onLac
+                              : onImage
                               ? Colors.white
                               : item.onPressed == null
                               ? t.text3

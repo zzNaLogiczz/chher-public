@@ -41,6 +41,7 @@ import 'package:chh_app/parser/forum_index_parser.dart';
 import 'package:chh_app/parser/search_result_parser.dart';
 import 'package:chh_app/parser/thread_parser.dart';
 import 'package:chh_app/widgets/app_shell.dart';
+import 'package:chh_app/widgets/large_title_scaffold.dart';
 import 'package:chh_app/widgets/browse_controls.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -203,9 +204,9 @@ Widget _tab(AppDestination destination, Widget body) => Builder(
     child: Column(
       children: [
         Expanded(
-          child: AppShell(
+          child: LargeTitleScaffold(
             title: destination.label,
-            current: destination,
+            showBack: false,
             body: body,
           ),
         ),

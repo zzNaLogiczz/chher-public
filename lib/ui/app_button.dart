@@ -50,13 +50,15 @@ class AppButton extends StatelessWidget {
     final enabled = onPressed != null || state != AppButtonState.idle;
     final height = small ? 34.0 : 50.0;
 
-    // 颜色:禁用一律 fill 底 + text3 字;其余按变体取令牌
+    // 颜色:禁用一律 fill 底 + text3 字;其余按变体取令牌。
+    // 主按钮不用纯色:漆面渐变 + 红调投影,是每屏唯一的实心红。
+    final primary = variant == AppButtonVariant.primary;
     final Color? base = !_filled
         ? null
         : !enabled
         ? t.fill
-        : variant == AppButtonVariant.primary
-        ? t.accent
+        : primary
+        ? null // 渐变走 decoration,不走 color
         : t.accentFill;
     final foreground = !enabled
         ? t.text3
@@ -164,16 +166,31 @@ class AppButton extends StatelessWidget {
           child: Center(widthFactor: 1, child: content),
         ),
       ),
-      builder: (_, v, child) => DecoratedBox(
-        key: surfaceKey,
-        decoration: BoxDecoration(
-          color: base == null
-              ? null
-              : Color.lerp(base, t.green, v.clamp(0.0, 1.0)),
-          borderRadius: BorderRadius.circular(height / 2),
-        ),
-        child: child,
-      ),
+      builder: (_, v, child) {
+        final progress = v.clamp(0.0, 1.0);
+        final BoxDecoration decoration;
+        if (primary && enabled) {
+          // 成功态渐变过渡到绿色:从渐变顶端色向绿插值,底色不跳变
+          decoration = BoxDecoration(
+            gradient: progress <= 0.001 ? t.btnGradient : null,
+            color: progress <= 0.001
+                ? null
+                : Color.lerp(t.btnTop, t.green, progress),
+            boxShadow: progress <= 0.001 ? t.btnShadow : null,
+            borderRadius: BorderRadius.circular(height / 2),
+          );
+        } else {
+          decoration = BoxDecoration(
+            color: base == null ? null : Color.lerp(base, t.green, progress),
+            borderRadius: BorderRadius.circular(height / 2),
+          );
+        }
+        return DecoratedBox(
+          key: surfaceKey,
+          decoration: decoration,
+          child: child,
+        );
+      },
     );
 
     return PressScale(

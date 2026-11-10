@@ -22,6 +22,7 @@ import 'core/app_paths.dart';
 import 'core/appearance.dart';
 import 'core/reading_prefs.dart';
 import 'core/log_store.dart';
+import 'core/message_notifications.dart';
 import 'network/chh_client.dart';
 import 'network/chh_session.dart';
 import 'data/image_disk_cache.dart';
@@ -33,6 +34,9 @@ final ChhClient chhClient = ChhClient.createDefault();
 final ChhSession chhSession = ChhSession(chhClient);
 final AppearanceController appearance = AppearanceController();
 final ReadingPrefsController readingPrefs = ReadingPrefsController();
+final MessageNotifications messageNotifications = MessageNotifications(
+  chhSession,
+);
 
 final ForumRepository forumRepo = ForumRepository(
   chhClient,
@@ -72,6 +76,7 @@ void setupDependencies() {
   WidgetsBinding.instance.addObserver(_lifecycleFlusher);
   // 让会话顺带观察每次页面响应,从页头取账号与未读计数,不额外发请求
   chhClient.htmlObserver = chhSession.observeHtml;
+  messageNotifications.start();
   AppLog.i('BOOT', '页头观察已接线');
   // 日志目录靠平台通道异步解析,不能 await 阻塞冷启动;就绪前的日志留在内存缓冲,接线时补写
   unawaited(_attachLogStore());

@@ -51,11 +51,14 @@ void main() {
   });
   tearDown(() => externalLauncher = previous);
 
-  testWidgets('站外链接用强调色，点击交给系统浏览器', (tester) async {
+  testWidgets('站外链接是墨字加浅朱下划线，点击交给系统浏览器', (tester) async {
     const url = 'https://www.ithome.com/0/1.htm';
     await tester.pumpWidget(_app(RichContentText(block: _block(url))));
     final span = _linkSpan(tester, url)!;
-    expect(span.style!.color, AppTokens.light.accent);
+    // v1 规则:正文不写红字,墨色 500 + 浅朱下划线
+    expect(span.style!.color, AppTokens.light.text);
+    expect(span.style!.decoration, TextDecoration.underline);
+    expect(span.style!.decorationColor, AppTokens.light.linkLine);
     (span.recognizer! as TapGestureRecognizer).onTap!();
     await tester.pump();
     expect(launched, [Uri.parse(url)]);
@@ -72,12 +75,12 @@ void main() {
     await tester.pumpAndSettle(const Duration(seconds: 5));
   });
 
-  testWidgets('深色主题下链接用深色的强调色', (tester) async {
+  testWidgets('深色主题下链接文字保持墨色并用深端下划线', (tester) async {
     const url = 'https://www.ithome.com/0/1.htm';
     await tester.pumpWidget(
       _app(RichContentText(block: _block(url)), brightness: Brightness.dark),
     );
-    expect(_linkSpan(tester, url)!.style!.color, AppTokens.dark.accent);
+    expect(_linkSpan(tester, url)!.style!.color, AppTokens.dark.text);
   });
 
   testWidgets('重建时释放旧的点击识别器，不报错', (tester) async {

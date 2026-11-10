@@ -26,6 +26,9 @@ class SearchCapsule extends StatelessWidget {
   /// 检索进行中:清除钮前显示小转圈
   final bool busy;
 
+  /// 压在漆面顶栏上:奶白玻璃底、奶白字
+  final bool onLac;
+
   const SearchCapsule({
     super.key,
     required this.controller,
@@ -36,12 +39,16 @@ class SearchCapsule extends StatelessWidget {
     this.autofocus = false,
     this.focusNode,
     this.busy = false,
+    this.onLac = false,
   });
 
   @override
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
-    final style = AppType.callout.copyWith(color: t.text);
+    final style = onLac
+        ? AppType.callout.copyWith(color: t.onLac)
+        : AppType.callout.copyWith(color: t.text);
+    final hintColor = onLac ? t.onLac3 : t.text3;
     final lineHeight =
         (MediaQuery.textScalerOf(context).scale(style.fontSize!) *
                 style.height!)
@@ -60,7 +67,9 @@ class SearchCapsule extends StatelessWidget {
             child: DecoratedBox(
               key: surfaceKey,
               decoration: BoxDecoration(
-                color: t.fill,
+                color: onLac
+                    ? const Color.fromRGBO(255, 248, 245, .16)
+                    : t.fill,
                 borderRadius: BorderRadius.circular(20),
               ),
             ),
@@ -70,7 +79,11 @@ class SearchCapsule extends StatelessWidget {
             children: [
               Padding(
                 padding: const EdgeInsets.only(left: 12, right: 8),
-                child: Icon(AppIcons.search, size: 18, color: t.text3),
+                child: Icon(
+                  AppIcons.search,
+                  size: 18,
+                  color: onLac ? t.onLac3 : t.text3,
+                ),
               ),
               Expanded(
                 child: EditorTouchGuard(
@@ -92,7 +105,7 @@ class SearchCapsule extends StatelessWidget {
                     style: style,
                     decoration: InputDecoration(
                       hintText: hint,
-                      hintStyle: style.copyWith(color: t.text3),
+                      hintStyle: style.copyWith(color: hintColor),
                       filled: false,
                       isDense: true,
                       contentPadding: EdgeInsets.symmetric(

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/foundation.dart' show listEquals, setEquals;
 import 'package:flutter/material.dart';
@@ -8,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:motor/motor.dart';
 
 import '../design/icons.dart';
+import '../design/reading.dart';
 import '../design/motion.dart';
 import '../design/tokens.dart';
 import '../design/typography.dart';
@@ -230,6 +232,7 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
   int _index = 0;
   int _viewIndex = 0;
   bool _restored = false;
+  bool _preferencesApplied = false;
   bool _expanded = false;
   double _stageW = 0;
   double? _pixelRatio;
@@ -245,6 +248,7 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
   final _riffleTimers = <Timer>{};
 
   ScrollPosition? _scrollPos;
+
   /// 外层滚动变化信号: 悬浮行子树订阅它, 逐帧重算吸附位置。
   /// 值为自增 tick 而非滚动值: 每次滚动 tick 必变, 保证必通知。
   final ValueNotifier<int> _scrollSignal = ValueNotifier<int>(0);
@@ -285,15 +289,15 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
     super.didChangeDependencies();
     if (!_restored) {
       _restored = true;
-      final saved = PageStorage.maybeOf(context)?.readState(
+      final saved = PageStorage.maybeOf(
         context,
-        identifier: _storageId,
-      );
+      )?.readState(context, identifier: _storageId);
       if (saved is Map) {
         _expanded = saved['expanded'] == true;
         final index = saved['current'];
         if (index is int) _index = index.clamp(0, widget.urls.length - 1);
       }
+      _expanded = widget.expanded ?? _expanded;
       _viewIndex = _index;
       if (_expanded && _mode == _StackMode.deck) {
         _mode = _StackMode.list;
@@ -305,6 +309,15 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _scheduleMetrics();
       });
+    }
+    final prefs = ReadingScope.maybeOf(context);
+    if (!_preferencesApplied && (prefs?.ready ?? true)) {
+      _preferencesApplied = true;
+      final expanded = widget.expanded ?? prefs?.prefs.imagesExpanded;
+      if (expanded != null && expanded != _isListLike) {
+        _forceMode(expanded ? _StackMode.list : _StackMode.deck);
+        _save();
+      }
     }
     _observeScroll();
   }
@@ -587,10 +600,10 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
     _riffleTimers.clear();
   }
 
-  void _save() => PageStorage.maybeOf(
-    context,
-  )?.writeState(context, {'current': _index, 'expanded': _isListLike},
-      identifier: _storageId);
+  void _save() => PageStorage.maybeOf(context)?.writeState(context, {
+    'current': _index,
+    'expanded': _isListLike,
+  }, identifier: _storageId);
 
   // ---------------------------------------------------------------- paging
 
@@ -768,6 +781,12 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
   // ---------------------------------------------------------------- expand
 
   void _toggle() {
+    _preferencesApplied = true;
+    if (_transitioning) return;
+    final prefs = ReadingScope.maybeOf(context);
+    if (prefs != null) {
+      prefs.set(prefs.prefs.copyWith(imagesExpanded: !_isListLike));
+    }
     _cancelRiffle();
     if (_isListLike) {
       _collapse();
@@ -825,7 +844,16 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
     for (var i = 0; i < poses.length; i++) {
       if ((i - k).abs() <= 2) continue;
       final g = _rigs[i].g;
-      poses[i] = _Geom(g.x, g.y, g.w, g.h, s: g.s, o: 0, veil: g.veil, amb: g.amb);
+      poses[i] = _Geom(
+        g.x,
+        g.y,
+        g.w,
+        g.h,
+        s: g.s,
+        o: 0,
+        veil: g.veil,
+        amb: g.amb,
+      );
     }
     _anchorK = k;
     _anchorScroll0 = _scrollPos?.pixels ?? 0;
@@ -862,7 +890,8 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
     // 画框底(+行间距)不得越过悬浮行吸底线: 吸底线含底部安全区, 与
     // _measureStickyBar 同一算法。越过时行在过渡中被钉在吸底线、压在
     // 图片上, settle 后再下坠一段。
-    final barTop = viewport - MediaQuery.paddingOf(context).bottom - _reserveBottom;
+    final barTop =
+        viewport - MediaQuery.paddingOf(context).bottom - _reserveBottom;
     final maxTop = math.max(minTop, barTop - _rowTotal - 6 - _frame.fh - 6);
     return cardTop - cardTop.clamp(minTop, maxTop);
   }
@@ -1255,6 +1284,7 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
   /// build 中调用 localToGlobal 会踩到尚未布局的页面转场 box。g0 对滚动
   /// 不变, 行位置在 build 里换算, 滚动补偿跳变不会让行随内容下坠。
   double? _galleryTop0;
+
   /// 最近一次 build 见到的滚动位置: 配对门闩, 见 _measureStickyBar。
   double _builtScroll = 0;
 
@@ -1371,27 +1401,20 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
     final content = Stack(
       fit: StackFit.expand,
       children: [
-        // 氛围色: 18px 低清解码放大铺底, 不做实时模糊(性能红线)。
+        // 氛围色: 18px 低清解码放大 + 大 sigma 模糊 + 磨砂雾面。
+        // 竖图两侧不再有可辨认的内容轮廓; 18px 源纹理极小, 模糊开销可忽略。
         if (ambOpacity > 0.004)
           IgnorePointer(
             child: Opacity(
               opacity: ambOpacity,
-              child: Image(
-                image:
-                    widget.imageProviderBuilder?.call(vm.url, 18) ??
-                    boundedNetworkImageBox(vm.url, 18, 48),
-                fit: BoxFit.cover,
-                gaplessPlayback: true,
-                filterQuality: FilterQuality.low,
-                excludeFromSemantics: true,
-                // 氛围层加载失败直接留空, 绝不让默认错误红字进入画布。
-                errorBuilder: (_, _, _) => const SizedBox.shrink(),
+              child: _FrostBackdrop(
+                url: vm.url,
+                imageProviderBuilder: widget.imageProviderBuilder,
               ),
             ),
           ),
         Positioned.fromRect(rect: imageRect, child: photo),
-        if (cropped)
-          Positioned(left: 8, bottom: 8, child: _longChip()),
+        if (cropped) Positioned(left: 8, bottom: 8, child: _longChip()),
         if (veilOpacity > 0.004)
           IgnorePointer(
             child: ColoredBox(color: t.bg.withValues(alpha: veilOpacity)),
@@ -1651,3 +1674,41 @@ class _PreviousPhotoIntent extends Intent {
 class _NextPhotoIntent extends Intent {
   const _NextPhotoIntent();
 }
+
+/// 画框留白处的磨砂底: 低清解码放大, 再做一次真模糊盖雾面。
+/// 竖图两侧只剩色感, 没有可辨认的内容轮廓。18px 源纹理极小,
+/// 大 sigma 的两遍一维高斯开销可以忽略; 层内容不随滚动变化,
+/// 外层 RepaintBoundary 会把它缓存成位图。
+class _FrostBackdrop extends StatelessWidget {
+  final String url;
+  final StackImageProviderBuilder? imageProviderBuilder;
+  const _FrostBackdrop({required this.url, required this.imageProviderBuilder});
+
+  @override
+  Widget build(BuildContext context) {
+    final mist = AppTokens.of(context).frostedMist;
+    return ClipRect(
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          ImageFiltered(
+            imageFilter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
+            child: Image(
+              image:
+                  imageProviderBuilder?.call(url, 18) ??
+                  boundedNetworkImageBox(url, 18, 48),
+              fit: BoxFit.cover,
+              gaplessPlayback: true,
+              filterQuality: FilterQuality.low,
+              excludeFromSemantics: true,
+              // 加载失败直接留空, 绝不让默认错误红字进入画布。
+              errorBuilder: (_, _, _) => const SizedBox.shrink(),
+            ),
+          ),
+          ColoredBox(color: mist),
+        ],
+      ),
+    );
+  }
+}
+

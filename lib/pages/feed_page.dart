@@ -7,23 +7,22 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show HapticFeedback;
 import '../ui/app_button.dart';
 import '../design/typography.dart';
 import '../ui/picker.dart';
 import '../ui/segmented.dart';
-import 'package:flutter/services.dart';
-
 import '../design/tokens.dart';
 import '../di.dart';
 import '../models/models.dart';
 import '../widgets/search_entry_route.dart';
 import '../widgets/editorial_cover.dart';
 import '../widgets/editorial_article_route.dart';
+import '../widgets/lac_scaffold.dart';
 import '../widgets/sliver_paged_list.dart';
 import '../ui/plain_rows.dart';
 import '../ui/press.dart';
 import '../ui/chrome_button.dart';
-import '../ui/nav_bar.dart';
 import '../design/icons.dart';
 import '../widgets/net_image.dart';
 import '../ui/cards.dart';
@@ -50,26 +49,10 @@ class _FeedPageState extends State<FeedPage> {
 
   late Future<PortalHighlights> _highlights = portalRepo.highlights();
 
-  final _scroll = ScrollController();
   final _listKey = GlobalKey<SliverPagedListState<ThreadSummary>>();
-  final _offset = ValueNotifier<double>(0);
-  final _titleKey = GlobalKey();
-  double _collapseAt = double.infinity;
 
-  @override
-  void dispose() {
-    _offset.dispose();
-    _scroll.dispose();
-    super.dispose();
-  }
-
-  // 大标题行的实际高度决定顶栏小标题出现的位置
-  void _measureTitle() {
-    final height = _titleKey.currentContext?.size?.height;
-    if (height != null && height != _collapseAt && mounted) {
-      setState(() => _collapseAt = height);
-    }
-  }
+  // 纸面列表挂在 NestedScrollView 的内层滚动上;兜底控制器只在缺失时创建一次
+  ScrollController? _fallbackScroll;
 
   String _today() {
     final now = DateTime.now();
@@ -79,109 +62,77 @@ class _FeedPageState extends State<FeedPage> {
 
   @override
   Widget build(BuildContext context) {
-    final t = AppTokens.of(context);
-    final top = MediaQuery.paddingOf(context).top;
-    WidgetsBinding.instance.addPostFrameCallback((_) => _measureTitle());
-    return Scaffold(
-      backgroundColor: t.bg,
-      body: Stack(
-        children: [
-          NotificationListener<ScrollNotification>(
-            onNotification: (n) {
-              if (n.depth == 0 && n.metrics.axis == Axis.vertical) {
-                _offset.value = n.metrics.pixels;
-              }
-              return false;
-            },
-            child: _content(top),
-          ),
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: NavOverlay(
-              inlineTitle: '精选',
-              scrollOffset: _offset,
-              collapseAt: _collapseAt,
-              background: t.bg,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _content(double top) => RefreshIndicator(
-    onRefresh: () async {
-      setState(() => _highlights = portalRepo.highlights(refresh: true));
-      await _listKey.currentState?.refresh();
-    },
-    child: CustomScrollView(
-      controller: _scroll,
-      slivers: [
-        SliverToBoxAdapter(child: SizedBox(height: top + NavOverlay.barHeight)),
-        // 日期眉题 + 大标题 + 同一行的搜索圆钮;铃铛已去掉,未读挂在底栏
-        SliverToBoxAdapter(
-          child: KeyedSubtree(
-            key: _titleKey,
-            child: LargeTitleHeader(
-              eyebrow: _today(),
-              title: '精选',
-              accessory: Hero(
-                tag: 'search-entry-feed',
-                child: ChromeButton(
-                  tooltip: '搜索',
-                  icon: AppIcons.search,
-                  onPressed: () => Navigator.of(context).push(
-                    SearchEntryRoute(
-                      builder: (_) => const SearchPage(
-                        entryHeroTag: 'search-entry-feed',
-                        autofocus: true,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-        SliverToBoxAdapter(child: _highlightsSection()),
-        SliverToBoxAdapter(child: _discussionHeader()),
-        SliverPagedList<ThreadSummary>(
-          key: _listKey,
-          controller: _scroll,
-          itemKey: (thread) => thread.tid,
-          loader: (page, {bool refresh = false}) async {
-            final r = await forumRepo.guide(
-              view: _view,
-              page: page,
-              refresh: refresh,
-            );
-            return Paged(items: r.threads, page: r.page);
-          },
-          // 行级监听:一次 markRead 只重建对应一行
-          itemBuilder: (context, item) => ReadStateBuilder(
-            tid: item.tid,
-            replies: item.replies,
-            builder: (context, state) => ThreadRow(
-              thread: item,
-              readState: state,
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => ThreadDetailPage(
-                    tid: item.tid,
-                    seenReplies: item.replies,
-                    title: item.title,
-                    fid: item.forumFid,
-                  ),
+    // 一级页漆面骨架:日期眉题与标题住进漆面,内容在纸面上
+    return LacScaffold(
+      title: '精选',
+      eyebrow: _today(),
+      actions: [
+        Hero(
+          tag: 'search-entry-feed',
+          child: ChromeButton(
+            tooltip: '搜索',
+            icon: AppIcons.search,
+            onLac: true,
+            onPressed: () => Navigator.of(context).push(
+              SearchEntryRoute(
+                builder: (_) => const SearchPage(
+                  entryHeroTag: 'search-entry-feed',
+                  autofocus: true,
                 ),
               ),
             ),
           ),
         ),
       ],
-    ),
-  );
+      body: RefreshIndicator(
+        onRefresh: () async {
+          setState(() => _highlights = portalRepo.highlights(refresh: true));
+          await _listKey.currentState?.refresh();
+        },
+        child: CustomScrollView(
+          primary: true,
+          slivers: [
+            SliverToBoxAdapter(child: _highlightsSection()),
+            SliverToBoxAdapter(child: _discussionHeader()),
+            SliverPagedList<ThreadSummary>(
+              key: _listKey,
+              controller:
+                  PrimaryScrollController.maybeOf(context) ??
+                  (_fallbackScroll ??= ScrollController()),
+              itemKey: (thread) => thread.tid,
+              loader: (page, {bool refresh = false}) async {
+                final r = await forumRepo.guide(
+                  view: _view,
+                  page: page,
+                  refresh: refresh,
+                );
+                return Paged(items: r.threads, page: r.page);
+              },
+              // 行级监听:一次 markRead 只重建对应一行
+              itemBuilder: (context, item) => ReadStateBuilder(
+                tid: item.tid,
+                replies: item.replies,
+                builder: (context, state) => ThreadRow(
+                  thread: item,
+                  readState: state,
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => ThreadDetailPage(
+                        tid: item.tid,
+                        seenReplies: item.replies,
+                        title: item.title,
+                        fid: item.forumFid,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   Widget _highlightsSection() {
     return FutureBuilder<PortalHighlights>(

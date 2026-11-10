@@ -1,4 +1,4 @@
-/// Application shell for the four primary destinations.
+/// 底栏:四个一级目的地的常驻导航(朱漆红 v2 选中态:朱 100 底)
 library;
 
 import 'package:motor/motor.dart';
@@ -9,7 +9,6 @@ import '../design/typography.dart';
 import 'package:flutter/material.dart';
 
 import '../design/tokens.dart';
-import 'large_title_scaffold.dart';
 import '../ui/chrome_button.dart';
 import 'expressive_controls.dart';
 
@@ -23,52 +22,6 @@ enum AppDestination {
   const AppDestination(this.label, this.icon);
   final String label;
   final IconData icon;
-}
-
-class AppShell extends StatelessWidget {
-  final String title;
-  final AppDestination current;
-  final Widget body;
-
-  /// 顶栏右侧动作。消息入口由外壳统一提供,这里只放页面自己的动作。
-  final List<Widget> actions;
-
-  /// 顶栏下方常驻区域,例如分段控件或筛选条
-  final Widget? subHeader;
-
-  const AppShell({
-    super.key,
-    required this.title,
-    required this.current,
-    required this.body,
-    this.actions = const [],
-    this.subHeader,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return LargeTitleScaffold(
-      title: title,
-      showBack: false,
-      reserveNavigationBar: current == AppDestination.forums,
-      surface: current == AppDestination.forums || current == AppDestination.me
-          ? AppSurface.grouped
-          : AppSurface.content,
-      actions: actions,
-      header: subHeader == null
-          ? null
-          : Padding(
-              padding: const EdgeInsets.fromLTRB(
-                AppSpace.screen,
-                0,
-                AppSpace.screen,
-                10,
-              ),
-              child: subHeader,
-            ),
-      body: body,
-    );
-  }
 }
 
 /// Primary destinations stay one tap away.

@@ -62,7 +62,8 @@ class ChhSession extends ChangeNotifier {
   bool _warnedNoUser = false;
   bool _loggedFirstObservation = false;
 
-  void observeHtml(String html) {
+  /// 是否识别到页头；计数未变化也返回 true，阻止更旧的请求覆盖。
+  bool observeHtml(String html) {
     final next = parseHeaderBadges(html);
 
     // 第一次观察无论结果如何都记一笔,用来判断这条链路到底有没有跑起来
@@ -70,7 +71,7 @@ class ChhSession extends ChangeNotifier {
       _loggedFirstObservation = true;
       AppLog.i('BADGE', '首次观察 ${next == null ? '页面无登录态页头' : next.toString()}');
     }
-    if (next == null) return;
+    if (next == null) return false;
 
     // 页头在但认不出账号:把页头摘要记一次,便于对照真实模板
     if (next.userName == null && !_warnedNoUser) {
@@ -79,11 +80,12 @@ class ChhSession extends ChangeNotifier {
     }
     if (next.userName != null) _warnedNoUser = false;
 
-    if (next == badges) return;
+    if (next == badges) return true;
     AppLog.i('BADGE', '页头变化 $badges → $next');
     if (badges.uid != next.uid) _identityRevision++;
     badges = next;
     notifyListeners();
+    return true;
   }
 
   /// 从 WebView Cookie 仓同步登录态,并把登录 Cookie 注入直连层

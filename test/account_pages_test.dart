@@ -6,6 +6,7 @@ import 'package:chh_app/pages/me_page.dart';
 import 'package:chh_app/pages/settings_page.dart';
 import 'package:chh_app/parser/header_parser.dart';
 import 'package:chh_app/ui/grouped.dart';
+import 'package:chh_app/widgets/account_widgets.dart';
 import 'package:chh_app/widgets/browse_controls.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -25,7 +26,7 @@ void main() {
           '/settings': (_) => const Scaffold(body: Text('SETTINGS SCREEN')),
           '/logs': (_) => const Scaffold(body: Text('LOG SCREEN')),
         },
-        home: const Scaffold(body: MeBody()),
+        home: const Scaffold(body: MeBody(withIdentity: true)),
       ),
     );
     expect(find.text('登录 CHH'), findsOneWidget);
@@ -56,12 +57,12 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: buildAppTheme(Brightness.light),
-        home: const Scaffold(body: MeBody()),
+        home: const Scaffold(body: MeBody(withIdentity: true)),
       ),
     );
     expect(find.text('测试账号'), findsOneWidget);
     expect(find.text('UID 100001'), findsOneWidget);
-    expect(find.byType(EntryTile), findsNWidgets(4));
+    expect(find.byType(EntryCell), findsNWidgets(4));
     for (final label in ['我的帖子', '我的收藏', '积分记录', '勋章', '设置']) {
       expect(find.text(label), findsOneWidget, reason: label);
     }

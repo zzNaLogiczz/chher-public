@@ -13,6 +13,7 @@ import 'package:chh_app/ui/reading_settings_sheet.dart';
 import 'package:chh_app/ui/segmented.dart';
 import 'package:chh_app/widgets/article_discussion_widgets.dart';
 import 'package:chh_app/widgets/rich_content_text.dart';
+import 'package:chh_app/widgets/thread_comment_widgets.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -60,6 +61,8 @@ void main() {
         'fontSize': 'xl',
         'lineHeight': 'loose',
         'layout': 'compact',
+        'imagesExpanded': false,
+        'commentMode': 'threaded',
       });
       expect(File('${file().path}.tmp').existsSync(), isFalse);
       final restored = ReadingPrefsController(directory: () async => directory);
@@ -73,6 +76,8 @@ void main() {
         'fontSize': 'm',
         'lineHeight': 'standard',
         'layout': 'comfy',
+        'imagesExpanded': false,
+        'commentMode': 'threaded',
       });
     });
 
@@ -138,6 +143,29 @@ void main() {
         expect(delayed.prefs.fontSize, ReadingFontSize.xl);
       },
     );
+
+    test('display choices restore and old files retain defaults', () async {
+      await controller.set(
+        const ReadingPrefs(
+          imagesExpanded: true,
+          commentMode: CommentViewMode.author,
+        ),
+      );
+      final restored = ReadingPrefsController(directory: () async => directory);
+      addTearDown(restored.dispose);
+      await restored.load();
+      expect(restored.prefs.imagesExpanded, isTrue);
+      expect(restored.prefs.commentMode, CommentViewMode.author);
+      await file().writeAsString(
+        '{"version":1,"fontSize":"xl","lineHeight":"loose","layout":"compact"}',
+      );
+      final legacy = ReadingPrefsController(directory: () async => directory);
+      addTearDown(legacy.dispose);
+      await legacy.load();
+      expect(legacy.prefs.fontSize, ReadingFontSize.xl);
+      expect(legacy.prefs.imagesExpanded, isFalse);
+      expect(legacy.prefs.commentMode, CommentViewMode.threaded);
+    });
 
     test('unavailable storage preserves in-memory selection', () async {
       final unavailable = ReadingPrefsController(directory: () async => null);
@@ -296,6 +324,137 @@ void main() {
         expect(tester.widget<AppButton>(reset).onPressed, isNull);
       },
     );
+
+    testWidgets('a selection becomes the default for another thread', (
+      tester,
+    ) async {
+      Widget thread(int id, {int? focusPid}) => ThreadDetailPage(
+        key: ValueKey(id),
+        tid: id,
+        title: '示例',
+        focusPid: focusPid,
+        loadPage: (_, author, _) async => ThreadDetail(
+          tid: id,
+          title: '示例',
+          posts: [
+            const Post(
+              pid: 1,
+              floor: 1,
+              author: '楼主',
+              authorUid: 'owner',
+              timeRaw: '',
+              content: [TextBlock('正文')],
+            ),
+            if (author == null)
+              const Post(
+                pid: 2,
+                floor: 2,
+                author: '读者',
+                authorUid: 'reader',
+                timeRaw: '',
+                content: [TextBlock('评论')],
+              ),
+          ],
+          page: const PageInfo(current: 1, hasNext: false),
+        ),
+      );
+      ThreadCommentHeading heading() => tester.widget<ThreadCommentHeading>(
+        find.byType(ThreadCommentHeading),
+      );
+      await tester.pumpWidget(app(thread(101)));
+      await tester.pumpAndSettle();
+      heading().onModeChanged(ThreadViewMode.floors);
+      await tester.pumpAndSettle();
+      expect(controller.prefs.commentMode, CommentViewMode.floors);
+      await tester.pumpWidget(app(thread(102)));
+      await tester.pumpAndSettle();
+      expect(heading().mode, ThreadViewMode.floors);
+      heading().onModeChanged(ThreadViewMode.author);
+      await tester.pumpAndSettle();
+      expect(controller.prefs.commentMode, CommentViewMode.author);
+      await tester.pumpWidget(app(thread(103)));
+      await tester.pumpAndSettle();
+      expect(heading().mode, ThreadViewMode.author);
+      await tester.pumpWidget(app(thread(104, focusPid: 2)));
+      await tester.pumpAndSettle();
+      expect(heading().mode, ThreadViewMode.threaded);
+      expect(controller.prefs.commentMode, CommentViewMode.author);
+      expect(tester.takeException(), isNull);
+    });
+
+    for (final userChoosesFirst in [false, true]) {
+      testWidgets('late defaults respect prior choice: $userChoosesFirst', (
+        tester,
+      ) async {
+        final directory = Directory.systemTemp.createTempSync('late-reading-');
+        addTearDown(() => directory.deleteSync(recursive: true));
+        File('${directory.path}/reading-v1.json').writeAsStringSync(
+          '{"version":1,"fontSize":"m","lineHeight":"standard","layout":"comfy","commentMode":"author"}',
+        );
+        final pending = Completer<Directory?>();
+        controller.dispose();
+        var directoryCalls = 0;
+        controller = ReadingPrefsController(
+          directory: () =>
+              directoryCalls++ == 0 ? pending.future : Future.value(null),
+        );
+        late Future<void> loading;
+        await tester.runAsync(() async {
+          loading = controller.load();
+        });
+        await tester.pumpWidget(
+          app(
+            ThreadDetailPage(
+              tid: 101,
+              title: '延迟偏好',
+              loadPage: (_, author, _) async => ThreadDetail(
+                tid: 101,
+                title: '延迟偏好',
+                posts: [
+                  const Post(
+                    pid: 1,
+                    floor: 1,
+                    author: '楼主',
+                    authorUid: 'owner',
+                    timeRaw: '',
+                    content: [TextBlock('正文')],
+                  ),
+                  if (author == null)
+                    const Post(
+                      pid: 2,
+                      floor: 2,
+                      author: '读者',
+                      authorUid: 'reader',
+                      timeRaw: '',
+                      content: [TextBlock('评论')],
+                    ),
+                ],
+                page: const PageInfo(current: 1, hasNext: false),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        ThreadCommentHeading heading() => tester.widget<ThreadCommentHeading>(
+          find.byType(ThreadCommentHeading),
+        );
+        expect(heading().mode, ThreadViewMode.threaded);
+        if (userChoosesFirst) {
+          heading().onModeChanged(ThreadViewMode.floors);
+          await tester.pumpAndSettle();
+        }
+        await tester.runAsync(() async {
+          pending.complete(directory);
+          await loading;
+        });
+        await tester.pumpAndSettle();
+        expect(
+          heading().mode,
+          userChoosesFirst ? ThreadViewMode.floors : ThreadViewMode.author,
+        );
+        expect(tester.takeException(), isNull);
+      });
+    }
 
     testWidgets('thread toolbar opens reading settings', (tester) async {
       await tester.pumpWidget(

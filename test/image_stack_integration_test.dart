@@ -1,4 +1,8 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:chh_app/design/theme.dart';
+import 'package:chh_app/core/reading_prefs.dart';
 import 'package:chh_app/design/icons.dart';
 import 'package:chh_app/design/reading.dart';
 import 'package:chh_app/ui/nav_bar.dart';
@@ -125,7 +129,18 @@ Future<void> primePhotos(WidgetTester tester, Map<String, Size> sizes) async {
     // Main photos decode at twice the layout width for the 390dp viewport:
     // frame 358 -> 716, expanded column 374 -> 748.
     for (final width in [
-      128, 192, 256, 320, 384, 448, 512, 640, 716, 748, 768, 1024,
+      128,
+      192,
+      256,
+      320,
+      384,
+      448,
+      512,
+      640,
+      716,
+      748,
+      768,
+      1024,
     ]) {
       final key = await boundedNetworkImageBox(
         entry.key,
@@ -167,6 +182,98 @@ Future<void> actualPanel(WidgetTester tester, {bool extreme = false}) async {
 }
 
 void main() {
+  testWidgets('a mounted gallery adopts late restored expansion', (
+    tester,
+  ) async {
+    final directory = Directory.systemTemp.createTempSync('late-images-');
+    addTearDown(() => directory.deleteSync(recursive: true));
+    File('${directory.path}/reading-v1.json').writeAsStringSync(
+      '{"version":1,"fontSize":"m","lineHeight":"standard","layout":"comfy","imagesExpanded":true}',
+    );
+    final pending = Completer<Directory?>();
+    final controller = ReadingPrefsController(directory: () => pending.future);
+    addTearDown(controller.dispose);
+    late Future<void> loading;
+    await tester.runAsync(() async {
+      loading = controller.load();
+    });
+    await primePhotos(tester, {
+      photo(850): const Size(240, 160),
+      photo(851): const Size(240, 160),
+    });
+    await mount(
+      tester,
+      ReadingScope(
+        controller: controller,
+        child: SingleChildScrollView(
+          child: ImageStackGallery(
+            urls: [photo(850), photo(851)],
+            gallery: [photo(850), photo(851)],
+            galleryStartIndex: 0,
+          ),
+        ),
+      ),
+    );
+    expect(
+      tester
+          .widget<ImageStackModeToggle>(find.byType(ImageStackModeToggle))
+          .expanded,
+      isFalse,
+    );
+    await tester.runAsync(() async {
+      pending.complete(directory);
+      await loading;
+    });
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<ImageStackModeToggle>(find.byType(ImageStackModeToggle))
+          .expanded,
+      isTrue,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('image choice applies to a new gallery across threads', (
+    tester,
+  ) async {
+    final controller = ReadingPrefsController(directory: () async => null);
+    addTearDown(controller.dispose);
+    Widget gallery(int id) => ReadingScope(
+      controller: controller,
+      child: SingleChildScrollView(
+        child: ImageStackGallery(
+          key: ValueKey(id),
+          urls: [photo(id), photo(id + 1)],
+          gallery: [photo(id), photo(id + 1)],
+          galleryStartIndex: 0,
+        ),
+      ),
+    );
+    await primePhotos(tester, {
+      for (var i = 800; i < 804; i++) photo(i): const Size(240, 160),
+    });
+    await mount(tester, gallery(800));
+    expect(
+      tester
+          .widget<ImageStackModeToggle>(find.byType(ImageStackModeToggle))
+          .expanded,
+      isFalse,
+    );
+    await toggleGroup(tester, find.byType(ImageStackGallery));
+    expect(controller.prefs.imagesExpanded, isTrue);
+    await mount(tester, gallery(802));
+    expect(
+      tester
+          .widget<ImageStackModeToggle>(find.byType(ImageStackModeToggle))
+          .expanded,
+      isTrue,
+    );
+    await toggleGroup(tester, find.byType(ImageStackGallery));
+    expect(controller.prefs.imagesExpanded, isFalse);
+    expect(tester.takeException(), isNull);
+  });
+
   tearDown(() {
     PaintingBinding.instance.imageCache.clear();
     PaintingBinding.instance.imageCache.clearLiveImages();
@@ -275,17 +382,13 @@ void main() {
         final expandedCards = find.descendant(
           of: second,
           matching: find.byWidgetPredicate(
-            (w) => w is Semantics &&
+            (w) =>
+                w is Semantics &&
                 (w.properties.label?.startsWith('查看连续图片') ?? false),
           ),
         );
         expect(expandedCards, findsNWidgets(2));
-        await openAndCheck(
-          tester,
-          semantic('查看连续图片第 2 张，共 2 张'),
-          urls,
-          4,
-        );
+        await openAndCheck(tester, semantic('查看连续图片第 2 张，共 2 张'), urls, 4);
         await toggleGroup(tester, second);
         expect(expandedCards, findsNothing);
         expect(
@@ -449,7 +552,8 @@ void main() {
         final expandedCards = find.descendant(
           of: galleries,
           matching: find.byWidgetPredicate(
-            (w) => w is Semantics &&
+            (w) =>
+                w is Semantics &&
                 (w.properties.label?.startsWith('查看连续图片') ?? false),
           ),
         );

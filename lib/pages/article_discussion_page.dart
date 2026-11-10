@@ -129,6 +129,7 @@ class _ArticleDiscussionPageState extends State<ArticleDiscussionPage>
 
   /// 查看方式与帖子一致:评论(按引用归组)/ 原楼层 / 只看作者
   CommentViewMode _mode = CommentViewMode.threaded;
+  bool _preferencesApplied = false;
   ArticleCommentIndex _index = ArticleCommentIndex.empty;
   List<_CommentEntry> _entries = const [];
 
@@ -181,6 +182,18 @@ class _ArticleDiscussionPageState extends State<ArticleDiscussionPage>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    final prefs = ReadingScope.maybeOf(context);
+    if (!_preferencesApplied && (prefs?.ready ?? true)) {
+      _preferencesApplied = true;
+      final mode = prefs?.prefs.commentMode;
+      _mode =
+          mode == CommentViewMode.author &&
+              _discussion != null &&
+              !_discussion!.knowsAuthor
+          ? CommentViewMode.threaded
+          : mode ?? _mode;
+      _rebuildEntries();
+    }
     final media = MediaQuery.of(context);
     _fullExtent = (media.size.height - media.viewPadding.top - 8).clamp(
       1.0,
@@ -241,7 +254,10 @@ class _ArticleDiscussionPageState extends State<ArticleDiscussionPage>
 
   /// 切换查看方式:控件固定在头部,新内容从列表顶部开始并淡入
   void _setMode(CommentViewMode mode) {
+    _preferencesApplied = true;
     if (mode == _mode) return;
+    final prefs = ReadingScope.maybeOf(context);
+    if (prefs != null) prefs.set(prefs.prefs.copyWith(commentMode: mode));
     setState(() {
       _mode = mode;
       _visibleReplies.clear();
@@ -303,6 +319,9 @@ class _ArticleDiscussionPageState extends State<ArticleDiscussionPage>
         final additions = data.items.where((c) => seen.add(c.cid)).toList();
         _items.addAll(additions);
         _discussion = data;
+        if (_mode == CommentViewMode.author && !data.knowsAuthor) {
+          _mode = CommentViewMode.threaded;
+        }
         _rebuildEntries();
         // Some source pages silently return page 1 when the end is exceeded.
         _hasNext =
