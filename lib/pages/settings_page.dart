@@ -96,6 +96,31 @@ class _SettingsBodyState extends State<SettingsBody> {
                     onChanged: controller.set,
                   ),
                 ),
+                // 界面风格:薄雾白(1.0.7 纸面)与朱砂红(漆面),与明暗正交
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(32, 20, 32, 7),
+                  child: Text(
+                    '界面风格',
+                    style: AppType.footnote.copyWith(
+                      color: AppTokens.of(context).text3,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpace.screen,
+                  ),
+                  child: AppSegmented<AppearanceStyle>(
+                    fallbackTitle: '界面风格',
+                    options: [
+                      for (final style in AppearanceStyle.values)
+                        PickerOption(value: style, label: style.label),
+                    ],
+                    value: controller.style,
+                    onChanged: controller.setStyle,
+                  ),
+                ),
               ],
             ),
           );

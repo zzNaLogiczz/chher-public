@@ -1,7 +1,8 @@
-/// 品牌启动屏:漆面渐变 + 白线 chh 标 + 字标(朱漆红 v2 启动页,94.7% 红)
+/// 品牌启动屏:会话恢复期间的过渡画面。
 ///
-/// 会话恢复期间的过渡画面;原生 windowBackground 已是同系渐变,
-/// 这里补上品牌元素,首帧(精选页漆面)与启动底色同源不跳变。
+/// 朱砂红=漆面渐变 + 白线 chh 标(1.0.8 启动页);薄雾白=纸面底 +
+/// 墨色标,与该风格的首帧(纸面一级页)同源不跳变。原生 windowBackground
+/// 固定漆面渐变,薄雾白只在 Dart 首帧之后接管。
 library;
 
 import 'package:flutter/material.dart';
@@ -16,6 +17,49 @@ class LaunchSplash extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
+    final misty = t.style == AppearanceStyle.misty;
+    if (misty) {
+      return AnnotatedRegion<SystemUiOverlayStyle>(
+        value: t.isDark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark,
+        child: ColoredBox(
+          color: t.bg,
+          child: Column(
+            children: [
+              const Spacer(),
+              Text(
+                'chh',
+                style: TextStyle(
+                  fontSize: LacquerMarks.launchMark,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -3,
+                  height: 1,
+                  color: t.text,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'chher',
+                style: TextStyle(
+                  fontSize: LacquerMarks.launchWord,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: .3,
+                  color: t.text,
+                ),
+              ),
+              const Spacer(),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 58),
+                child: Text(
+                  '非官方 CHH 客户端',
+                  textAlign: TextAlign.center,
+                  style: AppType.footnote.copyWith(color: t.text3),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light,
       child: DecoratedBox(

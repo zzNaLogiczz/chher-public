@@ -116,6 +116,8 @@ class _MessagesBodyState extends State<MessagesBody> {
   @override
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
+    // 朱砂红的分段住漆面(奶白轨道);薄雾白分段在纸面,用默认色
+    final onLac = t.style == AppearanceStyle.cinnabar;
     final segmented = AnimatedBuilder(
       animation: chhSession,
       builder: (context, _) {
@@ -135,7 +137,7 @@ class _MessagesBodyState extends State<MessagesBody> {
           ),
           child: AppSegmented<int>(
             // 漆面 mast 上:轨道奶白玻璃、未选中淡朱,纸面深灰字在红底不可读
-            onLac: true,
+            onLac: onLac,
             fallbackTitle: '消息',
             options: [
               PickerOption(value: 0, label: label(0)),
@@ -218,7 +220,20 @@ class _MessagesBodyState extends State<MessagesBody> {
       ],
     );
     if (widget.tab) {
-      // 一级页:分段住进漆面,随页面一起上收(用户定稿:不置顶)。
+      if (!onLac) {
+        // 薄雾白:分段在纸面 header 上,随内容一起滚走(1.0.7 行为);
+        // 列表同样经 PrimaryScrollController 继承内层控制器,见 stack() 说明
+        return LargeTitleScaffold(
+          title: '消息',
+          showBack: false,
+          header: segmented,
+          body: Builder(
+            builder: (context) =>
+                stack(PrimaryScrollController.maybeOf(context)),
+          ),
+        );
+      }
+      // 朱砂红:分段住进漆面,随页面一起上收(用户定稿:不置顶)。
       // 当前分段的列表经 PrimaryScrollController 继承 NestedScrollView
       // 内层控制器参与漆面收起,见 stack() 里的说明
       return LacScaffold(

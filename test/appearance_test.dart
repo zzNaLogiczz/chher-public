@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:chh_app/core/app_log.dart';
 import 'package:chh_app/core/appearance.dart';
+import 'package:chh_app/design/tokens.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -29,6 +30,47 @@ void main() {
     expect(controller.mode.themeMode, ThemeMode.system);
   });
 
+  test('缺失 style 字段缺省朱砂红(1.0.8 升级用户不突变)', () async {
+    await controller.load();
+    expect(controller.style, AppearanceStyle.cinnabar);
+  });
+
+  test('界面风格切换先通知后落盘,新实例恢复', () async {
+    final notifications = <AppearanceStyle>[];
+    controller.addListener(() => notifications.add(controller.style));
+    await controller.setStyle(AppearanceStyle.misty);
+    expect(controller.style, AppearanceStyle.misty);
+    expect(notifications, [AppearanceStyle.misty]);
+    expect(jsonDecode(await preference().readAsString()), {
+      'version': 1,
+      'mode': 'system',
+      'style': 'misty',
+    });
+    final restored = AppearanceController(directory: () async => directory);
+    addTearDown(restored.dispose);
+    await restored.load();
+    expect(restored.style, AppearanceStyle.misty);
+  });
+
+  test('mode 与 style 独立持久化,互不覆盖', () async {
+    await controller.set(AppearanceMode.dark);
+    await controller.setStyle(AppearanceStyle.misty);
+    final restored = AppearanceController(directory: () async => directory);
+    addTearDown(restored.dispose);
+    await restored.load();
+    expect(restored.mode, AppearanceMode.dark);
+    expect(restored.style, AppearanceStyle.misty);
+  });
+
+  test('未知的 style 值降级朱砂红', () async {
+    await preference().writeAsString(
+      '{"version":1,"mode":"dark","style":"neon"}',
+    );
+    await controller.load();
+    expect(controller.mode, AppearanceMode.dark);
+    expect(controller.style, AppearanceStyle.cinnabar);
+  });
+
   test('先通知界面,原子写入后新实例恢复深色', () async {
     final notifications = <AppearanceMode>[];
     controller.addListener(() => notifications.add(controller.mode));
@@ -40,6 +82,7 @@ void main() {
     expect(jsonDecode(await preference().readAsString()), {
       'version': 1,
       'mode': 'dark',
+      'style': 'cinnabar',
     });
     expect(await File('${preference().path}.tmp').exists(), isFalse);
     final restored = AppearanceController(directory: () async => directory);

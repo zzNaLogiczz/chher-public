@@ -28,8 +28,8 @@ class ChhApp extends StatelessWidget {
         builder: (context, _) => MaterialApp(
           title: 'Chher',
           debugShowCheckedModeBanner: false,
-          theme: buildAppTheme(Brightness.light),
-          darkTheme: buildAppTheme(Brightness.dark),
+          theme: buildAppTheme(Brightness.light, appearance.style),
+          darkTheme: buildAppTheme(Brightness.dark, appearance.style),
           themeMode: appearance.mode.themeMode,
           home: const HomePage(),
           routes: {

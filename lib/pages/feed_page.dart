@@ -19,6 +19,7 @@ import '../widgets/search_entry_route.dart';
 import '../widgets/editorial_cover.dart';
 import '../widgets/editorial_article_route.dart';
 import '../widgets/lac_scaffold.dart';
+import '../widgets/large_title_scaffold.dart';
 import '../widgets/sliver_paged_list.dart';
 import '../ui/plain_rows.dart';
 import '../ui/press.dart';
@@ -62,75 +63,88 @@ class _FeedPageState extends State<FeedPage> {
 
   @override
   Widget build(BuildContext context) {
-    // 一级页漆面骨架:日期眉题与标题住进漆面,内容在纸面上
-    return LacScaffold(
-      title: '精选',
-      eyebrow: _today(),
-      actions: [
-        Hero(
-          tag: 'search-entry-feed',
-          child: ChromeButton(
-            tooltip: '搜索',
-            icon: AppIcons.search,
-            onLac: true,
-            onPressed: () => Navigator.of(context).push(
-              SearchEntryRoute(
-                builder: (_) => const SearchPage(
-                  entryHeroTag: 'search-entry-feed',
-                  autofocus: true,
-                ),
-              ),
+    // 风格分支:朱砂红走漆面骨架,薄雾白走 1.0.7 的纸面大标题骨架
+    final misty = AppTokens.of(context).style == AppearanceStyle.misty;
+    final searchButton = Hero(
+      tag: 'search-entry-feed',
+      child: ChromeButton(
+        tooltip: '搜索',
+        icon: AppIcons.search,
+        // 漆面上是奶白玻璃圆钮,薄雾白纸面用默认描边
+        onLac: !misty,
+        onPressed: () => Navigator.of(context).push(
+          SearchEntryRoute(
+            builder: (_) => const SearchPage(
+              entryHeroTag: 'search-entry-feed',
+              autofocus: true,
             ),
           ),
         ),
-      ],
-      body: RefreshIndicator(
-        onRefresh: () async {
-          setState(() => _highlights = portalRepo.highlights(refresh: true));
-          await _listKey.currentState?.refresh();
-        },
-        child: CustomScrollView(
-          primary: true,
-          slivers: [
-            SliverToBoxAdapter(child: _highlightsSection()),
-            SliverToBoxAdapter(child: _discussionHeader()),
-            SliverPagedList<ThreadSummary>(
-              key: _listKey,
-              controller:
-                  PrimaryScrollController.maybeOf(context) ??
-                  (_fallbackScroll ??= ScrollController()),
-              itemKey: (thread) => thread.tid,
-              loader: (page, {bool refresh = false}) async {
-                final r = await forumRepo.guide(
-                  view: _view,
-                  page: page,
-                  refresh: refresh,
-                );
-                return Paged(items: r.threads, page: r.page);
-              },
-              // 行级监听:一次 markRead 只重建对应一行
-              itemBuilder: (context, item) => ReadStateBuilder(
-                tid: item.tid,
-                replies: item.replies,
-                builder: (context, state) => ThreadRow(
-                  thread: item,
-                  readState: state,
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => ThreadDetailPage(
-                        tid: item.tid,
-                        seenReplies: item.replies,
-                        title: item.title,
-                        fid: item.forumFid,
-                      ),
+      ),
+    );
+    final content = RefreshIndicator(
+      onRefresh: () async {
+        setState(() => _highlights = portalRepo.highlights(refresh: true));
+        await _listKey.currentState?.refresh();
+      },
+      child: CustomScrollView(
+        primary: true,
+        slivers: [
+          SliverToBoxAdapter(child: _highlightsSection()),
+          SliverToBoxAdapter(child: _discussionHeader()),
+          SliverPagedList<ThreadSummary>(
+            key: _listKey,
+            controller:
+                PrimaryScrollController.maybeOf(context) ??
+                (_fallbackScroll ??= ScrollController()),
+            itemKey: (thread) => thread.tid,
+            loader: (page, {bool refresh = false}) async {
+              final r = await forumRepo.guide(
+                view: _view,
+                page: page,
+                refresh: refresh,
+              );
+              return Paged(items: r.threads, page: r.page);
+            },
+            // 行级监听:一次 markRead 只重建对应一行
+            itemBuilder: (context, item) => ReadStateBuilder(
+              tid: item.tid,
+              replies: item.replies,
+              builder: (context, state) => ThreadRow(
+                thread: item,
+                readState: state,
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => ThreadDetailPage(
+                      tid: item.tid,
+                      seenReplies: item.replies,
+                      title: item.title,
+                      fid: item.forumFid,
                     ),
                   ),
                 ),
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
+    );
+    if (misty) {
+      // 薄雾白:搜索圆钮与大标题同行(1.0.7 版式),内容直接在纸面
+      return LargeTitleScaffold(
+        title: '精选',
+        eyebrow: _today(),
+        showBack: false,
+        titleAccessory: searchButton,
+        body: content,
+      );
+    }
+    // 一级页漆面骨架:日期眉题与标题住进漆面,内容在纸面上
+    return LacScaffold(
+      title: '精选',
+      eyebrow: _today(),
+      actions: [searchButton],
+      body: content,
     );
   }
 

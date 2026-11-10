@@ -14,8 +14,21 @@ import 'tokens.dart';
 import 'typography.dart';
 import '../widgets/expressive_controls.dart';
 
-ThemeData buildAppTheme(Brightness brightness) {
-  final t = brightness == Brightness.dark ? AppTokens.dark : AppTokens.light;
+/// 风格 × 明暗 → 令牌组。壳与组件经 AppTokens.of 读到的 style 即由此注入。
+AppTokens tokensFor(Brightness brightness, AppearanceStyle style) =>
+    switch ((style, brightness)) {
+      (AppearanceStyle.misty, Brightness.light) => AppTokens.mistyLight,
+      (AppearanceStyle.misty, Brightness.dark) => AppTokens.mistyDark,
+      (_, Brightness.light) => AppTokens.cinnabarLight,
+      (_, Brightness.dark) => AppTokens.cinnabarDark,
+    };
+
+/// [style] 缺省朱砂红:旧调用点(测试与审阅工具)不指定风格时保持 1.0.8 观感。
+ThemeData buildAppTheme(
+  Brightness brightness, [
+  AppearanceStyle style = AppearanceStyle.cinnabar,
+]) {
+  final t = tokensFor(brightness, style);
 
   // 中文走系统字:iOS 为 PingFang SC,Android 为思源 / Noto Sans CJK SC。
   // 不打包任何 CJK 字体(单字重十几 MB)。
@@ -80,12 +93,12 @@ ThemeData buildAppTheme(Brightness brightness) {
       color: t.accent,
       linearMinHeight: 2,
     ),
-    // 编辑器选区朱 200、光标朱 700(回复框里红色只在这两处)
+    // 编辑器选区:朱砂红用朱 200/光标朱 700,薄雾白用 accent 的透明罩
     textSelectionTheme: TextSelectionThemeData(
       cursorColor: t.accent,
-      selectionColor: t.isDark
-          ? const Color(0x5A5A2A27)
-          : const Color(0xFFFFD4CC),
+      selectionColor: t.style == AppearanceStyle.misty
+          ? (t.isDark ? const Color(0x6670B8FF) : const Color(0x660D74CE))
+          : (t.isDark ? const Color(0x5A5A2A27) : const Color(0xFFFFD4CC)),
       selectionHandleColor: t.accent,
     ),
     snackBarTheme: _snackBarTheme(t),

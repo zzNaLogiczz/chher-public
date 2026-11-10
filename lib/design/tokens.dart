@@ -7,6 +7,22 @@ library;
 
 import 'package:flutter/material.dart';
 
+/// 界面风格:与明暗正交的第四象限。
+///
+/// - cinnabar(朱砂红):1.0.8 起的漆面设计,一级页用 LacScaffold。
+/// - misty(薄雾白):1.0.7 的纸面设计,一级页用 LargeTitleScaffold。
+///
+/// 两风格共用同一套组件与令牌结构;薄雾白组里漆面相关令牌给纸面
+/// 退化值(壳不消费它们),色阶常量是 1.0.7 原值(部分 Radix 步级
+/// 在 v2 改过值,不能直接引用现常量)。
+enum AppearanceStyle {
+  misty('薄雾白'),
+  cinnabar('朱砂红');
+
+  final String label;
+  const AppearanceStyle(this.label);
+}
+
 /// Radix 原始色阶(只收本项目用到的步级,避免无用常量)
 abstract final class Radix {
   static const whiteA12 = Color(0xFFFFFFFF);
@@ -58,6 +74,10 @@ abstract final class Radix {
 /// design-prototypes/red-theme-2026-11-10/style.css 的 lacquer 方案。
 @immutable
 class AppTokens extends ThemeExtension<AppTokens> {
+  /// 所属界面风格;壳(LacScaffold/LargeTitleScaffold)按它分支,
+  /// 组件不需要单独感知风格。
+  final AppearanceStyle style;
+
   // ---- 颜色:语义角色 ----
   final Color bg;
   final Color grouped;
@@ -128,6 +148,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
   final Color tintMo;
 
   const AppTokens({
+    required this.style,
     required this.bg,
     required this.grouped,
     required this.surface,
@@ -177,7 +198,9 @@ class AppTokens extends ThemeExtension<AppTokens> {
     required this.tintMo,
   });
 
-  static const AppTokens light = AppTokens(
+  /// 朱砂红 · 浅色(1.0.8 定稿值)
+  static const AppTokens cinnabarLight = AppTokens(
+    style: AppearanceStyle.cinnabar,
     // 暖纸基底(v2 从冷灰换成暖调,色相与漆面同带)
     bg: Color(0xFFFFFDFC),
     grouped: Color(0xFFF6F3F1),
@@ -231,7 +254,9 @@ class AppTokens extends ThemeExtension<AppTokens> {
     tintMo: Color(0xFF615956),
   );
 
-  static const AppTokens dark = AppTokens(
+  /// 朱砂红 · 深色(1.0.8 定稿值)
+  static const AppTokens cinnabarDark = AppTokens(
+    style: AppearanceStyle.cinnabar,
     bg: Color(0xFF0D0B0A),
     grouped: Color(0xFF0D0B0A),
     surface: Color(0xFF1B1817),
@@ -284,6 +309,122 @@ class AppTokens extends ThemeExtension<AppTokens> {
     tintMo: Color(0xFF59504E),
   );
 
+  /// 兼容别名(历史引用点与测试):不带 style 上下文时默认朱砂红
+  static const AppTokens light = cinnabarLight;
+  static const AppTokens dark = cinnabarDark;
+
+  /// 薄雾白 · 浅色(1.0.7 基线 e112669 的原值)。
+  ///
+  /// 前半段是 1.0.7 的纸面色板;漆面相关令牌(lac*/onLac*/chip* 等)
+  /// 给纸面退化值——薄雾白一级页不进 LacScaffold,这些值只在组件
+  /// 意外走到漆面分支时兜底,保持中性不穿帮。
+  /// 注:green3/amber3/amber11 的 Radix 步级在 v2 改过值,这里直接写
+  /// 1.0.7 原值字面量。
+  static const AppTokens mistyLight = AppTokens(
+    style: AppearanceStyle.misty,
+    bg: Color(0xFFFFFFFF),
+    grouped: Color(0xFFF2F2F7),
+    surface: Color(0xFFFFFFFF),
+    fill: Color.fromRGBO(118, 118, 128, .12),
+    fill2: Color.fromRGBO(118, 118, 128, .22),
+    fill3: Color.fromRGBO(118, 118, 128, .06),
+    greenSoft: Color.fromRGBO(43, 154, 102, .09),
+    greenFill: Color(0xFFE6F6EB), // 1.0.7 Radix.green3Light
+    greenLine: Color.fromRGBO(33, 131, 88, .16),
+    separator: Color.fromRGBO(60, 60, 67, .16),
+    pressed: Color(0xFFE5E5EA),
+    text: Color(0xFF1C2024),
+    text2: Color(0xFF6B6E76),
+    text3: Color(0xFFA0A3AB),
+    accent: Color(0xFF0D74CE),
+    accentFill: Color.fromRGBO(13, 116, 206, .12),
+    accentFill2: Color.fromRGBO(13, 116, 206, .12),
+    accentLine: Color(0xFFD9D9E0),
+    onAccent: Color(0xFFFFFFFF),
+    glass: Color.fromRGBO(255, 255, 255, .92),
+    glassOnImage: Color.fromRGBO(30, 30, 32, .50),
+    frostedMist: Color.fromRGBO(255, 255, 255, .38),
+    red: Color(0xFFE5484D),
+    green: Color(0xFF2B9A66),
+    warn: Color(0xFFAB6400), // 1.0.7 Radix.amber11Light
+    warnBg: Color(0xFFFFF7C2), // 1.0.7 Radix.amber3Light
+    warnBorder: Color(0xFFF3D673),
+    scrim: Color(0x6B1C2024),
+    // 漆面组退化:渐变退成纸面纯色,漆面文字退成纸面文字
+    lacTop: Color(0xFFFFFFFF),
+    lacMid: Color(0xFFFFFFFF),
+    lacBot: Color(0xFFFFFFFF),
+    onLac: Color(0xFF1C2024),
+    onLac2: Color(0xFF6B6E76),
+    onLac3: Color(0xFFA0A3AB),
+    chipBg: Color.fromRGBO(118, 118, 128, .12),
+    chipText: Color(0xFF6B6E76),
+    unreadBg: Color(0xFFFFFFFF),
+    scoreBg: Color.fromRGBO(13, 116, 206, .12),
+    btnTop: Color(0xFF0D74CE),
+    btnBot: Color(0xFF0D74CE),
+    linkLine: Color(0x590D74CE),
+    // 入口图标色:1.0.7 的 IconTints 色板(国色线形组是 v2 引入)
+    tintZhu: Color(0xFF0090FF),
+    tintDai: Color(0xFF8E4EC6),
+    tintTan: Color(0xFFF76B15),
+    tintZhe: Color(0xFF12A594),
+    tintCi: Color(0xFF30A46C),
+    tintMo: Color(0xFF8B8D98),
+  );
+
+  /// 薄雾白 · 深色(1.0.7 基线的深色组 + 同规则退化值)
+  static const AppTokens mistyDark = AppTokens(
+    style: AppearanceStyle.misty,
+    bg: Color(0xFF0B0B0C),
+    grouped: Color(0xFF0B0B0C),
+    surface: Color(0xFF1C1C1E),
+    fill: Color.fromRGBO(118, 118, 128, .24),
+    fill2: Color.fromRGBO(118, 118, 128, .36),
+    fill3: Color.fromRGBO(118, 118, 128, .12),
+    greenSoft: Color.fromRGBO(61, 214, 140, .09),
+    greenFill: Color(0xFF132D21), // 1.0.7 Radix.green3Dark
+    greenLine: Color.fromRGBO(61, 214, 140, .18),
+    separator: Color.fromRGBO(84, 84, 88, .60),
+    pressed: Color(0xFF2C2C2F),
+    text: Color(0xFFEDEEF0),
+    text2: Color(0xFFA1A4AB),
+    text3: Color(0xFF6E7179),
+    accent: Color(0xFF70B8FF),
+    accentFill: Color.fromRGBO(112, 184, 255, .16),
+    accentFill2: Color.fromRGBO(112, 184, 255, .16),
+    accentLine: Color(0xFF363A3F),
+    onAccent: Color(0xFF0B0B0C),
+    glass: Color.fromRGBO(44, 44, 48, .92),
+    glassOnImage: Color.fromRGBO(30, 30, 32, .50),
+    frostedMist: Color.fromRGBO(16, 16, 18, .30),
+    red: Color(0xFFFF6369),
+    green: Color(0xFF3DD68C),
+    warn: Color(0xFFFFCA16), // 1.0.7 Radix.amber11Dark
+    warnBg: Color(0xFF302008), // 1.0.7 Radix.amber3Dark
+    warnBorder: Color(0xFF5C3D05),
+    scrim: Color(0x941C2024),
+    lacTop: Color(0xFF0B0B0C),
+    lacMid: Color(0xFF0B0B0C),
+    lacBot: Color(0xFF0B0B0C),
+    onLac: Color(0xFFEDEEF0),
+    onLac2: Color(0xFFA1A4AB),
+    onLac3: Color(0xFF6E7179),
+    chipBg: Color.fromRGBO(118, 118, 128, .24),
+    chipText: Color(0xFFA1A4AB),
+    unreadBg: Color(0xFF0B0B0C),
+    scoreBg: Color.fromRGBO(112, 184, 255, .16),
+    btnTop: Color(0xFF70B8FF),
+    btnBot: Color(0xFF70B8FF),
+    linkLine: Color(0x5970B8FF),
+    tintZhu: Color(0xFF0090FF),
+    tintDai: Color(0xFF8E4EC6),
+    tintTan: Color(0xFFF76B15),
+    tintZhe: Color(0xFF12A594),
+    tintCi: Color(0xFF30A46C),
+    tintMo: Color(0xFF8B8D98),
+  );
+
   static AppTokens of(BuildContext context) =>
       Theme.of(context).extension<AppTokens>() ?? light;
 
@@ -296,7 +437,11 @@ class AppTokens extends ThemeExtension<AppTokens> {
   bool get isDark => bg.computeLuminance() < 0.3;
 
   /// Thread section bands are slightly lighter than the dark page background.
-  Color get threadSectionBand => isDark ? const Color(0xFF1A1514) : grouped;
+  Color get threadSectionBand => isDark
+      ? (style == AppearanceStyle.misty
+            ? const Color(0xFF151517)
+            : const Color(0xFF1A1514))
+      : grouped;
 
   /// 一级页漆面渐变(顶栏、启动页)。168° 在竖屏下近似竖向。
   LinearGradient get lacGradient => LinearGradient(
@@ -323,8 +468,17 @@ class AppTokens extends ThemeExtension<AppTokens> {
     ),
   ];
 
-  /// 漆面实心按钮投影(红调;Flutter 无内阴影,高光由渐变自身表现)
-  List<BoxShadow> get btnShadow => isDark
+  /// 漆面实心按钮投影(红调;Flutter 无内阴影,高光由渐变自身表现)。
+  /// 薄雾白主按钮是纯色 accent,配中性轻影,不带红光晕。
+  List<BoxShadow> get btnShadow => style == AppearanceStyle.misty
+      ? const [
+          BoxShadow(
+            color: Color(0x1A000000),
+            offset: Offset(0, 2),
+            blurRadius: 8,
+          ),
+        ]
+      : isDark
       ? const [
           BoxShadow(
             color: Color(0x80000000),
@@ -357,22 +511,62 @@ class AppTokens extends ThemeExtension<AppTokens> {
   // 0.5px 描边用 spreadRadius .5 / blurRadius 0 的阴影实现,
   // 这样描边和投影在同一个 boxShadow 里,圆角形状无需额外 border。
 
-  /// e1:浮动圆钮、胶囊、分段滑块、阅读工具栏
-  List<BoxShadow> get shadowE1 => [
-    BoxShadow(
-      color: isDark ? const Color(0x17FFF0EB) : const Color(0x143C1E19),
-      spreadRadius: .5,
-      blurRadius: 0,
-    ),
-    BoxShadow(
-      color: isDark ? const Color(0x80000000) : const Color(0x143C1E19),
-      offset: const Offset(0, 2),
-      blurRadius: 8,
-    ),
-  ];
+  /// e1:浮动圆钮、胶囊、分段滑块、阅读工具栏。
+  /// 朱砂红用暖调影,薄雾白用 1.0.7 的中性影。
+  List<BoxShadow> get shadowE1 => style == AppearanceStyle.misty
+      ? [
+          BoxShadow(
+            color: isDark ? const Color(0x1AFFFFFF) : const Color(0x14000000),
+            spreadRadius: .5,
+            blurRadius: 0,
+          ),
+          BoxShadow(
+            color: isDark ? const Color(0x80000000) : const Color(0x14000000),
+            offset: const Offset(0, 2),
+            blurRadius: 8,
+          ),
+        ]
+      : [
+          BoxShadow(
+            color: isDark ? const Color(0x17FFF0EB) : const Color(0x143C1E19),
+            spreadRadius: .5,
+            blurRadius: 0,
+          ),
+          BoxShadow(
+            color: isDark ? const Color(0x80000000) : const Color(0x143C1E19),
+            offset: const Offset(0, 2),
+            blurRadius: 8,
+          ),
+        ];
 
   /// e2:精选大卡、横滑卡
-  List<BoxShadow> get shadowE2 => isDark
+  List<BoxShadow> get shadowE2 => style == AppearanceStyle.misty
+      ? (isDark
+            ? const [
+                BoxShadow(
+                  color: Color(0x14FFFFFF),
+                  spreadRadius: .5,
+                  blurRadius: 0,
+                ),
+                BoxShadow(
+                  color: Color(0x99000000),
+                  offset: Offset(0, 10),
+                  blurRadius: 28,
+                ),
+              ]
+            : const [
+                BoxShadow(
+                  color: Color(0x0F000000),
+                  offset: Offset(0, 1),
+                  blurRadius: 3,
+                ),
+                BoxShadow(
+                  color: Color(0x1A000000),
+                  offset: Offset(0, 10),
+                  blurRadius: 28,
+                ),
+              ])
+      : isDark
       ? const [
           BoxShadow(color: Color(0x12FFF0EB), spreadRadius: .5, blurRadius: 0),
           BoxShadow(
@@ -445,6 +639,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
     Color? tintMo,
   }) {
     return AppTokens(
+      style: style,
       bg: bg ?? this.bg,
       grouped: grouped ?? this.grouped,
       surface: surface ?? this.surface,

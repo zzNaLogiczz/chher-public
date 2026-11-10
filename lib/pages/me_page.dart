@@ -20,17 +20,28 @@ import 'my_threads_page.dart';
 import 'credit_log_page.dart';
 import 'user_page.dart';
 
-/// 一级页入口(底栏"我的"):漆面骨架。
+/// 一级页入口(底栏"我的"):按风格选骨架。
 class MePage extends StatelessWidget {
   const MePage({super.key});
   @override
-  Widget build(BuildContext context) => LacScaffold(
-    title: '我的',
-    mast: const _MemberCard(),
-    // 整头固定(用户定稿):身份卡与大标题不许上收,正文在纸面内独立滚动
-    pinned: true,
-    body: const MeBody(),
-  );
+  Widget build(BuildContext context) {
+    // 薄雾白:纸面骨架,身份卡在纸面分组里(与推送路由版本一致)
+    if (AppTokens.of(context).style == AppearanceStyle.misty) {
+      return LargeTitleScaffold(
+        title: '我的',
+        showBack: false,
+        surface: AppSurface.grouped,
+        body: const MeBody(withIdentity: true),
+      );
+    }
+    return LacScaffold(
+      title: '我的',
+      mast: const _MemberCard(),
+      // 整头固定(用户定稿):身份卡与大标题不许上收,正文在纸面内独立滚动
+      pinned: true,
+      body: const MeBody(),
+    );
+  }
 }
 
 /// 推送路由用的纸面版本(二级页不上漆)
