@@ -76,7 +76,13 @@ class MessageCheckService : JobService() {
             request.useCaches = false
             request.setRequestProperty("Cookie", cookie)
             request.setRequestProperty("Cache-Control", "no-cache")
-            request.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android) AppleWebKit/537.36 Chrome/131.0.0.0 Mobile Safari/537.36")
+            // Match DirectFetcher's desktop headers; mobile hints trigger the site's WAF.
+            request.setRequestProperty("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36")
+            request.setRequestProperty("Accept", "text/html,application/xhtml+xml,*/*;q=0.8")
+            request.setRequestProperty("Accept-Language", "zh-CN,zh;q=0.9")
+            request.setRequestProperty("sec-ch-ua", "\"Chromium\";v=\"155\", \"Not=A?Brand\";v=\"24\"")
+            request.setRequestProperty("sec-ch-ua-mobile", "?0")
+            request.setRequestProperty("sec-ch-ua-platform", "\"macOS\"")
             if (request.responseCode != 200) return null
             val bytes = request.inputStream.use { input ->
                 val output = java.io.ByteArrayOutputStream()

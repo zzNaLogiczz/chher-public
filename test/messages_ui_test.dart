@@ -310,6 +310,119 @@ void main() {
   });
 
   testWidgets(
+    'confirmed bubble appears before refresh and survives stale data',
+    (tester) async {
+      final repository = _RefreshingMessages();
+      await showPm(tester, repository);
+      repository.pending = Completer<PostResult>();
+      repository.refresh = Completer<List<PmMessage>>();
+      await _sendText(tester, '谢谢分享');
+      expect(find.byType(ChatBubble), findsNothing);
+      repository.pending!.complete(
+        const PostResult(PostResultKind.success, '发送成功'),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('谢谢分享'), findsOneWidget);
+      expect(tester.widget<ChatBubble>(find.byType(ChatBubble)).mine, isTrue);
+      expect(repository.reads, 2);
+      expect(
+        tester
+            .widget<TextField>(find.byKey(const ValueKey('pm-input')))
+            .enabled,
+        isTrue,
+      );
+      repository.refresh!.complete(
+        [],
+      ); // Source has not reflected the send yet.
+      await tester.pumpAndSettle();
+      expect(find.text('谢谢分享'), findsOneWidget);
+      repository.refresh = null;
+      repository.server = [_sent('new-1', '谢谢分享')];
+      await tester.tap(find.byTooltip('刷新会话'));
+      await tester.pumpAndSettle();
+      expect(find.text('谢谢分享'), findsOneWidget);
+      expect(repository.sends, 1);
+    },
+  );
+
+  testWidgets('a read arriving before the send response cannot duplicate it', (
+    tester,
+  ) async {
+    final repository = _RefreshingMessages();
+    await showPm(tester, repository);
+    repository.refresh = Completer<List<PmMessage>>();
+    await tester.tap(find.byTooltip('刷新会话'));
+    await tester.pump();
+    repository.pending = Completer<PostResult>();
+    await _sendText(tester, '先到达的记录');
+    repository.refresh!.complete([_sent('new-1', '先到达的记录')]);
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(find.text('先到达的记录'), findsNWidgets(2)); // Bubble and draft.
+    repository.refresh = null;
+    repository.server = [_sent('new-1', '先到达的记录')];
+    repository.pending!.complete(
+      const PostResult(PostResultKind.success, '发送成功'),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('先到达的记录'), findsOneWidget);
+    expect(repository.sends, 1);
+    await tester.tap(find.byTooltip('刷新会话'));
+    await tester.pumpAndSettle();
+    expect(find.text('先到达的记录'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('old identical text and repeated sends reconcile one for one', (
+    tester,
+  ) async {
+    final repository = _RefreshingMessages()..server = [_sent('old', '收到')];
+    await showPm(tester, repository);
+    repository.refresh = Completer<List<PmMessage>>();
+    await _sendText(tester, '收到');
+    await _sendText(tester, '收到'); // Allowed while the read is still pending.
+    expect(repository.sends, 2);
+    expect(find.text('收到'), findsNWidgets(3));
+    repository.refresh!.complete(repository.server);
+    await tester.pumpAndSettle();
+    expect(find.text('收到'), findsNWidgets(3));
+    repository.refresh = null;
+    repository.server = [_sent('old', '收到'), _sent('new-1', '收到')];
+    for (var i = 0; i < 2; i++) {
+      await tester.tap(find.byTooltip('刷新会话'));
+      await tester.pumpAndSettle();
+      expect(find.text('收到'), findsNWidgets(3));
+    }
+    repository.server = [...repository.server, _sent('new-2', '收到')];
+    await tester.tap(find.byTooltip('刷新会话'));
+    await tester.pumpAndSettle();
+    expect(find.text('收到'), findsNWidgets(3));
+    expect(repository.sends, 2);
+  });
+
+  testWidgets(
+    'refresh failure cannot hide a confirmed send or restore its draft',
+    (tester) async {
+      final repository = _RefreshingMessages();
+      await showPm(tester, repository);
+      repository.refresh = Completer<List<PmMessage>>();
+      await _sendText(tester, '确认收到');
+      repository.refresh!.completeError(StateError('offline fixture'));
+      await tester.pumpAndSettle();
+      expect(find.text('确认收到'), findsOneWidget);
+      expect(find.text('刷新未完成，轻点重试'), findsOneWidget);
+      expect(
+        tester
+            .widget<TextField>(find.byKey(const ValueKey('pm-input')))
+            .controller!
+            .text,
+        isEmpty,
+      );
+      expect(repository.sends, 1);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
     'composer stays above keyboard and public messages have no send affordance',
     (tester) async {
       phone(tester);
@@ -529,5 +642,37 @@ class _CountingMessages extends FakeMessages {
   }) {
     pmReads++;
     return super.conversations(filter: filter, page: page, refresh: refresh);
+  }
+}
+
+PmMessage _sent(String id, String text) => PmMessage(
+  pmid: id,
+  author: '您',
+  fromSelf: true,
+  timeRaw: '2026-11-11 16:00',
+  text: text,
+);
+
+Future<void> _sendText(WidgetTester tester, String text) async {
+  await tester.enterText(find.byKey(const ValueKey('pm-input')), text);
+  await tester.pumpAndSettle();
+  await tester.tap(find.byKey(const ValueKey('pm-send')));
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 100));
+}
+
+class _RefreshingMessages extends FakeMessages {
+  List<PmMessage> server = [];
+  Completer<List<PmMessage>>? refresh;
+  _RefreshingMessages() {
+    response = const PostResult(PostResultKind.success, '发送成功');
+  }
+  @override
+  Future<List<PmMessage>> conversation(
+    String viewUrl, {
+    bool refresh = true,
+  }) async {
+    reads++;
+    return this.refresh == null ? server : this.refresh!.future;
   }
 }

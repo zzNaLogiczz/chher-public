@@ -83,6 +83,39 @@ void main() {
     },
   );
 
+  testWidgets(
+    'foreground checks do not wait for permission and repeat every 15s',
+    (tester) async {
+      notifications.dispose();
+      notifications = MessageNotifications(session);
+      final permission = Completer<bool>();
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        calls.add(call);
+        if (call.method == 'requestPermission') return permission.future;
+        return null;
+      });
+      notifications.start();
+      await tester.pump();
+      expect(fetcher.calls, greaterThan(0));
+      final before = fetcher.calls;
+      fetcher.html = header(4, 2);
+      await tester.pump(const Duration(seconds: 14));
+      expect(fetcher.calls, before);
+      await tester.pump(const Duration(seconds: 1));
+      expect(fetcher.calls, before + 1);
+      expect(session.badges.total, 6);
+      notifications.didChangeAppLifecycleState(AppLifecycleState.paused);
+      await tester.pump(const Duration(seconds: 30));
+      expect(fetcher.calls, before + 1);
+      notifications.didChangeAppLifecycleState(AppLifecycleState.resumed);
+      await tester.pump();
+      expect(fetcher.calls, before + 2);
+      permission.complete(false);
+      await tester.pump();
+      notifications.didChangeAppLifecycleState(AppLifecycleState.paused);
+    },
+  );
+
   test(
     'pause stops checks; resume checks immediately; logout cancels native work',
     () async {

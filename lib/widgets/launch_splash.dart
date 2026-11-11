@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../design/tokens.dart';
+import '../design/system_ui.dart';
 import '../design/typography.dart';
 
 class LaunchSplash extends StatelessWidget {
@@ -20,7 +21,7 @@ class LaunchSplash extends StatelessWidget {
     final misty = t.style == AppearanceStyle.misty;
     if (misty) {
       return AnnotatedRegion<SystemUiOverlayStyle>(
-        value: t.isDark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark,
+        value: t.isDark ? AppSystemUi.lightIcons : AppSystemUi.darkIcons,
         child: ColoredBox(
           color: t.bg,
           child: Column(
@@ -61,7 +62,7 @@ class LaunchSplash extends StatelessWidget {
       );
     }
     return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: SystemUiOverlayStyle.light,
+      value: AppSystemUi.lightIcons,
       child: DecoratedBox(
         decoration: BoxDecoration(gradient: t.lacGradient),
         child: Stack(

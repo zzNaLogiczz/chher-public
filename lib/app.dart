@@ -4,8 +4,10 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'design/theme.dart';
+import 'design/system_ui.dart';
 import 'design/reading.dart';
 import 'di.dart';
 import 'pages/favorites_page.dart';
@@ -31,6 +33,10 @@ class ChhApp extends StatelessWidget {
           theme: buildAppTheme(Brightness.light, appearance.style),
           darkTheme: buildAppTheme(Brightness.dark, appearance.style),
           themeMode: appearance.mode.themeMode,
+          builder: (context, child) => AnnotatedRegion<SystemUiOverlayStyle>(
+            value: AppSystemUi.forBrightness(Theme.of(context).brightness),
+            child: child!,
+          ),
           home: const HomePage(),
           routes: {
             '/login': (_) => const LoginPage(),

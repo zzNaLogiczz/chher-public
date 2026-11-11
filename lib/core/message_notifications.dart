@@ -12,7 +12,7 @@ import 'chh_urls.dart';
 class MessageNotifications with WidgetsBindingObserver {
   MessageNotifications(
     this.session, {
-    this.interval = const Duration(minutes: 1),
+    this.interval = const Duration(seconds: 15),
   });
 
   final ChhSession session;
@@ -93,13 +93,15 @@ class MessageNotifications with WidgetsBindingObserver {
   }
 
   Future<void> _activate(int generation) async {
-    await (_permissionRequest ??= _invoke<bool>('requestPermission'));
-    if (!_started || generation != _generation || !session.loggedIn) return;
     await _invoke<void>('setSession', {'active': true});
     if (!_started || generation != _generation || !session.loggedIn) return;
     _publish();
     _schedule();
     if (_foreground) unawaited(check());
+    // The permission dialog must not block in-app unread counts.
+    await (_permissionRequest ??= _invoke<bool>('requestPermission'));
+    if (!_started || generation != _generation || !session.loggedIn) return;
+    _publish();
   }
 
   void _schedule() {

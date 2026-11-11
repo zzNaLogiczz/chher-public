@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:chh_app/design/theme.dart';
+import 'package:chh_app/design/tokens.dart';
 import 'package:chh_app/pages/home_page.dart';
 import 'package:chh_app/widgets/app_shell.dart';
 import 'package:chh_app/widgets/large_title_scaffold.dart';
@@ -105,35 +106,70 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('tab content moves into place without fading the whole page', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: buildAppTheme(Brightness.light),
-        home: HomePage(
-          initialiseSession: () async {},
-          screenBuilders: {
-            AppDestination.feed: (_) => const Scaffold(body: Text('首页内容')),
-            AppDestination.forums: (_) => const Scaffold(body: Text('版块内容')),
+  for (final style in AppearanceStyle.values) {
+    for (final brightness in Brightness.values) {
+      for (final reduced in [false, true]) {
+        testWidgets(
+          'tab frames stay fixed for $style $brightness reduced=$reduced',
+          (tester) async {
+            await tester.pumpWidget(
+              MaterialApp(
+                theme: buildAppTheme(brightness, style),
+                builder: (context, child) => MediaQuery(
+                  data: MediaQuery.of(context).copyWith(
+                    disableAnimations: reduced,
+                    padding: const EdgeInsets.only(top: 32, bottom: 24),
+                  ),
+                  child: child!,
+                ),
+                home: HomePage(
+                  initialiseSession: () async {},
+                  screenBuilders: {
+                    for (final d in AppDestination.values)
+                      d: (_) => Scaffold(
+                        key: ValueKey(d),
+                        body: Text('${d.label}内容'),
+                      ),
+                  },
+                ),
+              ),
+            );
+            await tester.pumpAndSettle();
+            final bounds = tester.getRect(
+              find.byKey(const ValueKey(AppDestination.feed)),
+            );
+            // Rapid switching, including reselecting a tab before the bottom
+            // indicator settles, must never move the destination's chrome.
+            for (final d in [
+              ...AppDestination.values.skip(1),
+              AppDestination.feed,
+              AppDestination.forums,
+              AppDestination.feed,
+            ]) {
+              await tester.tap(
+                find.descendant(
+                  of: find.byType(AppBottomNavigation),
+                  matching: find.text(d.label),
+                ),
+              );
+              await tester.pump();
+              for (final elapsed in [0, 16, 40]) {
+                await tester.pump(Duration(milliseconds: elapsed));
+                final page = find.byKey(ValueKey(d));
+                expect(tester.getRect(page), bounds);
+                expect(
+                  find.ancestor(of: page, matching: find.byType(Opacity)),
+                  findsNothing,
+                );
+              }
+            }
+            await tester.pumpAndSettle();
+            expect(tester.takeException(), isNull);
           },
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('版块'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 40));
-    final content = find.text('版块内容');
-    final during = tester.getTopLeft(content).dy;
-    expect(
-      find.ancestor(of: content, matching: find.byType(Opacity)),
-      findsNothing,
-    );
-    await tester.pumpAndSettle();
-    expect(during, greaterThan(tester.getTopLeft(content).dy));
-    expect(tester.takeException(), isNull);
-  });
+        );
+      }
+    }
+  }
 
   testWidgets(
     'home navigation uses theme typography outside the inner scaffold',

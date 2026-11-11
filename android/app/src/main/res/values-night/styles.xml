@@ -2,9 +2,13 @@
 <resources>
     <!-- 深色模式下的启动窗与 Flutter 深色漆面衔接 -->
     <style name="LaunchTheme" parent="@android:style/Theme.Black.NoTitleBar">
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:enforceStatusBarContrast">false</item>
         <item name="android:windowBackground">@drawable/launch_background_dark</item>
     </style>
     <style name="NormalTheme" parent="@android:style/Theme.Black.NoTitleBar">
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:enforceStatusBarContrast">false</item>
         <item name="android:windowBackground">?android:colorBackground</item>
     </style>
 </resources>

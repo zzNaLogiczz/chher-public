@@ -9,6 +9,7 @@ import '../design/typography.dart';
 import '../ui/chrome_button.dart';
 
 import '../design/tokens.dart';
+import '../design/system_ui.dart';
 import 'article_image.dart';
 import 'cached_net_image.dart';
 import 'net_image.dart';
@@ -201,6 +202,7 @@ class _ImageViewerPageState extends State<ImageViewerPage>
     return Scaffold(
       backgroundColor: ImageColors.viewerBackground,
       appBar: AppBar(
+        systemOverlayStyle: AppSystemUi.lightIcons,
         backgroundColor: ImageColors.viewerBackground,
         foregroundColor: foreground,
         centerTitle: true,

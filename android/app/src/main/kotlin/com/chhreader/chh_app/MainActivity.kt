@@ -2,6 +2,7 @@ package com.chhreader.chh_app
 
 import android.content.Intent
 import android.content.res.Configuration
+import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
 import android.view.Display
@@ -105,6 +106,13 @@ class MainActivity : FlutterActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // FlutterActivity 在旧 Android 上默认写入 0x40000000 状态栏遮罩。
+        // 页面已布局到状态栏下方，只移除遮罩，保留现有 inset/键盘处理。
+        @Suppress("DEPRECATION")
+        if (Build.VERSION.SDK_INT < 35) window.statusBarColor = Color.TRANSPARENT
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            window.isStatusBarContrastEnforced = false
+        }
         originalModeId = window.attributes.preferredDisplayModeId
         originalRefreshRate = window.attributes.preferredRefreshRate
         window.decorView.post { bindFlutterSurface(window.decorView) }

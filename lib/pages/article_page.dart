@@ -12,6 +12,7 @@ import '../controllers/article_reader_controller.dart';
 import 'article_discussion_page.dart';
 import '../data/editorial_cover_cache.dart';
 import '../design/tokens.dart';
+import '../design/system_ui.dart';
 import '../design/reading.dart';
 import '../ui/reading_settings_sheet.dart';
 import '../design/typography.dart';
@@ -187,8 +188,8 @@ class _ArticlePageState extends State<ArticlePage> {
     final error = _reader.error;
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: _overCover && _hasCover
-          ? SystemUiOverlayStyle.light
-          : (t.isDark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark),
+          ? AppSystemUi.lightIcons
+          : (t.isDark ? AppSystemUi.lightIcons : AppSystemUi.darkIcons),
       child: Scaffold(
         backgroundColor: t.bg,
         body: Stack(

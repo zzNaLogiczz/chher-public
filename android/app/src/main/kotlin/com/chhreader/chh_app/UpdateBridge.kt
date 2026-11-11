@@ -200,7 +200,9 @@ internal class UpdateBridge(
     @Suppress("DEPRECATION")
     private fun archiveInfo(path: String): PackageInfo? {
         val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            PackageManager.GET_SIGNING_CERTIFICATES
+            // Android 9/10 的 archive parser 只有收到 GET_SIGNATURES 才收集证书。
+            // 同时请求两者，仍优先读取 signingInfo 中的当前签名证书。
+            PackageManager.GET_SIGNING_CERTIFICATES or PackageManager.GET_SIGNATURES
         } else {
             PackageManager.GET_SIGNATURES
         }

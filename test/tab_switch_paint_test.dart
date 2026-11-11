@@ -5,6 +5,8 @@
 /// 并直接采样帧像素断言页面真的画了内容。
 library;
 
+import 'dart:async';
+import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:chh_app/data/message_repository.dart';
@@ -16,7 +18,9 @@ import 'package:chh_app/parser/header_parser.dart';
 import 'package:chh_app/pages/forum_index_view.dart';
 import 'package:chh_app/pages/home_page.dart';
 import 'package:chh_app/pages/messages_page.dart';
+import 'package:chh_app/ui/nav_bar.dart';
 import 'package:chh_app/widgets/app_shell.dart';
+import 'package:chh_app/widgets/lac_scaffold.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -81,6 +85,7 @@ Future<List<List<int>>> _sampleRows(WidgetTester tester) async {
     final o = (y * w + x) * 4;
     return [rgba[o], rgba[o + 1], rgba[o + 2]];
   }
+
   final rows = [at(30, 60), at(30, 120), at(w ~/ 2, 400), at(w ~/ 2, 700)];
   image.dispose();
   return rows;
@@ -88,16 +93,27 @@ Future<List<List<int>>> _sampleRows(WidgetTester tester) async {
 
 void _expectNotGrey(String where, List<int> px) {
   final isFlatGrey =
-      px.every((c) => (c - px.first).abs() < 6) && px.first > 150 && px.first < 230;
-  expect(isFlatGrey, isFalse, reason: '$where sampled $px looks like the grey screen');
+      px.every((c) => (c - px.first).abs() < 6) &&
+      px.first > 150 &&
+      px.first < 230;
+  expect(
+    isFlatGrey,
+    isFalse,
+    reason: '$where sampled $px looks like the grey screen',
+  );
 }
 
-Widget _app(Widget home) => RepaintBoundary(
-  key: _boundary,
-  child: MaterialApp(theme: buildAppTheme(Brightness.light), home: home),
-);
+Widget _app(Widget home, {Brightness brightness = Brightness.light}) =>
+    RepaintBoundary(
+      key: _boundary,
+      child: MaterialApp(theme: buildAppTheme(brightness), home: home),
+    );
 
-Future<void> _pumpShell(WidgetTester tester, _FakeMessages messages) async {
+Future<void> _pumpShell(
+  WidgetTester tester,
+  _FakeMessages messages, {
+  Brightness brightness = Brightness.light,
+}) async {
   tester.view.physicalSize = const Size(390, 844);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
@@ -109,7 +125,12 @@ Future<void> _pumpShell(WidgetTester tester, _FakeMessages messages) async {
       HomePage(
         initialiseSession: () async {},
         screenBuilders: {
-          AppDestination.feed: (_) => const Scaffold(body: Text('本地精选')),
+          AppDestination.feed: (_) => const LacScaffold(
+            title: '精选',
+            body: CustomScrollView(
+              slivers: [SliverToBoxAdapter(child: Text('本地精选'))],
+            ),
+          ),
           AppDestination.forums: (_) => ForumIndexView(
             loadForums: (_) async => [
               ForumCategory(
@@ -121,23 +142,156 @@ Future<void> _pumpShell(WidgetTester tester, _FakeMessages messages) async {
               ),
             ],
           ),
-          AppDestination.messages: (_) =>
-              MessagesTabPage(repository: messages),
+          AppDestination.messages: (_) => MessagesTabPage(repository: messages),
         },
       ),
+      brightness: brightness,
     ),
   );
   await tester.pumpAndSettle();
 }
 
+Future<void> _expectLacTop(
+  WidgetTester tester,
+  String phase, {
+  String? screenshot,
+}) async {
+  final image = await _frame(tester);
+  final bytes = (await tester.runAsync(
+    () => image.toByteData(format: ui.ImageByteFormat.rawRgba),
+  ))!.buffer.asUint8List();
+  // Probe the first few rows, where translating the entire page exposed paper.
+  for (final y in [1, 4, 12, 24]) {
+    for (final x in [20, image.width ~/ 2]) {
+      final i = (y * image.width + x) * 4;
+      final r = bytes[i], g = bytes[i + 1], b = bytes[i + 2];
+      expect(r - g, greaterThan(30), reason: '$phase ($x,$y): $r,$g,$b');
+      expect(r - b, greaterThan(30), reason: '$phase ($x,$y): $r,$g,$b');
+    }
+  }
+  if (screenshot != null) {
+    final png = await tester.runAsync(
+      () => image.toByteData(format: ui.ImageByteFormat.png),
+    );
+    final file = File('build/qa/tab-switch-20261111/$screenshot');
+    await tester.runAsync(() async {
+      await file.parent.create(recursive: true);
+      await file.writeAsBytes(png!.buffer.asUint8List());
+    });
+  }
+  image.dispose();
+}
+
 Future<void> _tapTab(WidgetTester tester, String label) async {
   await tester.tap(
-    find.descendant(of: find.byType(AppBottomNavigation), matching: find.text(label)),
+    find.descendant(
+      of: find.byType(AppBottomNavigation),
+      matching: find.text(label),
+    ),
   );
   await tester.pumpAndSettle();
 }
 
 void main() {
+  for (final brightness in Brightness.values) {
+    testWidgets(
+      'red $brightness tabs cover the top on first and intermediate frames',
+      (tester) async {
+        await _pumpShell(tester, _FakeMessages(), brightness: brightness);
+        for (var round = 0; round < 2; round++) {
+          for (final label in ['版块', '消息', '我的', '精选']) {
+            await tester.tap(
+              find.descendant(
+                of: find.byType(AppBottomNavigation),
+                matching: find.text(label),
+              ),
+            );
+            await tester.pump();
+            await _expectLacTop(
+              tester,
+              '$brightness $label round=$round first',
+            );
+            await tester.pump(const Duration(milliseconds: 16));
+            await _expectLacTop(tester, '$brightness $label round=$round 16ms');
+            await tester.pump(const Duration(milliseconds: 64));
+            await _expectLacTop(
+              tester,
+              '$brightness $label round=$round 80ms',
+              screenshot: round == 0 && label == '消息'
+                  ? 'fixture-${brightness.name}-messages-80ms.png'
+                  : null,
+            );
+            await tester.pumpAndSettle();
+            expect(tester.takeException(), isNull);
+          }
+        }
+      },
+    );
+
+    testWidgets(
+      'red $brightness forum header stays through loading failure and retry',
+      (tester) async {
+        tester.view.physicalSize = const Size(390, 844);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        final first = Completer<List<ForumCategory>>();
+        final retry = Completer<List<ForumCategory>>();
+        var requests = 0;
+        await tester.pumpWidget(
+          _app(
+            ForumIndexView(
+              loadForums: (refresh) {
+                requests++;
+                expect(refresh, requests > 1);
+                return requests == 1 ? first.future : retry.future;
+              },
+            ),
+            brightness: brightness,
+          ),
+        );
+        final title = find.descendant(
+          of: find.byType(LargeTitleHeader),
+          matching: find.text('版块'),
+        );
+        expect(title, findsOneWidget);
+        final origin = tester.getTopLeft(title);
+        Future<void> check(String phase) async {
+          expect(title, findsOneWidget, reason: phase);
+          expect(tester.getTopLeft(title), origin, reason: phase);
+          await _expectLacTop(tester, '$brightness forum $phase');
+        }
+
+        await check('loading');
+        await tester.pump(const Duration(milliseconds: 200));
+        await check('delayed');
+        first.completeError(StateError('offline fixture'));
+        await tester.pump();
+        await check('failure first frame');
+        await tester.pumpAndSettle();
+        expect(find.text('加载失败'), findsOneWidget);
+        await check('failure settled');
+        await tester.tap(find.text('重试'));
+        await tester.pump();
+        expect(requests, 2);
+        await check('retry waiting');
+        retry.complete([
+          ForumCategory(
+            name: '本地分区',
+            forums: [Forum(fid: 1, name: '本地版块')],
+          ),
+        ]);
+        await tester.pump();
+        await check('success first frame');
+        await tester.pump(const Duration(milliseconds: 80));
+        await check('success intermediate');
+        await tester.pumpAndSettle();
+        expect(find.text('本地版块'), findsOneWidget);
+        await check('success settled');
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
   testWidgets('collapsed forums then first visit to messages still paints', (
     tester,
   ) async {
@@ -146,7 +300,10 @@ void main() {
 
     // 复现真机灰屏序列：打开版块并滚到漆面收起，再首次切到消息
     await _tapTab(tester, '版块');
-    await tester.drag(find.byType(CustomScrollView).last, const Offset(0, -650));
+    await tester.drag(
+      find.byType(CustomScrollView).last,
+      const Offset(0, -650),
+    );
     await tester.pumpAndSettle();
     await _tapTab(tester, '消息');
 
@@ -191,7 +348,9 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('rapid tab cycling keeps every destination painted', (tester) async {
+  testWidgets('rapid tab cycling keeps every destination painted', (
+    tester,
+  ) async {
     final messages = _FakeMessages();
     await _pumpShell(tester, messages);
 

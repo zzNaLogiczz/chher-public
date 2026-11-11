@@ -67,10 +67,10 @@ class _ForumIndexViewState extends State<ForumIndexView> {
       builder: (context, snapshot) {
         if (!snapshot.hasData &&
             snapshot.connectionState != ConnectionState.done) {
-          return StateView.loading();
+          return _scaffold(StateView.loading());
         }
         if (snapshot.hasError && !snapshot.hasData) {
-          return StateView.error(snapshot.error!, onRetry: _refresh);
+          return _scaffold(StateView.error(snapshot.error!, onRetry: _refresh));
         }
         final categories = snapshot.data ?? const <ForumCategory>[];
         final visible = <ForumCategory>[];
@@ -78,8 +78,7 @@ class _ForumIndexViewState extends State<ForumIndexView> {
           final favorites = favoriteIndex.items
               .where(
                 (item) =>
-                    item.type == FavoriteType.forum &&
-                    item.targetId != null,
+                    item.type == FavoriteType.forum && item.targetId != null,
               )
               .map((item) => Forum(fid: item.targetId!, name: item.title))
               .toList();
@@ -157,8 +156,7 @@ class _ForumIndexViewState extends State<ForumIndexView> {
                             ),
                             Text(
                               '${category.forums.length}',
-                              semanticsLabel:
-                                  '${category.forums.length}个版块',
+                              semanticsLabel: '${category.forums.length}个版块',
                               style: AppType.footnote.copyWith(
                                 color: t.text3,
                                 fontWeight: FontWeight.w600,
@@ -170,9 +168,7 @@ class _ForumIndexViewState extends State<ForumIndexView> {
                             case final String description)
                           Text(
                             description,
-                            style: AppType.footnote.copyWith(
-                              color: t.text3,
-                            ),
+                            style: AppType.footnote.copyWith(color: t.text3),
                           ),
                       ],
                     ),
@@ -196,27 +192,32 @@ class _ForumIndexViewState extends State<ForumIndexView> {
             ],
           ),
         );
-        return ExpressivePageReveal(
-          active: true,
-          animateOnMount: true,
-          child: misty
-              // 薄雾白:分区筛选与大标题同行,目录直接在纸面
-              ? LargeTitleScaffold(
-                  title: '版块',
-                  showBack: false,
-                  titleAccessory: categoryPicker,
-                  body: content,
-                )
-              // 一级页漆面骨架:分区筛选住大标题右侧,目录列表在纸面上
-              : LacScaffold(
-                  title: '版块',
-                  actions: [categoryPicker],
-                  body: content,
-                ),
+        return _scaffold(
+          // 数据到达只让纸面内容入场，页头与背景始终留在原位。
+          ExpressivePageReveal(
+            active: true,
+            animateOnMount: true,
+            child: content,
+          ),
+          picker: categoryPicker,
         );
       },
     );
   }
+
+  Widget _scaffold(Widget body, {Widget? picker}) =>
+      AppTokens.of(context).style == AppearanceStyle.misty
+      ? LargeTitleScaffold(
+          title: '版块',
+          showBack: false,
+          titleAccessory: picker,
+          body: body,
+        )
+      : LacScaffold(
+          title: '版块',
+          actions: [?picker],
+          body: body,
+        );
 }
 
 ({String title, String? description}) _categoryName(String name) {

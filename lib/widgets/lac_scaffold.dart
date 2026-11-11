@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../design/tokens.dart';
+import '../design/system_ui.dart';
 import '../ui/nav_bar.dart';
 
 /// 漆面一级页骨架。
@@ -74,8 +75,8 @@ class _LacScaffoldState extends State<LacScaffold> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _measureTitle());
     // 漆面在上(白图标);纸面滚到顶栏之后按纸面亮度切换
     final paperOverlay = t.isDark
-        ? SystemUiOverlayStyle.light
-        : SystemUiOverlayStyle.dark;
+        ? AppSystemUi.lightIcons
+        : AppSystemUi.darkIcons;
     final titleHeader = KeyedSubtree(
       key: _titleKey,
       child: LargeTitleHeader(
@@ -124,8 +125,7 @@ class _LacScaffoldState extends State<LacScaffold> {
                   child: SizedBox(height: top + NavOverlay.barHeight),
                 ),
                 SliverToBoxAdapter(child: titleHeader),
-                if (widget.mast != null)
-                  SliverToBoxAdapter(child: mastBox()),
+                if (widget.mast != null) SliverToBoxAdapter(child: mastBox()),
                 // 漆面脚:纸面圆角从这里开始,红从圆角两侧露出来
                 SliverToBoxAdapter(child: SizedBox(height: widget.seamGap)),
               ],
@@ -137,7 +137,9 @@ class _LacScaffoldState extends State<LacScaffold> {
       builder: (context, offset, child) =>
           AnnotatedRegion<SystemUiOverlayStyle>(
             // 漆面在上(白图标);纸面滚到顶栏之后按纸面亮度切换
-            value: offset >= _collapseAt ? paperOverlay : SystemUiOverlayStyle.light,
+            value: offset >= _collapseAt
+                ? paperOverlay
+                : AppSystemUi.lightIcons,
             child: child!,
           ),
       child: DecoratedBox(

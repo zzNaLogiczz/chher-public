@@ -1,6 +1,8 @@
 /// Private conversations keep drafts on failed or uncertain sends.
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../ui/editor_touch.dart';
 import '../ui/app_button.dart';
@@ -31,6 +33,8 @@ class _PmThreadPageState extends State<PmThreadPage> {
   final _focus = FocusNode();
   final _scroll = ScrollController();
   List<PmMessage> _messages = const [];
+  List<PmMessage> _serverMessages = const [];
+  final _confirmedReplies = <_ConfirmedReply>[];
   bool _loading = false;
   bool _sending = false;
   bool _loaded = false;
@@ -71,24 +75,10 @@ class _PmThreadPageState extends State<PmThreadPage> {
       );
       if (!mounted) return;
       setState(() {
-        _messages = result;
+        _reconcile(result);
         _loaded = true;
       });
-      if (scrollToEnd) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (_scroll.hasClients) {
-            if (animateScroll && !MediaQuery.disableAnimationsOf(context)) {
-              _scroll.animateTo(
-                _scroll.position.maxScrollExtent,
-                duration: AppMotion.revealDuration,
-                curve: AppMotion.revealCurve,
-              );
-            } else {
-              _scroll.jumpTo(_scroll.position.maxScrollExtent);
-            }
-          }
-        });
-      }
+      if (scrollToEnd) _scrollToEnd(animate: animateScroll);
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -97,6 +87,8 @@ class _PmThreadPageState extends State<PmThreadPage> {
               (e.kind == PageMessageKind.loginRequired ||
                   e.kind == PageMessageKind.permissionDenied)) {
             _messages = const [];
+            _serverMessages = const [];
+            _confirmedReplies.clear();
             _loaded = false;
           }
         });
@@ -106,11 +98,74 @@ class _PmThreadPageState extends State<PmThreadPage> {
     }
   }
 
+  bool _isMine(PmMessage message) =>
+      message.fromSelf ||
+      (chhSession.badges.uid != null &&
+          message.authorUid == chhSession.badges.uid);
+
+  String _matchingText(String text) =>
+      text.replaceAll(RegExp(r'[\s\u00a0]+'), ' ').trim();
+
+  Map<Object, PmMessage> _keyedMessages(List<PmMessage> messages) {
+    final occurrences = <Object, int>{};
+    final keyed = <Object, PmMessage>{};
+    for (final m in messages) {
+      final content = (m.authorUid, m.author, m.text, m.timeRaw, m.fromSelf);
+      final occurrence = occurrences.update(
+        content,
+        (n) => n + 1,
+        ifAbsent: () => 0,
+      );
+      keyed[m.pmid ?? (content, occurrence)] = m;
+    }
+    return keyed;
+  }
+
+  void _reconcile(List<PmMessage> messages) {
+    final incoming = _keyedMessages(messages);
+    final matched = <Object>{};
+    _confirmedReplies.removeWhere((reply) {
+      for (final entry in incoming.entries) {
+        if (!reply.knownMessages.contains(entry.key) &&
+            !matched.contains(entry.key) &&
+            _isMine(entry.value) &&
+            _matchingText(entry.value.text) ==
+                _matchingText(reply.message.text)) {
+          matched.add(entry.key);
+          return true;
+        }
+      }
+      return false;
+    });
+    // 同一条源站消息只能替代一个本地回显；历史同文消息也不能误匹配。
+    for (final reply in _confirmedReplies) {
+      reply.knownMessages.addAll(matched);
+    }
+    _serverMessages = messages;
+    _messages = [...messages, ..._confirmedReplies.map((r) => r.message)];
+  }
+
+  void _scrollToEnd({bool animate = false}) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scroll.hasClients) return;
+      if (animate && !MediaQuery.disableAnimationsOf(context)) {
+        _scroll.animateTo(
+          _scroll.position.maxScrollExtent,
+          duration: AppMotion.revealDuration,
+          curve: AppMotion.revealCurve,
+        );
+      } else {
+        _scroll.jumpTo(_scroll.position.maxScrollExtent);
+      }
+    });
+  }
+
   Future<void> _send() async {
     final text = _input.text.trim();
-    if (_sending || _loading || !_loaded || _announcement || text.isEmpty) {
+    if (_sending || !_loaded || _announcement || text.isEmpty) {
       return;
     }
+    final knownMessages = _keyedMessages(_serverMessages).keys.toSet();
     setState(() {
       _sending = true;
       _sendError = null;
@@ -122,10 +177,22 @@ class _PmThreadPageState extends State<PmThreadPage> {
       );
       if (!mounted) return;
       if (result.isSuccess) {
+        // 收到明确成功才回显，不等待额外 GET；旧快照或刷新失败不撤回已发送内容。
+        final message = PmMessage(
+          author: '您',
+          fromSelf: true,
+          text: text,
+          timeRaw: '',
+        );
+        setState(() {
+          _confirmedReplies.add(_ConfirmedReply(message, knownMessages));
+          _reconcile(_serverMessages);
+        });
         _input.clear();
         _focus.unfocus();
+        _scrollToEnd(animate: true);
         AppToast.show(context, '已发送');
-        await _load(scrollToEnd: true, animateScroll: true);
+        unawaited(_load(scrollToEnd: true, animateScroll: true));
       } else {
         setState(() => _sendError = result);
       }
@@ -205,7 +272,7 @@ class _PmThreadPageState extends State<PmThreadPage> {
           ChromeButton(
             tooltip: '刷新会话',
             icon: AppIcons.refresh,
-            onPressed: _loading ? null : () => _load(),
+            onPressed: _loading || _sending ? null : () => _load(),
           ),
           const SizedBox(width: 8),
         ],
@@ -273,13 +340,10 @@ class _PmThreadPageState extends State<PmThreadPage> {
             return const SizedBox.shrink();
           }
           final message = _messages[index - 1];
-          final selfUid = chhSession.badges.uid;
           return _ConversationMessage(
             message: message,
             // 源站标"您"的就是自己;否则用作者 UID 与当前账号比对
-            isMine:
-                message.fromSelf ||
-                (selfUid != null && message.authorUid == selfUid),
+            isMine: _isMine(message),
           );
         },
       ),
@@ -349,7 +413,7 @@ class _PmThreadPageState extends State<PmThreadPage> {
                 key: const ValueKey('pm-send'),
                 visible: value.text.trim().isNotEmpty,
                 sending: _sending,
-                onPressed: _loading || value.text.trim().isEmpty ? null : _send,
+                onPressed: value.text.trim().isEmpty ? null : _send,
               ),
             ),
           ],
@@ -393,6 +457,12 @@ class _PmThreadPageState extends State<PmThreadPage> {
       ),
     );
   }
+}
+
+class _ConfirmedReply {
+  final PmMessage message;
+  final Set<Object> knownMessages;
+  _ConfirmedReply(this.message, this.knownMessages);
 }
 
 class _ConversationMessage extends StatelessWidget {

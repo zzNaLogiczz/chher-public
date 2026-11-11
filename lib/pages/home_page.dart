@@ -9,7 +9,6 @@ import '../di.dart';
 import '../design/tokens.dart';
 import '../core/app_log.dart';
 import '../widgets/app_shell.dart';
-import '../widgets/expressive_controls.dart';
 import '../widgets/launch_splash.dart';
 import '../widgets/state_view.dart';
 import '../update/update_controller.dart';
@@ -134,12 +133,9 @@ class _HomePageState extends State<HomePage> {
                         excluding: entry.key != _dest,
                         child: TickerMode(
                           enabled: entry.key == _dest,
-                          child: ExpressivePageReveal(
-                            active: entry.key == _dest,
-                            animateOnMount: true,
-                            fade: false,
-                            child: entry.value,
-                          ),
+                          // 一级目的地保留原位置与绘制缓存；选择反馈由底栏承接，
+                          // 不重播整页入场，以免连同状态栏背景一起移开。
+                          child: RepaintBoundary(child: entry.value),
                         ),
                       ),
                     ),
@@ -150,14 +146,17 @@ class _HomePageState extends State<HomePage> {
               // 未读数原本挂在顶栏铃铛上,铃铛删除后由底栏"消息"承接;
               // 外观也在监听里:朱砂红上线引导(我的标签红点)消费后立即消失
               AnimatedBuilder(
-                animation: Listenable.merge([chhSession, appUpdater, appearance]),
+                animation: Listenable.merge([
+                  chhSession,
+                  appUpdater,
+                  appearance,
+                ]),
                 builder: (context, _) => AppBottomNavigation(
                   current: _dest,
                   onNavigate: _navigate,
                   messagesBadge: chhSession.badges.total,
                   // 有新版本,或朱砂红上线尚未引导时:从"我的"→设置→外观一路用红点引过去
-                  meDot:
-                      appUpdater.hasUpdate || !appearance.styleDotSeen,
+                  meDot: appUpdater.hasUpdate || !appearance.styleDotSeen,
                 ),
               ),
           ],

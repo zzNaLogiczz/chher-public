@@ -11,6 +11,7 @@ import 'package:flutter/cupertino.dart'
         CupertinoTextThemeData;
 
 import 'tokens.dart';
+import 'system_ui.dart';
 import 'typography.dart';
 import '../widgets/expressive_controls.dart';
 
@@ -175,6 +176,9 @@ ColorScheme _colorScheme(AppTokens t, Brightness brightness) {
 
 AppBarTheme _appBarTheme(AppTokens t, TextTheme textTheme) {
   return AppBarTheme(
+    systemOverlayStyle: AppSystemUi.forBrightness(
+      t.isDark ? Brightness.dark : Brightness.light,
+    ),
     backgroundColor: t.bg,
     surfaceTintColor: Colors.transparent,
     elevation: 0,
