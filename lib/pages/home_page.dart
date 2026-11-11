@@ -147,15 +147,17 @@ class _HomePageState extends State<HomePage> {
               ),
             ),
             if (MediaQuery.viewInsetsOf(context).bottom == 0)
-              // 未读数原本挂在顶栏铃铛上,铃铛删除后由底栏"消息"承接
+              // 未读数原本挂在顶栏铃铛上,铃铛删除后由底栏"消息"承接;
+              // 外观也在监听里:朱砂红上线引导(我的标签红点)消费后立即消失
               AnimatedBuilder(
-                animation: Listenable.merge([chhSession, appUpdater]),
+                animation: Listenable.merge([chhSession, appUpdater, appearance]),
                 builder: (context, _) => AppBottomNavigation(
                   current: _dest,
                   onNavigate: _navigate,
                   messagesBadge: chhSession.badges.total,
-                  // 有新版本:从"我的"→设置→关于一路用红点引过去
-                  meDot: appUpdater.hasUpdate,
+                  // 有新版本,或朱砂红上线尚未引导时:从"我的"→设置→外观一路用红点引过去
+                  meDot:
+                      appUpdater.hasUpdate || !appearance.styleDotSeen,
                 ),
               ),
           ],

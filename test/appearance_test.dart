@@ -30,26 +30,62 @@ void main() {
     expect(controller.mode.themeMode, ThemeMode.system);
   });
 
-  test('缺失 style 字段缺省朱砂红(1.0.8 升级用户不突变)', () async {
+  test('缺失偏好文件缺省薄雾白,朱砂红引导未消费', () async {
     await controller.load();
-    expect(controller.style, AppearanceStyle.cinnabar);
+    expect(controller.mode, AppearanceMode.system);
+    expect(controller.mode.themeMode, ThemeMode.system);
+    expect(controller.style, AppearanceStyle.misty);
+    expect(controller.styleDotSeen, isFalse);
+  });
+
+  test('styleDotSeen 未置位时朱砂红带引导红点,消费后持久化', () async {
+    await controller.load();
+    final notifications = <bool>[];
+    controller.addListener(
+      () => notifications.add(controller.styleDotSeen),
+    );
+    await controller.markStyleDotSeen();
+    expect(controller.styleDotSeen, isTrue);
+    expect(notifications, [true]);
+    expect(jsonDecode(await preference().readAsString()), {
+      'version': 1,
+      'mode': 'system',
+      'style': 'misty',
+      'styleDotSeen': true,
+    });
+    final restored = AppearanceController(directory: () async => directory);
+    addTearDown(restored.dispose);
+    await restored.load();
+    expect(restored.styleDotSeen, isTrue);
+  });
+
+  test('重复消费不重复通知', () async {
+    await controller.markStyleDotSeen();
+    final notifications = <bool>[];
+    controller.addListener(
+      () => notifications.add(controller.styleDotSeen),
+    );
+    await controller.markStyleDotSeen();
+    expect(notifications, isEmpty);
+    expect(controller.styleDotSeen, isTrue);
   });
 
   test('界面风格切换先通知后落盘,新实例恢复', () async {
     final notifications = <AppearanceStyle>[];
     controller.addListener(() => notifications.add(controller.style));
-    await controller.setStyle(AppearanceStyle.misty);
-    expect(controller.style, AppearanceStyle.misty);
-    expect(notifications, [AppearanceStyle.misty]);
+    await controller.setStyle(AppearanceStyle.cinnabar);
+    expect(controller.style, AppearanceStyle.cinnabar);
+    expect(notifications, [AppearanceStyle.cinnabar]);
     expect(jsonDecode(await preference().readAsString()), {
       'version': 1,
       'mode': 'system',
-      'style': 'misty',
+      'style': 'cinnabar',
+      'styleDotSeen': false,
     });
     final restored = AppearanceController(directory: () async => directory);
     addTearDown(restored.dispose);
     await restored.load();
-    expect(restored.style, AppearanceStyle.misty);
+    expect(restored.style, AppearanceStyle.cinnabar);
   });
 
   test('mode 与 style 独立持久化,互不覆盖', () async {
@@ -62,13 +98,13 @@ void main() {
     expect(restored.style, AppearanceStyle.misty);
   });
 
-  test('未知的 style 值降级朱砂红', () async {
+  test('未知的 style 值降级薄雾白', () async {
     await preference().writeAsString(
       '{"version":1,"mode":"dark","style":"neon"}',
     );
     await controller.load();
     expect(controller.mode, AppearanceMode.dark);
-    expect(controller.style, AppearanceStyle.cinnabar);
+    expect(controller.style, AppearanceStyle.misty);
   });
 
   test('先通知界面,原子写入后新实例恢复深色', () async {
@@ -82,7 +118,8 @@ void main() {
     expect(jsonDecode(await preference().readAsString()), {
       'version': 1,
       'mode': 'dark',
-      'style': 'cinnabar',
+      'style': 'misty',
+      'styleDotSeen': false,
     });
     expect(await File('${preference().path}.tmp').exists(), isFalse);
     final restored = AppearanceController(directory: () async => directory);

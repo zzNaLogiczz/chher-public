@@ -11,9 +11,11 @@ import 'package:chh_app/models/models.dart';
 import 'package:chh_app/network/chh_client.dart';
 import 'package:chh_app/parser/header_parser.dart';
 import 'package:chh_app/pages/home_page.dart';
+import 'package:chh_app/pages/me_page.dart';
 import 'package:chh_app/pages/messages_page.dart';
 import 'package:chh_app/pages/settings_page.dart';
 import 'package:chh_app/widgets/app_shell.dart';
+import 'package:chh_app/ui/chrome_button.dart';
 import 'package:chh_app/widgets/lac_scaffold.dart';
 import 'package:chh_app/widgets/large_title_scaffold.dart';
 import 'package:chh_app/widgets/launch_splash.dart';
@@ -201,6 +203,91 @@ void main() {
     expect(find.text('chh'), findsOneWidget);
     final context = tester.element(find.text('chh'));
     expect(AppTokens.of(context).style, AppearanceStyle.misty);
+  });
+
+  testWidgets('朱砂红上线引导:设置页内红点可见,离开后永久消失', (tester) async {
+    final controller = AppearanceController(directory: () async => null);
+    addTearDown(controller.dispose);
+    expect(controller.styleDotSeen, isFalse);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(Brightness.light, AppearanceStyle.misty),
+        home: SettingsPage(appearanceController: controller),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // 设置页内:朱砂红选项带引导红点(薄雾白没有)
+    expect(find.byType(DotBadge), findsOneWidget);
+
+    // 离开设置页(卸载页面)→ 消费引导
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+    expect(controller.styleDotSeen, isTrue);
+
+    // 再次进入:红点不再出现
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(Brightness.light, AppearanceStyle.misty),
+        home: SettingsPage(appearanceController: controller),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(DotBadge), findsNothing);
+  });
+
+  testWidgets('我的页设置行在引导未消费时带红点', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(Brightness.light, AppearanceStyle.misty),
+        home: const MePage(),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final settingsRow = find.byKey(const ValueKey('me-settings'));
+    expect(settingsRow, findsOneWidget);
+    expect(
+      find.descendant(of: settingsRow, matching: find.byType(DotBadge)),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('底栏我的标签红点随引导消费消失', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(Brightness.light, AppearanceStyle.misty),
+        // 四个目的地全部 stub,避免真实页面拉网络;底栏与外观接线保持真实
+        home: HomePage(
+          initialiseSession: () async {},
+          screenBuilders: {
+            for (final d in AppDestination.values)
+              d: (_) => const SizedBox.shrink(),
+          },
+        ),
+      ),
+    );
+    // 固定 pump 走过 启动屏→会话就绪→主页 三个状态;这里不用 pumpAndSettle,
+    // 全 stub 目的地会让 settle 挂满默认超时(tab_switch_paint_test 有真实
+    // 列表内容可 settle,此测试只关心底栏红点参数)
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+
+    // 未消费:我的标签右上角红点可见
+    DotBadge badge = tester.widget<DotBadge>(find.byType(DotBadge));
+    expect(badge.visible, isTrue);
+
+    // 消费后立即消失(底栏监听外观偏好)。通知是同步的;不 await 写盘——
+    // 全局实例的目录解析走平台通道,测试环境可能没有响应
+    appearance.markStyleDotSeen();
+    await tester.pump(const Duration(milliseconds: 250));
+    await tester.pump(const Duration(milliseconds: 250));
+    badge = tester.widget<DotBadge>(find.byType(DotBadge));
+    expect(badge.visible, isFalse);
   });
 
   testWidgets('朱砂红启动屏保持漆面渐变', (tester) async {

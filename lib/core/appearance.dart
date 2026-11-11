@@ -25,9 +25,13 @@ class AppearanceController extends ChangeNotifier {
   final Future<Directory?> Function() _directory;
   AppearanceMode _mode = AppearanceMode.system;
 
-  /// 1.0.8 已发布朱砂红;升级用户的存量偏好文件里没有 style 字段,
-  /// 缺省保持朱砂红,不让老用户升级后界面突变。
-  AppearanceStyle _style = AppearanceStyle.cinnabar;
+  /// 缺省薄雾白(首次安装或更新后的初始风格);朱砂红作为新上线主题,
+  /// 由红点引导(setttings 入口三级红点)吸引用户主动发现。
+  AppearanceStyle _style = AppearanceStyle.misty;
+
+  /// 用户是否已经进过设置页(朱砂红上线引导红点已消费)。
+  /// 一旦置位持久化,后续安装更新也不再提示。
+  bool _styleDotSeen = false;
   Future<void>? _loading;
   Future<void> _writes = Future<void>.value();
   int _revision = 0;
@@ -41,12 +45,15 @@ class AppearanceController extends ChangeNotifier {
 
   AppearanceStyle get style => _style;
 
+  bool get styleDotSeen => _styleDotSeen;
+
   Future<void> load() => _loading ??= _read();
 
   Future<void> _read() async {
     final revision = _revision;
     var stored = AppearanceMode.system;
-    var storedStyle = AppearanceStyle.cinnabar;
+    var storedStyle = AppearanceStyle.misty;
+    var storedDotSeen = false;
     try {
       final directory = await _directory();
       if (directory != null) {
@@ -60,6 +67,7 @@ class AppearanceController extends ChangeNotifier {
           for (final style in AppearanceStyle.values) {
             if (decoded['style'] == style.name) storedStyle = style;
           }
+          storedDotSeen = decoded['styleDotSeen'] == true;
         }
       }
     } catch (_) {
@@ -67,9 +75,13 @@ class AppearanceController extends ChangeNotifier {
     }
     // 启动读取超时后,用户的新选择优先于迟到的磁盘数据。
     if (_disposed || revision != _revision) return;
-    final changed = stored != _mode || storedStyle != _style;
+    final changed =
+        stored != _mode ||
+        storedStyle != _style ||
+        storedDotSeen != _styleDotSeen;
     _mode = stored;
     _style = storedStyle;
+    _styleDotSeen = storedDotSeen;
     if (changed) notifyListeners();
   }
 
@@ -91,15 +103,30 @@ class AppearanceController extends ChangeNotifier {
     return _queueWrite();
   }
 
+  /// 进入设置页即消费朱砂红上线引导;置位后写盘,后续不再出现。
+  Future<void> markStyleDotSeen() {
+    _revision++;
+    if (!_styleDotSeen) {
+      _styleDotSeen = true;
+      notifyListeners();
+    }
+    return _queueWrite();
+  }
+
   /// 串行原子写,快速切换时最后一次选择必须最后落盘。
-  /// mode 与 style 同文件,写当前两维的快照。
+  /// mode/style/styleDotSeen 同文件,写当前三维的快照。
   Future<void> _queueWrite() {
     final mode = _mode;
     final style = _style;
-    return _writes = _writes.then((_) => _persist(mode, style));
+    final styleDotSeen = _styleDotSeen;
+    return _writes = _writes.then((_) => _persist(mode, style, styleDotSeen));
   }
 
-  Future<void> _persist(AppearanceMode mode, AppearanceStyle style) async {
+  Future<void> _persist(
+    AppearanceMode mode,
+    AppearanceStyle style,
+    bool styleDotSeen,
+  ) async {
     try {
       final directory = await _directory();
       if (directory == null) {
@@ -114,6 +141,7 @@ class AppearanceController extends ChangeNotifier {
           'version': 1,
           'mode': mode.name,
           'style': style.name,
+          'styleDotSeen': styleDotSeen,
         }),
         flush: true,
       );

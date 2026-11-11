@@ -745,6 +745,13 @@ abstract final class IconTints {
   static const violet = Color(0xFF8F4C55); // 檀
   static const teal = Color(0xFF528581); // 瓷(工具行)
   static const gray = Color(0xFF615956); // 墨(工具行)
+
+  /// 薄雾白风格入口方块(EntryGrid)的四色,1.0.7 基线原值;
+  /// 上面现值是朱漆红 v2 国色,两套语义并存,按风格取用
+  static const mistyBlue = Color(0xFF0090FF);
+  static const mistyOrange = Color(0xFFF76B15);
+  static const mistyGreen = Color(0xFF30A46C);
+  static const mistyViolet = Color(0xFF8E4EC6);
 }
 
 /// 漆面品牌元素的固定展示尺寸与叠层色(水印、启动屏;设计稿 v2)

@@ -91,7 +91,8 @@ class MeBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
-    animation: chhSession,
+    // 外观偏好也在监听里:朱砂红上线引导红点(设置行)消费后立即消失
+    animation: Listenable.merge([chhSession, appearance]),
     builder: (context, _) {
       final me = chhSession.badges;
       final logged = chhSession.loggedIn;
@@ -118,36 +119,72 @@ class MeBody extends StatelessWidget {
                   ),
                 ],
               ),
-            // 定稿入口行:无卡片无底色,直接排在纸面上
-            if (logged)
-              EntryRow(
-                cells: [
-                  EntryCell(
-                    icon: AppIcons.article,
-                    tint: AppTokens.of(context).tintZhu,
-                    label: '我的帖子',
-                    onTap: () => _push(context, const MyThreadsPage()),
+            // 常用四格按风格取形态:薄雾白沿用 1.0.7 的白色入口方块
+            // (配基线原色),与纸面分组同语言;朱漆红是定稿的
+            // 无底色四列线形(国色图标 + 细竖线)。
+            if (logged) ...[
+              if (AppTokens.of(context).style == AppearanceStyle.misty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 16),
+                  child: EntryGrid(
+                    tiles: [
+                      EntryTile(
+                        icon: AppIcons.article,
+                        tint: IconTints.mistyBlue,
+                        label: '我的帖子',
+                        onTap: () => _push(context, const MyThreadsPage()),
+                      ),
+                      EntryTile(
+                        icon: AppIcons.bookmark,
+                        tint: IconTints.mistyOrange,
+                        label: '我的收藏',
+                        onTap: () => _push(context, const FavoritesPage()),
+                      ),
+                      EntryTile(
+                        icon: AppIcons.credits,
+                        tint: IconTints.mistyGreen,
+                        label: '积分记录',
+                        onTap: () => _push(context, const CreditLogPage()),
+                      ),
+                      EntryTile(
+                        icon: AppIcons.medal,
+                        tint: IconTints.mistyViolet,
+                        label: '勋章',
+                        onTap: () => _push(context, const MedalsPage()),
+                      ),
+                    ],
                   ),
-                  EntryCell(
-                    icon: AppIcons.bookmark,
-                    tint: AppTokens.of(context).tintDai,
-                    label: '我的收藏',
-                    onTap: () => _push(context, const FavoritesPage()),
-                  ),
-                  EntryCell(
-                    icon: AppIcons.credits,
-                    tint: AppTokens.of(context).tintTan,
-                    label: '积分记录',
-                    onTap: () => _push(context, const CreditLogPage()),
-                  ),
-                  EntryCell(
-                    icon: AppIcons.medal,
-                    tint: AppTokens.of(context).tintZhe,
-                    label: '勋章',
-                    onTap: () => _push(context, const MedalsPage()),
-                  ),
-                ],
-              ),
+                )
+              else
+                EntryRow(
+                  cells: [
+                    EntryCell(
+                      icon: AppIcons.article,
+                      tint: AppTokens.of(context).tintZhu,
+                      label: '我的帖子',
+                      onTap: () => _push(context, const MyThreadsPage()),
+                    ),
+                    EntryCell(
+                      icon: AppIcons.bookmark,
+                      tint: AppTokens.of(context).tintDai,
+                      label: '我的收藏',
+                      onTap: () => _push(context, const FavoritesPage()),
+                    ),
+                    EntryCell(
+                      icon: AppIcons.credits,
+                      tint: AppTokens.of(context).tintTan,
+                      label: '积分记录',
+                      onTap: () => _push(context, const CreditLogPage()),
+                    ),
+                    EntryCell(
+                      icon: AppIcons.medal,
+                      tint: AppTokens.of(context).tintZhe,
+                      label: '勋章',
+                      onTap: () => _push(context, const MedalsPage()),
+                    ),
+                  ],
+                ),
+            ],
             GroupedSection(
               children: [
                 GroupedRow(
@@ -158,7 +195,7 @@ class MeBody extends StatelessWidget {
                   ),
                   onTap: () => _push(context, const BlockedUsersPage()),
                 ),
-                // 有新版本时带红点,关于在设置里
+                // 有新版本或朱砂红上线未引导时带红点,关于在设置里
                 ListenableBuilder(
                   listenable: appUpdater,
                   builder: (context, _) => GroupedRow(
@@ -168,7 +205,9 @@ class MeBody extends StatelessWidget {
                       icon: AppIcons.settings,
                       tint: IconTints.gray,
                     ),
-                    dot: appUpdater.hasUpdate,
+                    dot:
+                        appUpdater.hasUpdate ||
+                        !appearance.styleDotSeen,
                     onTap: () => Navigator.of(context).pushNamed('/settings'),
                   ),
                 ),

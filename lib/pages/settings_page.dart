@@ -47,6 +47,16 @@ class _SettingsBodyState extends State<SettingsBody> {
     _refreshCacheSize();
   }
 
+  @override
+  void dispose() {
+    // 朱砂红上线引导:用户查看过设置页后消费红点(离开页面时底栏、
+    // 设置行、风格选项的红点全部消失并持久化,后续安装更新不再出现)。
+    // 放在 dispose 而非 initState:让设置页内"朱砂红"选项上的红点
+    // 至少可见一次,引导才成立。
+    (widget.appearanceController ?? appearance).markStyleDotSeen();
+    super.dispose();
+  }
+
   Future<void> _refreshCacheSize() async {
     String label;
     try {
@@ -115,7 +125,14 @@ class _SettingsBodyState extends State<SettingsBody> {
                     fallbackTitle: '界面风格',
                     options: [
                       for (final style in AppearanceStyle.values)
-                        PickerOption(value: style, label: style.label),
+                        PickerOption(
+                          value: style,
+                          label: style.label,
+                          // 朱砂红上线引导:未进过设置页时新主题带红点
+                          dot:
+                              style == AppearanceStyle.cinnabar &&
+                              !controller.styleDotSeen,
+                        ),
                     ],
                     value: controller.style,
                     onChanged: controller.setStyle,

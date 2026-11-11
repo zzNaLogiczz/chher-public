@@ -25,11 +25,15 @@ class PickerOption<T> {
   /// 独占一整行(例如"全部分区"),其余选项两列均分
   final bool wide;
 
+  /// 选项右上角的红点(新功能引导);仅分段形态展示。
+  final bool dot;
+
   const PickerOption({
     required this.value,
     required this.label,
     this.detail,
     this.wide = false,
+    this.dot = false,
   });
 }
 

@@ -10,6 +10,7 @@ import 'package:motor/motor.dart';
 import '../design/motion.dart';
 import '../design/tokens.dart';
 import '../design/typography.dart';
+import 'chrome_button.dart';
 import 'picker.dart';
 import 'press.dart';
 
@@ -231,12 +232,20 @@ class _AppSegmentedState<T> extends State<AppSegmented<T>>
           onTap: () => _select(i),
           semanticLabel: widget.options[i].label,
           child: Center(
-            child: Text(
-              widget.options[i].label,
-              maxLines: 1,
-              style: style.copyWith(
-                color: Color.lerp(restingColor, selectedColor, emphasis),
-              ),
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Text(
+                  widget.options[i].label,
+                  maxLines: 1,
+                  style: style.copyWith(
+                    color: Color.lerp(restingColor, selectedColor, emphasis),
+                  ),
+                ),
+                // 新功能引导红点(例如朱砂红上线):悬在文字右上角
+                if (widget.options[i].dot)
+                  const Positioned(top: -5, right: -10, child: DotBadge(visible: true)),
+              ],
             ),
           ),
         ),
