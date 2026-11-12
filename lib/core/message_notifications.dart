@@ -23,6 +23,8 @@ class MessageNotifications with WidgetsBindingObserver {
   bool _started = false;
   bool _foreground = true;
   bool _busy = false;
+  int _failures = 0;
+  DateTime? _nextAttempt;
   int? _revision;
   int _generation = 0;
   Future<bool?>? _permissionRequest;
@@ -37,6 +39,7 @@ class MessageNotifications with WidgetsBindingObserver {
       if (call.method == 'openMessages') openRequests.value++;
     });
     session.addListener(_sessionChanged);
+    session.client.headerFreshness.addListener(_headerUpdated);
     _sessionChanged();
     unawaited(_consumeLaunch());
   }
@@ -64,6 +67,8 @@ class MessageNotifications with WidgetsBindingObserver {
       final hadSession = _revision != null;
       _generation++;
       _revision = null;
+      _failures = 0;
+      _nextAttempt = null;
       _timer?.cancel();
       _timer = null;
       if (hadSession) {
@@ -74,6 +79,8 @@ class MessageNotifications with WidgetsBindingObserver {
     if (_revision != session.identityRevision) {
       _revision = session.identityRevision;
       _generation++;
+      _failures = 0;
+      _nextAttempt = null;
       unawaited(_activate(_generation));
     }
     _publish();
@@ -104,27 +111,75 @@ class MessageNotifications with WidgetsBindingObserver {
     _publish();
   }
 
-  void _schedule() {
-    _timer?.cancel();
-    _timer = _foreground && session.loggedIn
-        ? Timer.periodic(interval, (_) => unawaited(check()))
-        : null;
+  void _headerUpdated() {
+    if (session.client.lastFreshHeaderAt != null) {
+      _failures = 0;
+      _nextAttempt = null;
+    }
+    _schedule();
   }
 
+  Duration get _pollDelay {
+    final delay = interval * (1 << _failures);
+    return _failures > 0 && delay > const Duration(minutes: 5)
+        ? const Duration(minutes: 5)
+        : delay;
+  }
+
+  void _schedule() {
+    _timer?.cancel();
+    _timer = null;
+    if (!_started || !_foreground || !session.loggedIn || _busy) return;
+    final now = session.client.now();
+    final due =
+        _nextAttempt ??
+        session.client.lastFreshHeaderAt?.add(interval) ??
+        now.add(interval);
+    final remaining = due.difference(now);
+    // A wall-clock rollback must not extend a relative polling/backoff interval.
+    final delay = remaining.isNegative
+        ? Duration.zero
+        : remaining > _pollDelay
+        ? _pollDelay
+        : remaining;
+    _timer = Timer(delay, () {
+      final last = session.client.lastFreshHeaderAt;
+      final age = last == null ? null : session.client.now().difference(last);
+      if (age != null && !age.isNegative && age < interval) {
+        _schedule();
+      } else {
+        unawaited(check());
+      }
+    });
+  }
+
+  /// Explicit checks and resume bypass freshness/backoff; timer reads are deferred
+  /// by a real network header, including one whose unread counts did not change.
   Future<void> check() async {
     if (!_started || !_foreground || !session.loggedIn || _busy) return;
     _busy = true;
+    _timer?.cancel();
+    final generation = _generation;
+    final headerRevision = session.client.freshHeaderRevision;
+    var failed = false;
     try {
       await session.client.getHtml(
         ChhUrls.forumIndex(),
         refresh: true,
         fallback: false,
       );
+      failed = session.client.freshHeaderRevision == headerRevision;
     } catch (error) {
-      // Keep existing counters; retries wait for the next tick/resume.
+      failed = true;
       AppLog.w('NOTIFY', '检查未读失败 ${error.runtimeType}');
     } finally {
       _busy = false;
+      if (session.client.freshHeaderRevision != headerRevision) failed = false;
+      if (generation == _generation) {
+        _failures = failed ? (_failures + 1).clamp(0, 5) : 0;
+        _nextAttempt = failed ? session.client.now().add(_pollDelay) : null;
+      }
+      _schedule();
     }
   }
 
@@ -140,6 +195,7 @@ class MessageNotifications with WidgetsBindingObserver {
     _generation++;
     _timer?.cancel();
     session.removeListener(_sessionChanged);
+    session.client.headerFreshness.removeListener(_headerUpdated);
     WidgetsBinding.instance.removeObserver(this);
     _channel.setMethodCallHandler(null);
     openRequests.dispose();

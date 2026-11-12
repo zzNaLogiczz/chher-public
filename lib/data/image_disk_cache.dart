@@ -105,9 +105,61 @@ class ImageDiskCache {
     }
   }
 
+  /// File-backed hit for large encodings; callers must handle OS reclamation.
+  Future<File?> fileFor(String url, {int minBytes = 0}) async {
+    final dir = _dir;
+    if (dir == null) return null;
+    await _ensureScanned();
+    await _acquireRead();
+    try {
+      final name = _fileName(url);
+      final size = _entries[name];
+      if (size == null || size < minBytes) return null;
+      final file = File('${dir.path}/$name');
+      if (!await file.exists()) {
+        _forget(name);
+        return null;
+      }
+      final currentSize = _entries.remove(name);
+      if (currentSize == null) return null;
+      _entries[name] = currentSize;
+      hits++;
+      return file;
+    } finally {
+      _releaseRead();
+    }
+  }
+
   Future<void> write(String url, Uint8List bytes) {
     if (_dir == null || bytes.isEmpty) return Future<void>.value();
-    return _enqueue(() => _write(url, bytes));
+    return _enqueue(
+      () => _store(url, bytes.length, (file) async {
+        await file.writeAsBytes(bytes, flush: true);
+      }),
+    );
+  }
+
+  Future<void> writeFile(String url, File source) {
+    if (_dir == null) return Future<void>.value();
+    return _enqueue(() async {
+      final size = await source.length();
+      if (size == 0) return;
+      await _store(url, size, (file) async {
+        await source.copy(file.path);
+      });
+    });
+  }
+
+  Future<void> remove(String url) {
+    final dir = _dir;
+    if (dir == null) return Future<void>.value();
+    return _enqueue(() async {
+      await _ensureScanned();
+      final name = _fileName(url);
+      _forget(name);
+      _writeEpoch++;
+      await _tryDelete(File('${dir.path}/$name'));
+    });
   }
 
   /// Total cached bytes. Cheap after the first call (running value).
@@ -135,14 +187,18 @@ class ImageDiskCache {
     });
   }
 
-  Future<void> _write(String url, Uint8List bytes) async {
+  Future<void> _store(
+    String url,
+    int size,
+    Future<void> Function(File file) write,
+  ) async {
     final dir = _dir!;
     await _ensureScanned();
     final name = _fileName(url);
     final temporary = File('${dir.path}/$name.tmp');
     try {
       await dir.create(recursive: true);
-      await temporary.writeAsBytes(bytes, flush: true);
+      await write(temporary);
       await temporary.rename('${dir.path}/$name');
     } catch (_) {
       // Full disk or reclaimed directory: skip caching, never throw. Remove the
@@ -152,8 +208,8 @@ class ImageDiskCache {
     }
     final old = _entries.remove(name);
     if (old != null) _total -= old;
-    _entries[name] = bytes.length;
-    _total += bytes.length;
+    _entries[name] = size;
+    _total += size;
     _writeEpoch++;
     _evictIfNeeded();
   }

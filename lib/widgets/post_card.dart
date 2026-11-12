@@ -21,7 +21,7 @@ import 'image_stack_gallery.dart';
 import '../pages/user_drawer.dart';
 import 'article_image.dart';
 import 'image_grid.dart';
-import 'net_image.dart';
+import 'avatar_image.dart';
 import 'rich_content_text.dart';
 import 'content_link_block.dart';
 import 'post_feedback.dart';
@@ -273,17 +273,8 @@ class PostCard extends StatelessWidget {
     ),
   );
 
-  Widget _avatar(AppTokens t, double size) => ClipRRect(
-    borderRadius: BorderRadius.circular(size / 2),
-    child: Container(
-      width: size,
-      height: size,
-      color: t.fill,
-      child: post.avatarUrl == null
-          ? Icon(AppIcons.person, size: size * .55, color: t.text3)
-          : NetImage(url: post.avatarUrl!, width: size, height: size),
-    ),
-  );
+  Widget _avatar(AppTokens t, double size) =>
+      AvatarImage(url: post.avatarUrl, size: size);
 
   Widget _profileLink(
     BuildContext context, {
@@ -333,8 +324,7 @@ class PostCard extends StatelessWidget {
     );
   }
 
-  bool get _wideImageRow =>
-      _part == _PostPart.block && imageStack != null;
+  bool get _wideImageRow => _part == _PostPart.block && imageStack != null;
 
   Widget _buildPart(BuildContext context, AppTokens t) {
     final metrics = ReadingMetrics.of(context);

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../core/app_info.dart';
+import '../design/brand.dart';
 import '../design/icons.dart';
 import '../design/tokens.dart';
 import '../design/typography.dart';
@@ -14,8 +15,7 @@ import '../ui/grouped.dart';
 import '../widgets/link_opener.dart';
 import '../widgets/update_sheet.dart';
 
-/// 应用图标,与启动图标同源(tool/launcher_icon.py 生成)
-const appLogoAsset = 'assets/brand/chher-logo.png';
+export '../design/brand.dart' show appLogoAsset;
 
 const feedbackEmail = 'zznalogic@gmail.com';
 

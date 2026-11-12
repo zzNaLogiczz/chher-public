@@ -299,6 +299,9 @@ class _ProfileFetcher extends ChhFetcher {
   @override
   Future<ChhResponse> getHtml(Uri url, {Map<String, String>? headers}) async {
     expect(url.path, '/space-uid-4.html');
-    return const ChhResponse(200, '<html><h2 class="mbn">离线用户主页</h2></html>');
+    return const ChhResponse(
+      200,
+      '<html><div id="ct"><h2 class="mbn">离线用户主页</h2></div></html>',
+    );
   }
 }

@@ -1,6 +1,8 @@
 /// 页面获取器抽象:直连 / 隐藏 WebView / 本地文件 三种实现统一接口
 library;
 
+import 'package:html/parser.dart' as html_parser;
+
 class ChhResponse {
   final int status;
   final String body;
@@ -51,6 +53,53 @@ class ChhResponse {
       body.contains('.a1{margin:0');
 
   bool get isBlocked => status <= 0 || body.isEmpty || hasWafFeatures;
+
+  /// Full CHH documents need site structure; AJAX fragments keep their own protocol.
+  String? getPageRejection(Uri url, {bool ajax = false}) {
+    if (!{'www.chiphell.com', 'chiphell.com'}.contains(url.host) ||
+        ajax ||
+        !RegExp(
+          r'^/(?:$|(?:forum|portal|home|member|search)\.php$|(?:forum|thread|article|space)-[^/]+\.html$)',
+        ).hasMatch(url.path)) {
+      return null;
+    }
+    // Ordinary pages need no second DOM parse; posts may quote challenge text.
+    if (RegExp(
+      r'''<(?:div|main|header)\b[^>]*\sid\s*=\s*(?:"(?:hd|wp|ct|um)"|'(?:hd|wp|ct|um)')''',
+      caseSensitive: false,
+    ).hasMatch(body)) {
+      return null;
+    }
+    final challenge = body.contains('EO_Bot_Ssid') || body.contains('含有非法字符');
+    if (!RegExp(r'<html\b', caseSensitive: false).hasMatch(body) ||
+        !RegExp(r'</html\s*>', caseSensitive: false).hasMatch(body)) {
+      return challenge ? 'challenge' : null;
+    }
+    final doc = html_parser.parse(body);
+    return doc.querySelector(
+              '#hd, #wp, #ct, #um, #messagetext, #messagelogin, '
+              'form[id^="loginform"], .fl, .bm, #threadlist, #postlist, '
+              '[id^="normalthread_"], [id^="stickthread_"], [id^="post_"], '
+              '#article_content, .vw, #deletepmform, #pm_ul, [id^="notice_"]',
+            ) ==
+            null
+        ? (challenge ? 'challenge' : 'unrecognized_document')
+        : null;
+  }
+
+  String get titleSummary {
+    final match = RegExp(
+      r'<title\b[^>]*>([\s\S]*?)</title\s*>',
+      caseSensitive: false,
+    ).firstMatch(body);
+    final title = html_parser.parseFragment(match?.group(1) ?? '').text ?? '';
+    // Only the title is logged; never include arbitrary response body or scripts.
+    final safe = title
+        .replaceAll(RegExp(r'https?://[^\s<>]+', caseSensitive: false), '[URL]')
+        .replaceAll(RegExp(r'[\s\x00-\x1f]+'), ' ')
+        .trim();
+    return safe.length > 80 ? safe.substring(0, 80) : safe;
+  }
 }
 
 abstract class ChhFetcher {

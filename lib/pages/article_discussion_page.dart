@@ -132,6 +132,7 @@ class _ArticleDiscussionPageState extends State<ArticleDiscussionPage>
   bool _preferencesApplied = false;
   ArticleCommentIndex _index = ArticleCommentIndex.empty;
   List<_CommentEntry> _entries = const [];
+  Map<Object, int> _entryIndexes = const {};
 
   /// 已作为一级评论展示过的 cid:后续分页揭示其引用对象时也不搬走
   final _pinnedRoots = <int>{};
@@ -223,7 +224,7 @@ class _ArticleDiscussionPageState extends State<ArticleDiscussionPage>
     _index = ArticleCommentIndex.build(_items, pinnedRoots: _pinnedRoots);
     _pinnedRoots.addAll(_index.roots.map((c) => c.cid));
     final discussion = _discussion;
-    _entries = switch (_mode) {
+    final comments = switch (_mode) {
       CommentViewMode.floors => [for (final c in _items) _CommentEntry(c)],
       CommentViewMode.author => [
         for (final c in _items)
@@ -233,6 +234,57 @@ class _ArticleDiscussionPageState extends State<ArticleDiscussionPage>
         for (final root in _index.roots) ..._threadedEntries(root),
       ],
     };
+    _entries = [for (final entry in comments) ..._splitComment(entry)];
+    _entryIndexes = {
+      for (var i = 0; i < _entries.length; i++) _entries[i].id: i,
+    };
+  }
+
+  /// Keep short comments intact; long bodies share the outer sliver viewport.
+  Iterable<_CommentEntry> _splitComment(_CommentEntry entry) sync* {
+    final comment = entry.comment;
+    final blocks = _mode == CommentViewMode.threaded && entry.nested
+        ? comment.content.where((b) => b is! QuoteBlock || b.isNotice).toList()
+        : comment.content;
+    if (entry.expander > 0 || blocks.length <= 24) {
+      yield entry;
+      return;
+    }
+    yield _CommentEntry(
+      comment,
+      nested: entry.nested,
+      part: _CommentPart.header,
+    );
+    final firstText = blocks.indexWhere((b) => b is TextBlock);
+    final author = _mode == CommentViewMode.threaded
+        ? _index.replyToAuthor(comment.cid)
+        : null;
+    final prefix = author == null ? null : '回复 $author：';
+    if (firstText < 0 && prefix != null) {
+      yield _CommentEntry(
+        comment,
+        nested: entry.nested,
+        part: _CommentPart.body,
+        block: TextBlock(prefix),
+        blockIndex: -1,
+      );
+    }
+    for (var i = 0; i < blocks.length; i++) {
+      yield _CommentEntry(
+        comment,
+        nested: entry.nested,
+        part: _CommentPart.body,
+        block: blocks[i],
+        blockIndex: i,
+        lastBlock: i == blocks.length - 1,
+        prefix: i == firstText ? prefix : null,
+      );
+    }
+    yield _CommentEntry(
+      comment,
+      nested: entry.nested,
+      part: _CommentPart.footer,
+    );
   }
 
   Iterable<_CommentEntry> _threadedEntries(ArticleComment root) sync* {
@@ -291,6 +343,16 @@ class _ArticleDiscussionPageState extends State<ArticleDiscussionPage>
         _revealing.addAll(
           _index.repliesFor(rootCid).skip(before).take(10).map((c) => c.cid),
         );
+        var budget = 24;
+        for (final entry in _entries) {
+          if (entry.nested && _revealing.contains(entry.comment.cid)) {
+            final cost = entry.part == _CommentPart.tile
+                ? entry.comment.content.length + 2
+                : 1;
+            entry.animateReveal = cost <= budget;
+            if (entry.animateReveal) budget -= cost;
+          }
+        }
         _replyReveal.forward(from: 0);
       }
     });
@@ -510,7 +572,10 @@ class _ArticleDiscussionPageState extends State<ArticleDiscussionPage>
             sliver: SliverList.builder(
               key: ValueKey(_mode),
               itemCount: _entries.length,
+              findChildIndexCallback: (key) =>
+                  key is ValueKey ? _entryIndexes[key.value] : null,
               itemBuilder: (context, index) => FadeTransition(
+                key: ValueKey(_entries[index].id),
                 opacity: _modeOpacity,
                 child: _entryView(t, index),
               ),
@@ -556,16 +621,38 @@ class _ArticleDiscussionPageState extends State<ArticleDiscussionPage>
     final comment = entry.comment;
     if (entry.expander > 0) return _expander(entry);
     final grouped = _mode == CommentViewMode.threaded;
-    final tile = ArticleCommentTile(
-      key: ValueKey('comment-${comment.cid}'),
-      comment: comment,
-      nested: entry.nested,
-      // 归组已表达回复关系时不再重复引文;认不出对象的引用仍保留
-      hideQuotes: grouped && entry.nested,
-      replyToAuthor: grouped ? _index.replyToAuthor(comment.cid) : null,
-      byAuthor: _discussion?.byAuthor(comment) ?? false,
-      onReply: () => _openComposer(comment),
-    );
+    final avatar = entry.nested ? metrics.avatarNested : metrics.avatar;
+    final tile = entry.part == _CommentPart.body
+        ? Padding(
+            padding: EdgeInsets.only(left: avatar + 10),
+            child: DiscussionCommentBlock(
+              key: ValueKey(
+                'article-comment-block-${comment.cid}-${entry.blockIndex}',
+              ),
+              block: entry.block!,
+              last: entry.lastBlock,
+              prefix: entry.prefix,
+            ),
+          )
+        : ArticleCommentTile(
+            key: ValueKey(
+              entry.part == _CommentPart.footer
+                  ? 'comment-footer-${comment.cid}'
+                  : 'comment-${comment.cid}',
+            ),
+            part: switch (entry.part) {
+              _CommentPart.header => ArticleCommentPart.header,
+              _CommentPart.footer => ArticleCommentPart.footer,
+              _ => ArticleCommentPart.complete,
+            },
+            comment: comment,
+            nested: entry.nested,
+            // 归组已表达回复关系时不再重复引文;认不出对象的引用仍保留
+            hideQuotes: grouped && entry.nested,
+            replyToAuthor: grouped ? _index.replyToAuthor(comment.cid) : null,
+            byAuthor: _discussion?.byAuthor(comment) ?? false,
+            onReply: () => _openComposer(comment),
+          );
     final view = entry.nested
         ? Padding(
             padding: EdgeInsets.only(left: metrics.avatar + 10),
@@ -574,7 +661,9 @@ class _ArticleDiscussionPageState extends State<ArticleDiscussionPage>
         : Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              if (index > 0)
+              if (index > 0 &&
+                  (entry.part == _CommentPart.tile ||
+                      entry.part == _CommentPart.header))
                 Divider(
                   height: .5,
                   thickness: .5,
@@ -584,7 +673,7 @@ class _ArticleDiscussionPageState extends State<ArticleDiscussionPage>
               tile,
             ],
           );
-    if (!_revealing.contains(comment.cid) || !entry.nested) return view;
+    if (!_revealing.contains(comment.cid) || !entry.animateReveal) return view;
     return SizeTransition(
       sizeFactor: _replyRevealCurve,
       alignment: Alignment.topCenter,
@@ -781,13 +870,29 @@ class _ArticleDiscussionPageState extends State<ArticleDiscussionPage>
   }
 }
 
-/// 列表中的一行:一条评论,或某条一级评论下"展开 N 条回复"的按钮
+enum _CommentPart { tile, header, body, footer }
+
+/// One outer-sliver child; a long comment never becomes a nested full-height box.
 class _CommentEntry {
   final ArticleComment comment;
   final bool nested;
-
-  /// 大于 0 时是展开按钮,值为尚未显示的回复数
   final int expander;
+  final _CommentPart part;
+  final ContentBlock? block;
+  final int blockIndex;
+  final bool lastBlock;
+  final String? prefix;
+  bool animateReveal = false;
+  Object get id => (comment.cid, part, blockIndex, expander > 0);
 
-  const _CommentEntry(this.comment, {this.nested = false, this.expander = 0});
+  _CommentEntry(
+    this.comment, {
+    this.nested = false,
+    this.expander = 0,
+    this.part = _CommentPart.tile,
+    this.block,
+    this.blockIndex = 0,
+    this.lastBlock = false,
+    this.prefix,
+  });
 }

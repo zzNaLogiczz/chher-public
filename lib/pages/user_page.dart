@@ -342,7 +342,11 @@ class _IdentityCard extends StatelessWidget {
           ),
           child: Padding(
             padding: const EdgeInsets.all(3),
-            child: AccountAvatar(url: profile.avatarUrl, size: 88),
+            child: AccountAvatar(
+              url: profile.avatarUrl,
+              size: 88,
+              refreshable: true,
+            ),
           ),
         ),
         const SizedBox(height: 14),

@@ -87,6 +87,10 @@ void main() {
     'foreground checks do not wait for permission and repeat every 15s',
     (tester) async {
       notifications.dispose();
+      session.dispose();
+      client = ChhClient(fetchers: [fetcher], now: tester.binding.clock.now);
+      session = ChhSession(client)..loggedIn = true;
+      client.htmlObserver = session.observeHtml;
       notifications = MessageNotifications(session);
       final permission = Completer<bool>();
       messenger.setMockMethodCallHandler(channel, (call) async {
@@ -115,6 +119,134 @@ void main() {
       notifications.didChangeAppLifecycleState(AppLifecycleState.paused);
     },
   );
+
+  testWidgets(
+    'fresh unchanged headers defer checks; cached and headerless pages do not',
+    (tester) async {
+      notifications.dispose();
+      session.dispose();
+      client = ChhClient(fetchers: [fetcher], now: tester.binding.clock.now);
+      session = ChhSession(client)..loggedIn = true;
+      client.htmlObserver = session.observeHtml;
+      notifications = MessageNotifications(session)..start();
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 10));
+      final business = Uri.parse('https://www.chiphell.com/business');
+      await client.getHtml(
+        business,
+      ); // Same counts still constitute a new header.
+      final fresh = client.lastFreshHeaderAt;
+      final before = fetcher.calls;
+      await tester.pump(const Duration(seconds: 5));
+      expect(fetcher.calls, before);
+      await client.getHtml(business); // Cache must not extend the deadline.
+      fetcher.html = '<p>no header</p>';
+      await client.getHtml(Uri.parse('https://www.chiphell.com/ajax'));
+      expect(client.lastFreshHeaderAt, fresh);
+      fetcher.html = header(4, 1);
+      await tester.pump(const Duration(seconds: 9));
+      expect(fetcher.calls, before + 1);
+      await tester.pump(const Duration(seconds: 1));
+      expect(fetcher.calls, before + 2);
+      expect(session.badges.total, 5);
+      notifications.didChangeAppLifecycleState(AppLifecycleState.paused);
+    },
+  );
+
+  testWidgets(
+    'missing headers back off within five minutes and real headers reset retries',
+    (tester) async {
+      notifications.dispose();
+      session.dispose();
+      client = ChhClient(fetchers: [fetcher], now: tester.binding.clock.now);
+      session = ChhSession(client)..loggedIn = true;
+      client.htmlObserver = session.observeHtml;
+      notifications = MessageNotifications(session)..start();
+      await tester.pump();
+      fetcher.html = '<p>session header unavailable</p>';
+      await tester.pump(const Duration(seconds: 15));
+      for (final seconds in [30, 60, 120, 240, 300, 300]) {
+        final before = fetcher.calls;
+        await tester.pump(Duration(seconds: seconds - 1));
+        expect(fetcher.calls, before);
+        await tester.pump(const Duration(seconds: 1));
+        expect(fetcher.calls, before + 1);
+      }
+      fetcher.html = header(1, 0);
+      await client.getHtml(Uri.parse('https://www.chiphell.com/recovered'));
+      final before = fetcher.calls;
+      await tester.pump(const Duration(seconds: 15));
+      expect(fetcher.calls, before + 1);
+      notifications.didChangeAppLifecycleState(AppLifecycleState.paused);
+    },
+  );
+
+  testWidgets('clock rollback cannot keep a future-dated header fresh', (
+    tester,
+  ) async {
+    notifications.dispose();
+    session.dispose();
+    var wallClock = DateTime.utc(2026, 11, 12, 12);
+    client = ChhClient(fetchers: [fetcher], now: () => wallClock);
+    session = ChhSession(client)..loggedIn = true;
+    client.htmlObserver = session.observeHtml;
+    notifications = MessageNotifications(session)..start();
+    await tester.pump();
+    final before = fetcher.calls;
+    wallClock = wallClock.subtract(const Duration(hours: 1));
+    await tester.pump(const Duration(seconds: 15));
+    expect(fetcher.calls, before + 1);
+    expect(client.lastFreshHeaderAt, wallClock);
+    notifications.didChangeAppLifecycleState(AppLifecycleState.paused);
+  });
+
+  testWidgets('clock rollback cannot extend an existing retry deadline', (
+    tester,
+  ) async {
+    notifications.dispose();
+    session.dispose();
+    var wallClock = DateTime.utc(2026, 11, 12, 12);
+    client = ChhClient(fetchers: [fetcher], now: () => wallClock);
+    session = ChhSession(client)..loggedIn = true;
+    client.htmlObserver = session.observeHtml;
+    notifications = MessageNotifications(session)..start();
+    await tester.pump();
+    fetcher.html = '<p>no header</p>';
+    await notifications.check(); // First failure uses a 30-second retry.
+    final before = fetcher.calls;
+    wallClock = wallClock.subtract(const Duration(hours: 1));
+    client
+        .clearCache(); // Reschedule while the existing wall-clock deadline is ahead.
+    await tester.pump(const Duration(seconds: 29));
+    expect(fetcher.calls, before);
+    await tester.pump(const Duration(seconds: 1));
+    expect(fetcher.calls, before + 1);
+    notifications.didChangeAppLifecycleState(AppLifecycleState.paused);
+  });
+
+  testWidgets('a concurrent valid header wins over a failing poll', (
+    tester,
+  ) async {
+    notifications.dispose();
+    session.dispose();
+    client = ChhClient(fetchers: [fetcher], now: tester.binding.clock.now);
+    session = ChhSession(client)..loggedIn = true;
+    client.htmlObserver = session.observeHtml;
+    notifications = MessageNotifications(session)..start();
+    await tester.pump();
+    fetcher.pending = Completer<ChhResponse>();
+    final pending = fetcher.pending!;
+    final check = notifications.check();
+    fetcher.pending = null;
+    await tester.pump(const Duration(seconds: 2));
+    await client.getHtml(Uri.parse('https://www.chiphell.com/new-header'));
+    pending.completeError(StateError('offline fixture'));
+    await check;
+    final before = fetcher.calls;
+    await tester.pump(const Duration(seconds: 15));
+    expect(fetcher.calls, before + 1);
+    notifications.didChangeAppLifecycleState(AppLifecycleState.paused);
+  });
 
   test(
     'pause stops checks; resume checks immediately; logout cancels native work',

@@ -7,7 +7,7 @@ import '../design/motion.dart';
 import '../design/tokens.dart';
 import '../models/models.dart';
 import '../ui/press.dart';
-import 'net_image.dart';
+import 'avatar_image.dart';
 
 /// Keeps notification feedback in the panel’s own palette.
 class PostFeedbackHighlight extends InheritedWidget {
@@ -820,26 +820,9 @@ class _Avatar extends StatelessWidget {
   final double size;
   const _Avatar({required this.url, required this.size});
   @override
-  Widget build(BuildContext context) {
-    final t = AppTokens.of(context);
-    return ExcludeSemantics(
-      child: ClipOval(
-        child: SizedBox.square(
-          dimension: size,
-          child: url == null || url!.isEmpty
-              ? ColoredBox(
-                  color: t.fill,
-                  child: Icon(
-                    AppIcons.person,
-                    size: size * FeedbackMetrics.avatarIconRatio,
-                    color: t.text3,
-                  ),
-                )
-              : NetImage(url: url!, width: size, height: size),
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => ExcludeSemantics(
+    child: AvatarImage(url: url, size: size),
+  );
 }
 
 class _AvatarStack extends StatelessWidget {

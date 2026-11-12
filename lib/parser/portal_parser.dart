@@ -4,6 +4,7 @@
 /// 门户文章图是直链 src,无懒加载,与论坛帖的 zoomfile 不同。
 library;
 
+import 'package:html/dom.dart' as dom;
 import 'package:html/parser.dart' as html_parser;
 
 import '../core/chh_urls.dart';
@@ -15,8 +16,10 @@ import 'dom_utils.dart';
 ///
 /// 门户条目 article-{aid} 可能 302 到 thread-{tid}。落地页有楼层容器就是帖子,
 /// tid 优先取 canonical 链接,取不到再从正文里的帖子链接兜底。
-int? threadBehindArticle(String html) {
-  final doc = html_parser.parse(html);
+int? threadBehindArticle(String html) =>
+    _threadBehindArticle(html_parser.parse(html), html);
+
+int? _threadBehindArticle(dom.Document doc, String html) {
   final isThread =
       doc.querySelector('#postlist') != null ||
       doc.querySelector('table[id^="pid"]') != null;
@@ -31,8 +34,9 @@ int? threadBehindArticle(String html) {
 }
 
 /// 落地页的标题
-String titleOfPage(String html) {
-  final doc = html_parser.parse(html);
+String titleOfPage(String html) => _titleOfPage(html_parser.parse(html));
+
+String _titleOfPage(dom.Document doc) {
   final subject = cleanText(doc.getElementById('thread_subject')?.text);
   if (subject.isNotEmpty) return subject;
   final t = cleanText(doc.querySelector('title')?.text);
@@ -41,8 +45,19 @@ String titleOfPage(String html) {
 }
 
 /// 门户文章:h1.ph 标题,td#article_content 正文(图直链),.pg 分页
-ArticleDetail parseArticle(String html, {required int aid}) {
+ArticleDetail parseArticle(String html, {required int aid}) =>
+    _parseArticle(html_parser.parse(html), aid: aid);
+
+/// 分流、标题与正文共用落地页 DOM，避免文章打开时重复解析整页。
+PortalContent parsePortalContent(String html, {required int aid}) {
   final doc = html_parser.parse(html);
+  final tid = _threadBehindArticle(doc, html);
+  return tid == null
+      ? ArticleContent(_parseArticle(doc, aid: aid))
+      : ThreadContent(tid, _titleOfPage(doc));
+}
+
+ArticleDetail _parseArticle(dom.Document doc, {required int aid}) {
   throwIfMessagePage(doc);
 
   final title = cleanText(doc.querySelector('h1.ph')?.text);

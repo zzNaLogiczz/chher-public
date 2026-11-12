@@ -6,6 +6,7 @@ library;
 
 import 'package:flutter/material.dart';
 import 'cached_net_image.dart';
+import 'pixel_budget_image.dart';
 import 'expressive_controls.dart';
 
 import '../core/chh_urls.dart';
@@ -25,10 +26,9 @@ int boundedImageDecodeWidth(double logicalWidth, double devicePixelRatio) {
 }
 
 ImageProvider<Object> boundedNetworkImage(String url, int decodeWidth) =>
-    ResizeImage.resizeIfNeeded(
-      decodeWidth,
-      null,
+    PreviewResizeImage(
       ChhCachedImage(url, headers: chhImageHeaders),
+      width: decodeWidth,
     );
 
 /// Display-sized decoding bounds both axes without distorting tall/wide sources.
@@ -36,7 +36,7 @@ ImageProvider<Object> boundedNetworkImageBox(
   String url,
   int width,
   int height,
-) => ResizeImage(
+) => PreviewResizeImage(
   ChhCachedImage(url, headers: chhImageHeaders),
   width: width.clamp(64, 2048),
   height: height.clamp(64, 2048),

@@ -11,10 +11,12 @@ import 'package:html/parser.dart' as html_parser;
 
 import '../core/chh_urls.dart';
 import '../models/models.dart';
+import 'dom_utils.dart';
 import 'thread_list_parser.dart' show parsePagerOf;
 
 ThreadListPage parseGuide(String html) {
   final doc = html_parser.parse(html);
+  throwIfMessagePage(doc);
   final threads = <ThreadSummary>[];
 
   for (final tbody in doc.querySelectorAll('tbody')) {

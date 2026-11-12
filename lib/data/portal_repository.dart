@@ -8,7 +8,7 @@ import '../models/models.dart';
 import '../network/chh_client.dart';
 import '../parser/portal_home_parser.dart';
 import '../parser/portal_list_parser.dart';
-import '../parser/portal_parser.dart';
+import '../parser/background_parser.dart';
 
 class PortalRepository {
   final ChhClient client;
@@ -68,9 +68,6 @@ class PortalRepository {
       fallback: fallback,
     );
 
-    final tid = threadBehindArticle(html);
-    if (tid != null) return ThreadContent(tid, titleOfPage(html));
-
-    return ArticleContent(parseArticle(html, aid: aid));
+    return parsePortalContentAsync(html, aid: aid);
   }
 }

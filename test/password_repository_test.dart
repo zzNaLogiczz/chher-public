@@ -67,7 +67,7 @@ class _Platform extends InAppWebViewPlatform {
 }
 
 class _Transport extends ChhFetcher {
-  String page = '<html>cached fixture</html>';
+  String page = '<html><body><div id="wp">cached fixture</div></body></html>';
   ChhResponse response = const ChhResponse(
     200,
     '<div id="messagetext">密码验证成功</div>',

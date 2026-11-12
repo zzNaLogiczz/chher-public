@@ -7,7 +7,6 @@ import 'package:flutter/material.dart';
 import '../design/reading.dart';
 import 'package:motor/motor.dart';
 
-import '../design/icons.dart';
 import '../design/tokens.dart';
 import '../ui/app_button.dart';
 import '../ui/hit_slop.dart';
@@ -17,11 +16,14 @@ import 'post_card.dart' show CommentMetaRow;
 import '../models/article_discussion.dart';
 import '../models/models.dart';
 import 'article_image.dart';
-import 'net_image.dart';
+import 'avatar_image.dart';
 import 'rich_content_text.dart';
 import 'content_link_block.dart';
 
+enum ArticleCommentPart { complete, header, footer }
+
 class ArticleCommentTile extends StatelessWidget {
+  final ArticleCommentPart part;
   final ArticleComment comment;
   final VoidCallback onReply;
 
@@ -45,6 +47,7 @@ class ArticleCommentTile extends StatelessWidget {
     this.replyToAuthor,
     this.hideQuotes = false,
     this.byAuthor = false,
+    this.part = ArticleCommentPart.complete,
   });
 
   String get _timeLabel {
@@ -61,34 +64,28 @@ class ArticleCommentTile extends StatelessWidget {
     final t = AppTokens.of(context);
     final metrics = ReadingMetrics.of(context);
     final avatar = nested ? metrics.avatarNested : metrics.avatar;
+    if (part == ArticleCommentPart.footer) {
+      return HitSlopRegion(
+        child: Padding(
+          padding: EdgeInsets.only(left: avatar + 10, bottom: metrics.postVPad),
+          child: _metadata(),
+        ),
+      );
+    }
     // 与帖子评论同样式:圆形头像、名字、正文,时间后跟浅色"回复"
     return HitSlopRegion(
       child: Padding(
-        padding: EdgeInsets.symmetric(vertical: metrics.postVPad),
+        padding: EdgeInsets.only(
+          top: metrics.postVPad,
+          bottom: part == ArticleCommentPart.header ? 0 : metrics.postVPad,
+        ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _profileLink(
               context,
               key: ValueKey('article-comment-avatar-${comment.cid}'),
-              child: ClipOval(
-                child: Container(
-                  width: avatar,
-                  height: avatar,
-                  color: t.fill,
-                  child: comment.avatarUrl == null
-                      ? Icon(
-                          AppIcons.person,
-                          size: avatar * .55,
-                          color: t.text3,
-                        )
-                      : NetImage(
-                          url: comment.avatarUrl!,
-                          width: avatar,
-                          height: avatar,
-                        ),
-                ),
-              ),
+              child: AvatarImage(url: comment.avatarUrl, size: avatar),
             ),
             const SizedBox(width: 10),
             Expanded(
@@ -141,26 +138,22 @@ class ArticleCommentTile extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 4),
-                  DiscussionCommentContent(
-                    blocks: hideQuotes
-                        ? comment.content
-                              .where(
-                                (block) =>
-                                    block is! QuoteBlock || block.isNotice,
-                              )
-                              .toList()
-                        : comment.content,
-                    fallback: comment.text,
-                    prefix: replyToAuthor == null ? null : '回复 $replyToAuthor：',
-                  ),
-                  CommentMetaRow(
-                    timeLabel: (comment.timeRaw?.isNotEmpty ?? false)
-                        ? _timeLabel
-                        : '',
-                    timeSemanticsLabel: comment.timeRaw,
-                    replyKey: ValueKey('article-comment-reply-${comment.cid}'),
-                    onReply: onReply,
-                  ),
+                  if (part == ArticleCommentPart.complete)
+                    DiscussionCommentContent(
+                      blocks: hideQuotes
+                          ? comment.content
+                                .where(
+                                  (block) =>
+                                      block is! QuoteBlock || block.isNotice,
+                                )
+                                .toList()
+                          : comment.content,
+                      fallback: comment.text,
+                      prefix: replyToAuthor == null
+                          ? null
+                          : '回复 $replyToAuthor：',
+                    ),
+                  if (part == ArticleCommentPart.complete) _metadata(),
                 ],
               ),
             ),
@@ -169,6 +162,13 @@ class ArticleCommentTile extends StatelessWidget {
       ),
     );
   }
+
+  Widget _metadata() => CommentMetaRow(
+    timeLabel: (comment.timeRaw?.isNotEmpty ?? false) ? _timeLabel : '',
+    timeSemanticsLabel: comment.timeRaw,
+    replyKey: ValueKey('article-comment-reply-${comment.cid}'),
+    onReply: onReply,
+  );
 
   Widget _profileLink(
     BuildContext context, {
@@ -225,37 +225,70 @@ class DiscussionCommentContent extends StatelessWidget {
           else if (prefix != null && firstText < 0)
             Text(prefix!, style: style),
           for (var i = 0; i < blocks.length; i++)
-            switch (blocks[i]) {
-              TextBlock() => Padding(
-                padding: EdgeInsets.only(
-                  bottom: i == blocks.length - 1 ? 0 : metrics.paragraphGap,
-                ),
-                child: RichContentText(
-                  block: i == firstText && prefix != null
-                      ? _prefixed(blocks[i] as TextBlock, prefix!)
-                      : blocks[i] as TextBlock,
-                  style: style,
-                ),
-              ),
-              ImageBlock(:final url) => Padding(
-                padding: EdgeInsets.symmetric(vertical: metrics.imageGap),
-                child: RepaintBoundary(child: ArticleImage(url: url)),
-              ),
-              QuoteBlock() => Padding(
-                padding: EdgeInsets.only(bottom: metrics.paragraphGap),
-                child: DiscussionQuote(
-                  key: ValueKey('quote-$i'),
-                  quote: blocks[i] as QuoteBlock,
-                ),
-              ),
-              SiteLinkBlock() || BilibiliBlock() => Padding(
-                padding: EdgeInsets.only(bottom: metrics.paragraphGap),
-                child: ContentLinkBlockView(block: blocks[i]),
-              ),
-            },
+            DiscussionCommentBlock(
+              block: blocks[i],
+              last: i == blocks.length - 1,
+              prefix: i == firstText ? prefix : null,
+            ),
         ],
       ),
     );
+  }
+}
+
+/// One independently laid-out paragraph, image, quote or link in a comment.
+class DiscussionCommentBlock extends StatelessWidget {
+  final ContentBlock block;
+  final bool last;
+  final String? prefix;
+  const DiscussionCommentBlock({
+    super.key,
+    required this.block,
+    this.last = false,
+    this.prefix,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
+    final metrics = ReadingMetrics.of(context);
+    final style = TextStyle(
+      fontSize: metrics.commentSize,
+      color: t.text,
+      height: metrics.commentHeight,
+    );
+    return MediaQuery(
+      data: MediaQuery.of(context).copyWith(
+        textScaler: metrics.textScaler(MediaQuery.textScalerOf(context)),
+      ),
+      child: _content(metrics, style),
+    );
+  }
+
+  Widget _content(ReadingMetrics metrics, TextStyle style) {
+    return switch (block) {
+      TextBlock() => Padding(
+        padding: EdgeInsets.only(bottom: last ? 0 : metrics.paragraphGap),
+        child: RichContentText(
+          block: prefix != null
+              ? _prefixed(block as TextBlock, prefix!)
+              : block as TextBlock,
+          style: style,
+        ),
+      ),
+      ImageBlock(:final url) => Padding(
+        padding: EdgeInsets.symmetric(vertical: metrics.imageGap),
+        child: RepaintBoundary(child: ArticleImage(url: url)),
+      ),
+      QuoteBlock() => Padding(
+        padding: EdgeInsets.only(bottom: metrics.paragraphGap),
+        child: DiscussionQuote(quote: block as QuoteBlock),
+      ),
+      SiteLinkBlock() || BilibiliBlock() => Padding(
+        padding: EdgeInsets.only(bottom: metrics.paragraphGap),
+        child: ContentLinkBlockView(block: block),
+      ),
+    };
   }
 }
 

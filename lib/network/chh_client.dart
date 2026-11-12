@@ -4,6 +4,8 @@
 /// 这样换 UI 框架或上鸿蒙时这一层可以整体搬走。
 library;
 
+import 'package:flutter/foundation.dart';
+
 import '../core/app_log.dart';
 import '../core/chh_urls.dart';
 import 'chh_fetcher.dart';
@@ -14,12 +16,30 @@ import 'webview_fetcher.dart';
 class _CacheEntry {
   final DateTime at;
   final String html;
-  _CacheEntry(this.html) : at = DateTime.now();
+  final int sequence;
+  _CacheEntry(this.html, this.at, this.sequence);
+  int get bytes => html.length * 2;
+}
+
+class _ReadFlight {
+  _ReadFlight(this.sequence, this.latestSuccessfulSequence);
+  final int sequence;
+  int latestSuccessfulSequence;
+  late final Future<String> future;
 }
 
 class ChhClient {
   final List<ChhFetcher> fetchers;
   final Duration cacheTtl;
+  final int maxCacheEntries;
+  final int maxCacheBytes;
+  final DateTime Function() now;
+  final headerFreshness = ValueNotifier<DateTime?>(null);
+  int _freshHeaderRevision = 0;
+  int get freshHeaderRevision => _freshHeaderRevision;
+  DateTime? get lastFreshHeaderAt => headerFreshness.value;
+  final _inFlight = <(int, String, bool), _ReadFlight>{};
+  int _cacheBytes = 0;
   final _cache = <String, _CacheEntry>{};
   String? _lastFetcherName;
   int _cacheGeneration = 0;
@@ -29,7 +49,12 @@ class ChhClient {
   ChhClient({
     List<ChhFetcher>? fetchers,
     this.cacheTtl = const Duration(seconds: 90),
-  }) : fetchers = fetchers ?? [DirectFetcher(), WebViewFetcher()];
+    this.maxCacheEntries = 64,
+    this.maxCacheBytes = 16 << 20,
+    DateTime Function()? now,
+  }) : assert(maxCacheEntries >= 0 && maxCacheBytes >= 0),
+       now = now ?? DateTime.now,
+       fetchers = fetchers ?? [DirectFetcher(), WebViewFetcher()];
 
   /// 默认客户端:--dart-define=chh_source=file 走离线样本,否则直连+WebView
   static ChhClient createDefault({String source = liveSource}) {
@@ -76,16 +101,75 @@ class ChhClient {
     bool refresh = false,
     bool fallback = true,
     bool ajax = false,
-  }) async {
+  }) {
     final generation = _cacheGeneration;
     final key = '${ajax ? 'ajax:' : ''}$url';
-    if (!refresh) {
-      final c = _cache[key];
-      if (c != null && DateTime.now().difference(c.at) < cacheTtl) {
-        return c.html;
-      }
+    _pruneCache();
+    if (!refresh && _cache.containsKey(key)) {
+      final entry = _cache.remove(key)!;
+      _cache[key] = entry;
+      return Future.value(entry.html);
     }
-    final sequence = ++_requestSequence;
+    // Refresh skips completed cache, but shares an equivalent live network read.
+    final request = (generation, key, fallback);
+    final existing = _inFlight[request];
+    if (existing != null &&
+        existing.sequence >= existing.latestSuccessfulSequence) {
+      return existing.future;
+    }
+    final flight = _ReadFlight(++_requestSequence, _cache[key]?.sequence ?? 0);
+    _inFlight[request] = flight;
+    flight.future =
+        _fetchHtml(
+          url,
+          key: key,
+          generation: generation,
+          fallback: fallback,
+          ajax: ajax,
+          flight: flight,
+        ).whenComplete(() {
+          if (identical(_inFlight[request], flight)) _inFlight.remove(request);
+        });
+    return flight.future;
+  }
+
+  void _removeCached(String key) {
+    final removed = _cache.remove(key);
+    if (removed != null) _cacheBytes -= removed.bytes;
+  }
+
+  void _pruneCache() {
+    final expired = _cache.entries
+        .where((e) => now().difference(e.value.at) >= cacheTtl)
+        .map((e) => e.key)
+        .toList();
+    for (final key in expired) {
+      _removeCached(key);
+    }
+  }
+
+  void _cacheHtml(String key, String html, int sequence) {
+    _pruneCache();
+    _removeCached(key);
+    final entry = _CacheEntry(html, now(), sequence);
+    // UTF-16 is a conservative payload budget without allocating encoded copies.
+    if (maxCacheEntries == 0 || entry.bytes > maxCacheBytes) return;
+    _cache[key] = entry;
+    _cacheBytes += entry.bytes;
+    while (_cache.length > maxCacheEntries || _cacheBytes > maxCacheBytes) {
+      _removeCached(_cache.keys.first);
+    }
+  }
+
+  Future<String> _fetchHtml(
+    Uri url, {
+    required String key,
+    required int generation,
+    required bool fallback,
+    required bool ajax,
+    required _ReadFlight flight,
+  }) async {
+    final sequence = flight.sequence;
     final failures = <String>[];
     var wafDetected = false;
     for (final f in fallback ? fetchers : fetchers.take(1)) {
@@ -96,30 +180,45 @@ class ChhClient {
           if (ajax) 'X-Requested-With': 'XMLHttpRequest',
         },
       );
-      if (!resp.isBlocked) {
+      final rejection = resp.getPageRejection(url, ajax: ajax);
+      if (!resp.isBlocked && rejection == null) {
         _lastFetcherName = f.name;
-        if (generation == _cacheGeneration) {
-          _cache[key] = _CacheEntry(resp.body);
+        if (generation == _cacheGeneration &&
+            sequence >= flight.latestSuccessfulSequence &&
+            sequence >= (_cache[key]?.sequence ?? 0)) {
+          // Keep the ordering watermark on live readers, even after TTL/LRU eviction.
+          for (final entry in _inFlight.entries) {
+            if (entry.key.$1 == generation && entry.key.$2 == key) {
+              entry.value.latestSuccessfulSequence = sequence;
+            }
+          }
+          _cacheHtml(key, resp.body, sequence);
         }
         AppLog.i(
           'GET',
           '${f.name} ${AppLog.url(url)} '
-              'status=${resp.status} len=${resp.body.length}',
+              'status=${resp.status} len=${resp.body.length} title=${AppLog.failureReason(resp.titleSummary)}',
         );
         if (generation == _cacheGeneration &&
             sequence >= _lastObservedHeaderSequence &&
             htmlObserver?.call(resp.body) == true) {
           _lastObservedHeaderSequence = sequence;
+          if (generation == _cacheGeneration) {
+            _freshHeaderRevision++;
+            headerFreshness.value = now();
+          }
         }
         return resp.body;
       }
-      wafDetected = wafDetected || resp.hasWafFeatures;
+      wafDetected =
+          wafDetected || resp.hasWafFeatures || rejection == 'challenge';
       final reason = resp.error == null ? '' : AppLog.failureReason(resp.error);
       failures.add('${f.name} status=${resp.status} error=$reason');
       AppLog.w(
         'GET',
         '${f.name} 被拦 ${AppLog.url(url)} '
-            '${AppLog.response(resp.status, resp.body, head: 80)} error=$reason',
+            'status=${resp.status} len=${resp.body.length} '
+            'title=${AppLog.failureReason(resp.titleSummary)} reason=${rejection ?? 'blocked'} error=$reason',
       );
     }
     AppLog.e('GET', '所有通道失败 ${AppLog.url(url)} ${failures.join('; ')}');
@@ -233,5 +332,8 @@ class ChhClient {
   void clearCache() {
     _cacheGeneration++;
     _cache.clear();
+    _cacheBytes = 0;
+    _inFlight.clear();
+    headerFreshness.value = null;
   }
 }

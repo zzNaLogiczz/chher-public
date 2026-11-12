@@ -17,9 +17,11 @@ import 'package:html/parser.dart' as html_parser;
 
 import '../core/chh_urls.dart';
 import '../models/models.dart';
+import 'dom_utils.dart';
 
 List<ForumCategory> parseForumIndex(String html) {
   final doc = html_parser.parse(html);
+  throwIfMessagePage(doc);
   final categories = <ForumCategory>[];
 
   for (final bm in doc.querySelectorAll('div.bm')) {

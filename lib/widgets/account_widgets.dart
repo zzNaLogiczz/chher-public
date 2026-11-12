@@ -6,7 +6,7 @@ import '../design/icons.dart';
 import '../design/tokens.dart';
 import '../ui/press.dart';
 import '../design/typography.dart';
-import 'net_image.dart';
+import 'avatar_image.dart';
 import 'expressive_controls.dart';
 
 /// 分组里的身份一行:头像 56、名字、UID,点进个人主页(或登录)
@@ -36,14 +36,7 @@ class AccountIdentityRow extends StatelessWidget {
           : const EdgeInsets.fromLTRB(AppSpace.rowInset, 12, 12, 12),
       child: Row(
         children: [
-          AccountAvatar(
-            url: avatarUrl,
-            size: onLac ? 54 : 56,
-            placeholderColor: onLac
-                ? const Color.fromRGBO(255, 248, 245, .18)
-                : null,
-            placeholderIconColor: onLac ? t.onLac : null,
-          ),
+          AccountAvatar(url: avatarUrl, size: onLac ? 54 : 56),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -81,36 +74,16 @@ class AccountAvatar extends StatelessWidget {
   final String? url;
   final double size;
 
-  /// 漆面上占位头像的底色与图标色;缺省用纸面 fill/text2
-  final Color? placeholderColor;
-  final Color? placeholderIconColor;
+  final bool refreshable;
   const AccountAvatar({
     super.key,
     this.url,
     this.size = 72,
-    this.placeholderColor,
-    this.placeholderIconColor,
+    this.refreshable = false,
   });
   @override
-  Widget build(BuildContext context) {
-    final t = AppTokens.of(context);
-    return ClipOval(
-      child: SizedBox(
-        width: size,
-        height: size,
-        child: url == null
-            ? ColoredBox(
-                color: placeholderColor ?? t.fill,
-                child: Icon(
-                  AppIcons.person,
-                  size: size * .45,
-                  color: placeholderIconColor ?? t.text2,
-                ),
-              )
-            : NetImage(url: url!, width: size, height: size),
-      ),
-    );
-  }
+  Widget build(BuildContext context) =>
+      AvatarImage(url: url, size: size, refreshable: refreshable);
 }
 
 /// “我的”页定稿入口行:无卡片、无底色,直接排在纸面上的四列。

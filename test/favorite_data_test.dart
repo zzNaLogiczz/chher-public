@@ -429,7 +429,7 @@ void main() {
     });
     for (final verified in [
       _message('抱歉，您指定的收藏不存在'),
-      '<html><body>收藏列表</body></html>',
+      '<html><body><div id="ct">收藏列表</div></body></html>',
     ]) {
       test('remove无提示响应后复核已无删除表单即成功:$verified', () async {
         index.merge([_entry(_thread)]);

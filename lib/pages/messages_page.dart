@@ -14,7 +14,7 @@ import '../data/message_repository.dart';
 import '../di.dart';
 import '../design/tokens.dart';
 import '../models/models.dart';
-import '../widgets/net_image.dart';
+import '../widgets/avatar_image.dart';
 import '../widgets/state_view.dart';
 import '../widgets/expressive_controls.dart';
 import '../widgets/large_title_scaffold.dart';
@@ -185,11 +185,8 @@ class _MessagesBodyState extends State<MessagesBody> {
               page: page,
               refresh: refresh,
             ),
-            itemBuilder: (c) => _ConversationRow(
-              conversation: c,
-              repository: _repository,
-              announcement: _pm == 1,
-            ),
+            itemBuilder: (c) =>
+                _ConversationRow(conversation: c, repository: _repository),
             filter: PickerButton<int>(
               sheetTitle: '私信类型',
               options: const [
@@ -209,10 +206,7 @@ class _MessagesBodyState extends State<MessagesBody> {
             enabled: _section == i,
             child: _section == i && inner != null
                 // 当前段:继承 NestedScrollView 内层控制器,参与漆面收起
-                ? PrimaryScrollController(
-                    controller: inner,
-                    child: segment(i),
-                  )
+                ? PrimaryScrollController(controller: inner, child: segment(i))
                 // 隐藏段(或无内层控制器):阻断继承(none),框架私有
                 // fallback 保住滚动位置
                 : PrimaryScrollController.none(child: segment(i)),
@@ -240,8 +234,7 @@ class _MessagesBodyState extends State<MessagesBody> {
         title: '消息',
         mast: segmented,
         body: Builder(
-          builder: (context) =>
-              stack(PrimaryScrollController.maybeOf(context)),
+          builder: (context) => stack(PrimaryScrollController.maybeOf(context)),
         ),
       );
     }
@@ -305,26 +298,10 @@ class _MessagesBodyState extends State<MessagesBody> {
 class _NoticeRow extends StatelessWidget {
   final Notice notice;
   const _NoticeRow({required this.notice});
-  static const labels = {
-    'post': '回复',
-    'rate': '评分',
-    'pcomment': '点评',
-    'at': '提到我',
-    'system': '系统',
-    'friend': '好友',
-    'comment': '评论',
-    'poke': '打招呼',
-    'wall': '留言',
-  };
   @override
   Widget build(BuildContext context) {
-    final kind = labels[notice.category] ?? '提醒';
     return NoticeRow(
-      avatar: _MessageAvatar(
-        url: notice.avatarUrl,
-        label: notice.actor ?? kind,
-        icon: AppIcons.notification,
-      ),
+      avatar: AvatarImage(url: notice.avatarUrl, size: 44),
       name: notice.actor ?? '系统提醒',
       time: _clock(notice.occurredAtText),
       text: notice.summary,
@@ -363,19 +340,13 @@ class _NoticeRow extends StatelessWidget {
 class _ConversationRow extends StatelessWidget {
   final PmConversation conversation;
   final MessageRepository repository;
-  final bool announcement;
   const _ConversationRow({
     required this.conversation,
     required this.repository,
-    required this.announcement,
   });
   @override
   Widget build(BuildContext context) => NoticeRow(
-    avatar: _MessageAvatar(
-      url: conversation.avatarUrl,
-      label: conversation.peer,
-      icon: announcement ? AppIcons.notification : AppIcons.person,
-    ),
+    avatar: AvatarImage(url: conversation.avatarUrl, size: 44),
     name: conversation.peer,
     time: _clock(conversation.timeRaw),
     text: conversation.preview,
@@ -386,23 +357,6 @@ class _ConversationRow extends StatelessWidget {
       ),
     ),
   );
-}
-
-class _MessageAvatar extends StatelessWidget {
-  final String? url;
-  final String label;
-  final IconData icon;
-  const _MessageAvatar({this.url, required this.label, required this.icon});
-  @override
-  Widget build(BuildContext context) {
-    final t = AppTokens.of(context);
-    return url != null
-        ? NetImage(url: url!)
-        : ColoredBox(
-            color: t.fill,
-            child: Icon(icon, size: 22, color: t.text2),
-          );
-  }
 }
 
 String _day(String raw) {

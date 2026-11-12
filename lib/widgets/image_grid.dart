@@ -169,7 +169,7 @@ class _ImageViewerPageState extends State<ImageViewerPage>
     ).animate(CurvedAnimation(parent: _zoom, curve: Curves.easeOutCubic));
     setState(() {
       _zoomed = !_zoomed;
-      if (_zoomed) _fullResolutionRequested = true;
+      _fullResolutionRequested = _zoomed;
     });
     if (MediaQuery.disableAnimationsOf(context)) {
       _transform.value = target;
@@ -240,10 +240,12 @@ class _ImageViewerPageState extends State<ImageViewerPage>
                     final zoomed = scale > 1.02;
                     final needOriginal =
                         scale > 1.3 && !_fullResolutionRequested;
-                    if (zoomed != _zoomed || needOriginal) {
+                    final releaseOriginal = !zoomed && _fullResolutionRequested;
+                    if (zoomed != _zoomed || needOriginal || releaseOriginal) {
                       setState(() {
                         _zoomed = zoomed;
                         if (needOriginal) _fullResolutionRequested = true;
+                        if (releaseOriginal) _fullResolutionRequested = false;
                       });
                     }
                   },

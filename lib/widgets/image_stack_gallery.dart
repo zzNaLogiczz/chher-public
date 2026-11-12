@@ -2,7 +2,8 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' show ImageFilter;
 
-import 'package:flutter/foundation.dart' show listEquals, setEquals;
+import 'package:flutter/foundation.dart'
+    show listEquals, setEquals, visibleForTesting;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:flutter/services.dart';
@@ -202,13 +203,39 @@ class _PhotoVM {
   _PhotoVM(this.url);
 }
 
-class _CardRig {
+class _CardRig extends ChangeNotifier {
   final int i;
-  final MotionController<_Geom> geom;
-  _CardRig(this.i, this.geom);
-  bool get moving => geom.isAnimating;
-  _Geom get g => geom.value;
-  void dispose() => geom.dispose();
+  final TickerProvider vsync;
+  _Geom _value;
+  MotionController<_Geom>? _motion;
+  _CardRig(this.i, this._value, this.vsync);
+  bool get moving => _motion?.isAnimating ?? false;
+  bool get hasController => _motion != null;
+  _Geom get g => _motion?.value ?? _value;
+
+  void setValue(_Geom value) {
+    if (_motion == null && identical(_value, value)) return;
+    _motion?.dispose();
+    _motion = null;
+    _value = value;
+    notifyListeners();
+  }
+
+  void animateTo(_Geom target, {_Geom? withVelocity}) {
+    _motion ??= MotionController<_Geom>.motionPerDimension(
+      motionPerDimension: List.filled(8, AppMotion.reveal),
+      vsync: vsync,
+      converter: _geomConverter,
+      initialValue: _value,
+    )..addListener(notifyListeners);
+    _motion!.animateTo(target, withVelocity: withVelocity);
+  }
+
+  @override
+  void dispose() {
+    _motion?.dispose();
+    super.dispose();
+  }
 }
 
 enum _StackMode { deck, toList, list, toStack }
@@ -223,6 +250,33 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
   late List<_PhotoVM> _photos;
   List<_CardRig> _rigs = [];
   Listenable? _tick;
+  final _animatingCards = <int>{};
+  final _probes = <_PhotoVM, (ImageStream, ImageStreamListener)>{};
+  double? _cachedMedian;
+  ({double fw, double fh})? _cachedFrame;
+  List<_Geom>? _cachedList;
+  final _cachedDeck = <(int, bool), List<_Geom>>{};
+  int _geometryBuilds = 0;
+  int _frameRigVisits = 0;
+
+  @visibleForTesting
+  int get debugActiveCardMotions =>
+      _animatingCards.where((i) => _rigs[i].moving).length;
+  @visibleForTesting
+  int get debugCardControllers => _rigs.where((r) => r.hasController).length;
+  @visibleForTesting
+  int get debugGeometryBuilds => _geometryBuilds;
+  @visibleForTesting
+  int get debugFrameRigVisits => _frameRigVisits;
+  @visibleForTesting
+  int get debugProbeCount => _probes.length;
+
+  void _invalidateGeometry({bool ratios = false}) {
+    if (ratios) _cachedMedian = null;
+    _cachedFrame = null;
+    _cachedList = null;
+    _cachedDeck.clear();
+  }
 
   _StackMode _mode = _StackMode.deck;
   late final SingleMotionController _modeT;
@@ -253,6 +307,7 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
   /// 值为自增 tick 而非滚动值: 每次滚动 tick 必变, 保证必通知。
   final ValueNotifier<int> _scrollSignal = ValueNotifier<int>(0);
   bool _metricsPending = false;
+  bool _ratiosPending = false;
   Set<int> _visibleCards = const {};
 
   bool get _reduced => MediaQuery.disableAnimationsOf(context);
@@ -338,12 +393,18 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
       _viewIndex = _index;
       _cancelRiffle();
       // 先换照片列表再重建 rigs, 两者数量始终一致。
+      _cancelProbes();
+      _invalidateGeometry(ratios: true);
       _photos = [for (final url in widget.urls) _PhotoVM(url)];
       _forceMode(_StackMode.deck);
       _probeAround(_index);
       _save();
     } else if (oldWidget.compact != widget.compact ||
         oldWidget.imageProviderBuilder != widget.imageProviderBuilder) {
+      if (oldWidget.compact != widget.compact) _onRatiosChanged();
+      if (oldWidget.imageProviderBuilder != widget.imageProviderBuilder) {
+        _cancelProbes();
+      }
       _probeAround(_index);
     }
     final want = widget.expanded;
@@ -372,6 +433,7 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
 
   @override
   void dispose() {
+    _cancelProbes();
     _cancelRiffle();
     _detachScroll();
     _scrollSignal.dispose();
@@ -407,28 +469,53 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
     late final ImageStreamListener listener;
     listener = ImageStreamListener(
       (info, _) {
+        if (_probes[vm]?.$2 != listener) {
+          info.dispose();
+          return;
+        }
         vm.ratio = info.image.width / info.image.height;
         vm.ratioKnown = true;
         vm.failed = false;
         vm.probing = false;
         info.dispose();
-        stream.removeListener(listener);
+        _detachProbe(vm);
         if (mounted) _onRatiosChanged();
       },
       onError: (_, _) {
-        stream.removeListener(listener);
+        if (_probes[vm]?.$2 != listener) return;
+        _detachProbe(vm);
         vm.failed = true;
         vm.probing = false;
         if (mounted) _onRatiosChanged();
       },
     );
+    _probes[vm] = (stream, listener);
     stream.addListener(listener);
+  }
+
+  void _detachProbe(_PhotoVM vm) {
+    final probe = _probes.remove(vm);
+    probe?.$1.removeListener(probe.$2);
+    vm.probing = false;
+  }
+
+  void _cancelProbes() {
+    for (final vm in _probes.keys.toList()) {
+      _detachProbe(vm);
+    }
   }
 
   /// 中位比例变化 → 画框随弹簧过渡(规格: 比例随到达重新取中位数)。
   void _onRatiosChanged() {
-    if (_transitioning) return;
-    _apply(_deckLike ? _posesDeck(_index) : _posesList(), spring: true);
+    _invalidateGeometry(ratios: true);
+    if (_transitioning || _rigs.isEmpty || _ratiosPending) return;
+    _ratiosPending = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _ratiosPending = false;
+      if (mounted && !_transitioning) {
+        _apply(_deckLike ? _posesDeck(_index) : _posesList(), spring: true);
+      }
+    });
   }
 
   // ---------------------------------------------------------------- geometry
@@ -438,25 +525,38 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
       : math.min(_stageW * 1.25, 400.0);
 
   double _medianRatio() {
+    if (_cachedMedian case final value?) return value;
     final rs = _photos.map((p) => p.ratio).toList()..sort();
     if (rs.isEmpty) return 4 / 3;
     final m = rs.length >> 1;
-    return rs.length % 2 == 1 ? rs[m] : (rs[m - 1] + rs[m]) / 2;
+    return _cachedMedian = rs.length % 2 == 1 ? rs[m] : (rs[m - 1] + rs[m]) / 2;
   }
 
   ({double fw, double fh}) get _frame {
+    if (_cachedFrame case final frame?) return frame;
+    assert(() {
+      _geometryBuilds++;
+      return true;
+    }());
     final fw = math.max(1.0, _stageW - _peek * 2);
     final r = _medianRatio().clamp(0.8, 16 / 9);
     // 上限优先: 宽版心时下限(fw*0.5625)可能超过 cap, 画框仍以 cap 为准。
     final capH = _capHUse;
     final fh = (fw / r).clamp(math.min(fw * 0.5625, capH).toDouble(), capH);
-    return (fw: fw, fh: fh);
+    return _cachedFrame = (fw: fw, fh: fh);
   }
 
   List<_Geom> _posesDeck(int k, {bool gather = false}) {
+    final key = (k, gather);
+    if (_cachedDeck[key] case final poses?) return poses;
+    if (_cachedDeck.length >= 4) _cachedDeck.remove(_cachedDeck.keys.first);
+    assert(() {
+      _geometryBuilds++;
+      return true;
+    }());
     final f = _frame;
     final n = _photos.length;
-    return [
+    return _cachedDeck[key] = [
       for (var i = 0; i < n; i++)
         () {
           final d = i - k;
@@ -486,6 +586,11 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
   }
 
   List<_Geom> _posesList() {
+    if (_cachedList case final poses?) return poses;
+    assert(() {
+      _geometryBuilds++;
+      return true;
+    }());
     final gap = widget.compact ? 8.0 : 12.0;
     var y = 0.0;
     final out = <_Geom>[];
@@ -494,7 +599,7 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
       out.add(_Geom((_stageW - size.width) / 2, y, size.width, size.height));
       y += size.height + gap;
     }
-    return out;
+    return _cachedList = out;
   }
 
   double get _listTotal {
@@ -516,18 +621,7 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
     return Rect.fromLTWH(0, 0, w, h); // 长图: 顶对齐, 其余交给 cover 裁切
   }
 
-  double _envelope() {
-    if (_deckLike) {
-      final poses = _posesDeck(_index);
-      var top = 1.0;
-      for (var d = 0; d <= 2 && _index + d < poses.length; d++) {
-        final g = poses[_index + d];
-        top = math.max(top, g.y + g.h * (1 + g.s) / 2);
-      }
-      return top;
-    }
-    return _listTotal;
-  }
+  double _envelope() => _deckLike ? _frame.fh : _listTotal;
 
   // ---------------------------------------------------------------- applying
 
@@ -536,20 +630,12 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
       rig.dispose();
     }
     final poses = _deckLike ? _posesDeck(_index) : _posesList();
+    _animatingCards.clear();
     _rigs = [
-      for (var i = 0; i < _photos.length; i++)
-        _CardRig(
-          i,
-          MotionController<_Geom>.motionPerDimension(
-            motionPerDimension: List.filled(8, AppMotion.reveal),
-            vsync: this,
-            converter: _geomConverter,
-            initialValue: poses[i],
-          ),
-        ),
+      for (var i = 0; i < _photos.length; i++) _CardRig(i, poses[i], this),
     ];
     _tick = Listenable.merge([
-      for (final rig in _rigs) rig.geom,
+      for (final rig in _rigs) rig,
       _modeT,
       _hV,
       _anchorExtra,
@@ -563,33 +649,40 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
     double velocityX = 0,
     List<Duration>? delays,
   }) {
+    final animated = {
+      ..._visibleCards,
+      ..._deckWindow(_index),
+      if (_isListLike) ..._listWindow(),
+    };
+    _animatingCards.clear();
     for (var i = 0; i < _rigs.length && i < poses.length; i++) {
       final rig = _rigs[i];
       final target = poses[i];
-      if (!_reduced && spring) {
+      if (!_reduced && spring && animated.contains(i)) {
+        _animatingCards.add(i);
         final velocity = velocityCard == i ? _Geom.vx(velocityX) : _Geom.vx(0);
         final delay = delays == null || i >= delays.length
             ? Duration.zero
             : delays[i];
         if (delay == Duration.zero) {
-          rig.geom.animateTo(target, withVelocity: velocity);
+          rig.animateTo(target, withVelocity: velocity);
         } else {
           late final Timer timer;
           timer = Timer(delay, () {
             _riffleTimers.remove(timer);
-            if (mounted) rig.geom.animateTo(target);
+            if (mounted) rig.animateTo(target);
           });
           _riffleTimers.add(timer);
         }
       } else {
-        rig.geom.value = target;
+        rig.setValue(target);
       }
     }
   }
 
   void _setValues(List<_Geom> poses) {
     for (var i = 0; i < _rigs.length && i < poses.length; i++) {
-      _rigs[i].geom.value = poses[i];
+      _rigs[i].setValue(poses[i]);
     }
   }
 
@@ -690,7 +783,8 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
   void _nudge(int dir) {
     if (_reduced) return;
     final rig = _rigs[_index];
-    rig.geom.animateTo(rig.g, withVelocity: _Geom.vx(dir * 520));
+    _animatingCards.add(_index);
+    rig.animateTo(rig.g, withVelocity: _Geom.vx(dir * 520));
   }
 
   // ---------------------------------------------------------------- gestures
@@ -703,30 +797,29 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
     final dir = dx < 0 ? 1 : -1;
     final t = k + dir;
     final a = _posesDeck(k);
+    final active = {..._visibleCards, ..._deckWindow(k), ..._deckWindow(t)};
     if (t < 0 || t >= _photos.length) {
       final rx = _rubber(dx, _stageW * 0.9);
-      _setValues([
-        for (var i = 0; i < a.length; i++)
-          i == k ? _withX(a[i], a[i].x + rx) : a[i],
-      ]);
+      for (final i in active) {
+        _rigs[i].setValue(i == k ? _withX(a[i], a[i].x + rx) : a[i]);
+      }
       return;
     }
     final b = _posesDeck(t);
     final raw = (dx.abs() / (_stageW * 0.9)).clamp(0.0, 1.0);
-    final poses = [
-      for (var i = 0; i < a.length; i++) _Geom.lerp(a[i], b[i], raw),
-    ];
-    if (dir == 1) {
-      // 当前画框 1:1 跟手(B 版不倾斜)。
-      poses[k] = _withX(a[k], a[k].x + dx);
-    } else {
-      final over = raw >= 1 ? _rubber((raw - 1) * _stageW, _stageW) : 0.0;
-      poses[t] = _withX(
-        _Geom.lerp(a[t], b[t], raw),
-        a[t].x + (b[t].x - a[t].x) * math.min(raw, 1.0) + over,
-      );
+    for (final i in active) {
+      var pose = _Geom.lerp(a[i], b[i], raw);
+      if (dir == 1 && i == k) {
+        pose = _withX(a[k], a[k].x + dx);
+      } else if (dir != 1 && i == t) {
+        final over = raw >= 1 ? _rubber((raw - 1) * _stageW, _stageW) : 0.0;
+        pose = _withX(
+          pose,
+          a[t].x + (b[t].x - a[t].x) * math.min(raw, 1.0) + over,
+        );
+      }
+      _rigs[i].setValue(pose);
     }
-    _setValues(poses);
   }
 
   static _Geom _withX(_Geom g, double x) =>
@@ -838,7 +931,7 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
     _mode = _StackMode.toStack;
     _isTrans = true;
     _hVActive = true;
-    final poses = _posesDeck(k, gather: true);
+    final poses = _posesDeck(k, gather: true).toList();
     // 窗口外的卡不参与聚拢: 多卡飞向同一槽位会先叠在前方再消失。
     // 它们保持当前几何原地淡出, 由过渡窗口规则在 settle 后卸载。
     for (var i = 0; i < poses.length; i++) {
@@ -1023,6 +1116,35 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
     });
   }
 
+  Set<int> _deckWindow(int center) => {
+    for (var i = center - 2; i <= center + 2; i++)
+      if (i >= 0 && i < _photos.length) i,
+  };
+
+  Set<int> _listWindow() {
+    final box = context.findRenderObject();
+    final pos = _scrollPos;
+    if (box is! RenderBox || !box.attached || !box.hasSize || pos == null) {
+      return {};
+    }
+    final origin = box.localToGlobal(Offset.zero).dy;
+    final viewport = pos.viewportDimension;
+    final lo = -origin - viewport * 1.5;
+    final hi = -origin + viewport * 2.5;
+    final poses = _posesList();
+    var left = 0, right = poses.length;
+    while (left < right) {
+      final middle = (left + right) >> 1;
+      final g = poses[middle];
+      if (g.y + g.h < lo) {
+        left = middle + 1;
+      } else {
+        right = middle;
+      }
+    }
+    return {for (var i = left; i < poses.length && poses[i].y <= hi; i++) i};
+  }
+
   /// 按位姿决定哪些卡挂真图: 画框态保留当前张前后窗口(供 riffle 与滑入),
   /// 列表态只挂视口上下约 1.5 屏内的卡, 千张长组也不会铺满解码请求。
   /// 同时测量缩略条的吸附线(布局完成后的全局位置, build 只读结果)。
@@ -1030,32 +1152,8 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
     _measureStickyBar();
     final box = context.findRenderObject();
     if (box is! RenderBox || !box.attached || _rigs.isEmpty) return;
-    Set<int> next;
-    // 过渡中沿用列表窗口: 收起第一帧若直接切 deck 窗口, 窗口外的卡会
-    // 被瞬间卸载闪没; 它们原地淡出, settle 后再按 deck 窗口收窄。
-    if (_deckLike && !_isTrans) {
-      final k = _index;
-      next = {
-        for (var i = k - 2; i <= k + 2; i++)
-          if (i >= 0 && i < _rigs.length) i,
-      };
-    } else {
-      final pos = _scrollPos;
-      if (pos == null) return;
-      final origin = box.localToGlobal(Offset.zero).dy;
-      final viewport = pos.viewportDimension;
-      final lo = -origin - viewport * 1.5;
-      final hi = -origin + viewport * 2.5;
-      final gap = widget.compact ? 8.0 : 12.0;
-      var minY = 0.0;
-      next = {};
-      for (var i = 0; i < _photos.length; i++) {
-        final size = _listBox(_photos[i]);
-        if (minY > hi) break;
-        if (minY + size.height >= lo) next.add(i);
-        minY += size.height + gap;
-      }
-    }
+    // Keep the list window during collapse so departing cards fade in place.
+    final next = _deckLike && !_isTrans ? _deckWindow(_index) : _listWindow();
     if (!setEquals(next, _visibleCards)) {
       setState(() => _visibleCards = next);
     }
@@ -1131,6 +1229,7 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
               if (w != _stageW) {
                 final firstWidth = _stageW == 0;
                 _stageW = w;
+                _invalidateGeometry();
                 if (firstWidth) {
                   _rebuildRigs();
                 } else if (_rigs.isNotEmpty) {
@@ -1152,7 +1251,7 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
                       !_modeT.isAnimating &&
                       !_hV.isAnimating &&
                       !_anchorExtra.isAnimating &&
-                      _rigs.every((r) => !r.moving)) {
+                      _animatingCards.every((i) => !_rigs[i].moving)) {
                     WidgetsBinding.instance.addPostFrameCallback(
                       (_) => _settle(),
                     );
@@ -1190,9 +1289,13 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
                   // 千张长组展开时也不铺满 widget 树。
                   final visibleNow = _visibleCards;
                   final children = [
-                    for (final rig in _rigs)
-                      if (visibleNow.contains(rig.i)) rig,
+                    for (final i in visibleNow)
+                      if (i < _rigs.length) _rigs[i],
                   ]..sort(_zCompare);
+                  assert(() {
+                    _frameRigVisits += children.length;
+                    return true;
+                  }());
                   final stage = SizedBox(
                     key: const ValueKey('image-stack-stage'),
                     width: double.infinity,
@@ -1402,7 +1505,7 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
       fit: StackFit.expand,
       children: [
         // 氛围色: 18px 低清解码放大 + 大 sigma 模糊 + 磨砂雾面。
-        // 竖图两侧不再有可辨认的内容轮廓; 18px 源纹理极小, 模糊开销可忽略。
+        // 竖图两侧不再有可辨认的内容轮廓；18px 源纹理限制解码成本。
         if (ambOpacity > 0.004)
           IgnorePointer(
             child: Opacity(
@@ -1677,8 +1780,8 @@ class _NextPhotoIntent extends Intent {
 
 /// 画框留白处的磨砂底: 低清解码放大, 再做一次真模糊盖雾面。
 /// 竖图两侧只剩色感, 没有可辨认的内容轮廓。18px 源纹理极小,
-/// 大 sigma 的两遍一维高斯开销可以忽略; 层内容不随滚动变化,
-/// 外层 RepaintBoundary 会把它缓存成位图。
+/// 低清源纹理限制解码成本；模糊的 Raster 成本仍需实机测量。
+/// 层内容不随滚动变化，外层 RepaintBoundary 隔离重绘。
 class _FrostBackdrop extends StatelessWidget {
   final String url;
   final StackImageProviderBuilder? imageProviderBuilder;
@@ -1711,4 +1814,3 @@ class _FrostBackdrop extends StatelessWidget {
     );
   }
 }
-

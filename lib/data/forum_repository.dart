@@ -15,7 +15,7 @@ import '../parser/guide_parser.dart';
 import '../parser/misc_parser.dart';
 import '../parser/search_result_parser.dart';
 import '../parser/thread_list_parser.dart';
-import '../parser/thread_parser.dart';
+import '../parser/background_parser.dart';
 
 class ForumRepository {
   final ChhClient client;
@@ -135,7 +135,7 @@ class ForumRepository {
     final url = authorUid == null
         ? ChhUrls.thread(tid, page: page)
         : ChhUrls.threadByAuthor(tid, authorUid, page: page);
-    return parseThread(
+    return parseThreadAsync(
       await client.getHtml(url, refresh: refresh),
       tid: tid,
       fallbackPage: page,
@@ -152,7 +152,7 @@ class ForumRepository {
     bool refresh = true,
   }) async {
     final html = await client.getHtml(Uri.parse(url), refresh: refresh);
-    return parseThread(html, tid: tid, fallbackPage: 1);
+    return parseThreadAsync(html, tid: tid, fallbackPage: 1);
   }
 
   /// 导读流。view=new / hot 游客可用,view=my 需登录,否则站点返回登录提示页。

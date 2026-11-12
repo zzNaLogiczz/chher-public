@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:chh_app/data/image_disk_cache.dart';
-import 'package:chh_app/design/icons.dart';
+import 'package:chh_app/design/brand.dart';
 import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/di.dart';
 import 'package:chh_app/models/article_discussion.dart';
@@ -15,7 +15,7 @@ import 'package:chh_app/ui/press.dart';
 import 'package:chh_app/widgets/article_discussion_widgets.dart';
 import 'package:chh_app/widgets/cached_net_image.dart';
 import 'package:chh_app/widgets/comment_mode_bar.dart';
-import 'package:chh_app/widgets/net_image.dart';
+import 'package:chh_app/widgets/avatar_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -310,7 +310,21 @@ ${_comment('<a href="space-uid-81001.html">合成甲</a>', cid: 3)}
           cid == 2 && mode == '评论' ? const Size(24, 24) : const Size(32, 32),
         );
         // 合成传输故意让头像失败，仍显示占位，正文和主页入口不受影响。
-        expect(_inside(avatar, find.byIcon(AppIcons.image)), findsOneWidget);
+        expect(
+          _inside(
+            avatar,
+            find.byWidgetPredicate(
+              (w) =>
+                  w is Image &&
+                  w.image is ResizeImage &&
+                  (w.image as ResizeImage).imageProvider is AssetImage &&
+                  ((w.image as ResizeImage).imageProvider as AssetImage)
+                          .assetName ==
+                      appLogoAsset,
+            ),
+          ),
+          findsOneWidget,
+        );
         expect(
           _inside(tile, find.text(cid == 1 ? '合成正文' : '合成回复')),
           findsOneWidget,
@@ -337,7 +351,9 @@ ${_comment('<a href="space-uid-81001.html">合成甲</a>', cid: 3)}
           expect(find.byType(UserDrawer), findsNothing);
           expect(find.byType(ArticleDiscussionPage), findsOneWidget);
           expect(
-            tester.widget<NetImage>(_inside(tile, find.byType(NetImage))).url,
+            tester
+                .widget<AvatarImage>(_inside(tile, find.byType(AvatarImage)))
+                .url,
             cid == 1 ? _avatar : _avatar.replaceFirst('/01_', '/02_'),
           );
         }
@@ -423,7 +439,10 @@ class _ProfileFetcher extends ChhFetcher {
     ).firstMatch(url.path)?.group(1);
     expect(uid, isNotNull);
     requested.add(uid!);
-    return ChhResponse(200, '<html><h2 class="mbn">合成主页$uid</h2></html>');
+    return ChhResponse(
+      200,
+      '<html><div id="ct"><h2 class="mbn">合成主页$uid</h2></div></html>',
+    );
   }
 
   @override

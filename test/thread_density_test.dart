@@ -12,6 +12,7 @@ import 'package:chh_app/widgets/post_feedback.dart';
 import 'package:chh_app/widgets/thread_comment_widgets.dart';
 import 'package:chh_app/models/models.dart';
 import 'package:chh_app/widgets/post_card.dart';
+import 'package:chh_app/widgets/avatar_image.dart';
 import 'package:chh_app/widgets/rich_content_text.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -197,7 +198,7 @@ void main() {
     );
     final avatar = find.descendant(
       of: find.byKey(const ValueKey('post-avatar-2')),
-      matching: find.byType(ClipRRect),
+      matching: find.byType(AvatarImage),
     );
     expect(tester.getSize(avatar), const Size(32, 32));
     await controller.set(
@@ -417,7 +418,7 @@ void main() {
         );
         final avatar = find.descendant(
           of: find.byKey(const ValueKey('post-avatar-2')),
-          matching: find.byType(ClipRRect),
+          matching: find.byType(AvatarImage),
         );
         expect(tester.getSize(avatar), const Size(24, 24));
         expect(find.byKey(const ValueKey('comment-reply-2')), findsOneWidget);

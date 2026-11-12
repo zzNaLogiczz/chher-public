@@ -75,7 +75,7 @@ class HeaderBadges {
 /// 返回 null 表示这个页面没有登录态页头(游客页、消息页等),调用方应当保持原值不动,
 /// 而不是清零 —— 否则随便打开一个游客页就会把未读抹掉。
 HeaderBadges? parseHeaderBadges(String html) {
-  final doc = html_parser.parse(html);
+  final doc = _headerDocument(html);
   // 模板可能不叫 #um。退出登录链接只在登录态出现,用它兜底定位页头容器。
   final um = doc.querySelector('#um') ?? _headerByLogout(doc);
   if (um == null) return null;
@@ -97,6 +97,32 @@ HeaderBadges? parseHeaderBadges(String html) {
     // 命中不了时把页头留下来,便于真机上对照真实模板
     headerSample: me == null ? _sampleOf(um) : null,
   );
+}
+
+// 只在已看到完整页头时截断；变体模板与后置未读入口仍走原来的整页解析。
+const _headerPrefixLength = 32 * 1024;
+final _badgeId = RegExp(
+  r'''\sid\s*=\s*(?:"(?:myprompt|pm_ntc)"|'(?:myprompt|pm_ntc)'|(?:myprompt|pm_ntc)(?=[\s>]))''',
+  caseSensitive: false,
+);
+
+dom.Document _headerDocument(String html) {
+  if (html.length > _headerPrefixLength * 2) {
+    final prefix = html_parser.parse(
+      html.substring(0, _headerPrefixLength),
+      generateSpans: true,
+    );
+    final badgesComplete = ['myprompt', 'pm_ntc'].every((id) {
+      final badge = prefix.getElementById(id);
+      return badge == null || badge.endSourceSpan != null;
+    });
+    if (prefix.getElementById('um')?.endSourceSpan != null &&
+        badgesComplete &&
+        !_badgeId.allMatches(html).any((m) => m.end >= _headerPrefixLength)) {
+      return prefix;
+    }
+  }
+  return html_parser.parse(html);
 }
 
 /// 用退出登录链接反查页头容器

@@ -210,6 +210,9 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     tid: widget.tid,
     posts: const [],
   );
+  @visibleForTesting
+  ThreadConversationIndex get debugConversationIndex => _index;
+
   void _update(VoidCallback change) => setState(change);
 
   bool get _grouped => _threaded && _authorUid == null;
@@ -298,10 +301,15 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
       pinnedRootPids: _pinnedRoots,
     );
     _pinnedRoots.addAll(_index.roots.map((p) => p.pid));
+    _rebuildReadEntries();
+  }
+
+  // 展开数量变化只更新展示投影，已加载楼层和引用归组快照保持不变。
+  void _rebuildReadEntries() {
     _entries.clear();
     _entryIndices.clear();
     var commentsStarted = false;
-    for (final post in _grouped ? _index.roots : orderedPosts) {
+    for (final post in _grouped ? _index.roots : _orderedPosts) {
       if (!postIsOpening(post) && !commentsStarted) {
         commentsStarted = true;
         _entries.add(_ThreadReadEntry(post, _ThreadEntryKind.commentsHeading));
@@ -333,9 +341,9 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     }
     // 查看方式切换在评论区标题上;只有首楼(例如只看楼主时)也必须给出标题,
     // 否则用户无法切回评论或原楼层
-    if (!commentsStarted && orderedPosts.isNotEmpty) {
+    if (!commentsStarted && _orderedPosts.isNotEmpty) {
       _entries.add(
-        _ThreadReadEntry(orderedPosts.last, _ThreadEntryKind.commentsHeading),
+        _ThreadReadEntry(_orderedPosts.last, _ThreadEntryKind.commentsHeading),
       );
     }
     for (var i = 0; i < _entries.length; i++) {
@@ -1218,7 +1226,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
       final position = replies.indexWhere((p) => p.pid == _focusTargetPid);
       _update(() {
         _visibleReplies[groupedRoot] = position + 1;
-        _rebuildReadIndex();
+        _rebuildReadEntries();
       });
     }
     final index = _entries.indexWhere(_isFocusEntry);
@@ -1323,7 +1331,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
           : visible;
       _expandingRoot = null;
       _pauseHiddenAppend = true;
-      _rebuildReadIndex();
+      _rebuildReadEntries();
       if (!MediaQuery.disableAnimationsOf(context)) {
         // Bound zero-height animated entries so a very long reply cannot force
         // the lazy viewport to lay out every paragraph on the first frame.

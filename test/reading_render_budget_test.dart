@@ -143,6 +143,12 @@ void main() {
       expect(image().image, isA<ChhCachedImage>());
       expect(image().gaplessPlayback, isTrue);
       expect(find.text('双击还原'), findsOneWidget);
+      await tester.tap(target);
+      await tester.pump(const Duration(milliseconds: 80));
+      await tester.tap(target);
+      await tester.pumpAndSettle();
+      expect(image().image, isA<ResizeImage>());
+      expect(find.text('双击还原'), findsNothing);
       expect(tester.takeException(), isNull);
     },
   );

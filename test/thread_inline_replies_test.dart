@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 
 import 'package:chh_app/models/models.dart';
 import 'package:chh_app/widgets/post_card.dart';
@@ -48,6 +49,50 @@ Future<ThreadViewMode> currentViewMode(WidgetTester tester) async {
 }
 
 void main() {
+  testWidgets(
+    'cached expansion reuses the thousand-post conversation snapshot',
+    (tester) async {
+      var loads = 0;
+      final posts = _CountingPosts([
+        fixture.post(1),
+        fixture.post(2),
+        for (var n = 3; n <= 1000; n++) fixture.post(n, target: 2),
+      ]);
+      await fixture.pump(
+        tester,
+        ThreadDetailPage(
+          tid: 123,
+          title: '千楼缓存展开',
+          loadPage: (_, _, _) async {
+            loads++;
+            return fixture.page(posts);
+          },
+        ),
+      );
+      final dynamic state = tester.state(find.byType(ThreadDetailPage));
+      final snapshot = state.debugConversationIndex;
+      final initialReads = posts.reads;
+      expect(snapshot.loadedPostCount, 1000);
+      for (var batch = 1; batch <= 2; batch++) {
+        await expand(tester);
+        await fixture.bottom(tester);
+        expect(state.debugConversationIndex, same(snapshot));
+        expect(posts.reads, initialReads, reason: 'Do not rescan source pages');
+        expect(find.text('展开更多回复（${998 - batch * 10}）'), findsOneWidget);
+        expect(loads, 1);
+      }
+      final refresh = tester
+          .state<RefreshIndicatorState>(find.byType(RefreshIndicator))
+          .show();
+      await tester.pumpAndSettle();
+      await refresh;
+      expect(loads, 2);
+      expect(state.debugConversationIndex, isNot(same(snapshot)));
+      expect(posts.reads, greaterThan(initialReads));
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets(
     'new replies grow downward without moving the root or replaying old replies',
     (tester) async {
@@ -387,4 +432,23 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+}
+
+class _CountingPosts extends ListBase<Post> {
+  final List<Post> _posts;
+  int reads = 0;
+  _CountingPosts(this._posts);
+  @override
+  int get length => _posts.length;
+  @override
+  set length(int value) => throw UnsupportedError('read-only fixture');
+  @override
+  Post operator [](int index) {
+    reads++;
+    return _posts[index];
+  }
+
+  @override
+  void operator []=(int index, Post value) =>
+      throw UnsupportedError('read-only fixture');
 }

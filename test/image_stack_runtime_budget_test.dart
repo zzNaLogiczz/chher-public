@@ -39,7 +39,8 @@ class _Workload {
     // Ratio probes detach from their stream inside async completion
     // callbacks, outside any frame; only in-frame events have a timestamp.
     final phase = SchedulerBinding.instance.schedulerPhase;
-    final inFrame = phase != SchedulerPhase.idle &&
+    final inFrame =
+        phase != SchedulerPhase.idle &&
         phase != SchedulerPhase.postFrameCallbacks;
     liveEvents.add({
       'change': change,
@@ -97,6 +98,33 @@ class _CountedCompleter extends OneFrameImageStreamCompleter {
     if (!hasListeners && workload.live.remove(id)) {
       workload.recordLive('detach', id);
     }
+  }
+}
+
+class _PendingPhoto extends ImageProvider<String> {
+  final String id;
+  final Map<String, _PendingCompleter> pending;
+  const _PendingPhoto(this.id, this.pending);
+  @override
+  Future<String> obtainKey(ImageConfiguration configuration) =>
+      SynchronousFuture(id);
+  @override
+  ImageStreamCompleter loadImage(String key, ImageDecoderCallback decode) =>
+      pending.putIfAbsent(key, _PendingCompleter.new);
+}
+
+class _PendingCompleter extends ImageStreamCompleter {
+  final listeners = <ImageStreamListener>{};
+  @override
+  void addListener(ImageStreamListener listener) {
+    listeners.add(listener);
+    super.addListener(listener);
+  }
+
+  @override
+  void removeListener(ImageStreamListener listener) {
+    listeners.remove(listener);
+    super.removeListener(listener);
   }
 }
 
@@ -416,8 +444,11 @@ void main() {
       // window both hold, so no new provider resolves and nothing re-decodes.
       // Frame rebuilds re-resolve the same cached keys (one factory call per
       // mounted image per tick at most); the image cache absorbs them.
-      expect(cold['uniqueDecodes'], lessThanOrEqualTo(_windowBudget(count)),
-          reason: '$report');
+      expect(
+        cold['uniqueDecodes'],
+        lessThanOrEqualTo(_windowBudget(count)),
+        reason: '$report',
+      );
       expect(
         workload.factories.length - factories,
         lessThanOrEqualTo(21 * mountedBudget(count)),
@@ -507,27 +538,27 @@ void main() {
     expect(workload.live, isEmpty);
   });
 
-  testWidgets(
-    'deck window releases old listeners after ten pages',
-    (tester) async {
-      final workload = await _mount(tester);
-      for (var index = 1; index <= 10; index++) {
-        await tester.timedDrag(
-          _stage,
-          const Offset(-140, 0),
-          const Duration(milliseconds: 180),
-        );
-        await tester.pumpAndSettle();
-        if (workload.maxLive > _deckWindow) {
-          _recordRealReport('deck window handoff', {
-            'page': index,
-            'liveAfterSettle': workload.live.toList()..sort(),
-            'mountedAfterSettle': find.byType(Image).evaluate().length,
-            'maxLive': workload.maxLive,
-            'events': workload.liveEvents,
-          });
-        }
-        _steadyBudget(tester, workload, 1000, allowTransientProbes: true);
+  testWidgets('deck window releases old listeners after ten pages', (
+    tester,
+  ) async {
+    final workload = await _mount(tester);
+    for (var index = 1; index <= 10; index++) {
+      await tester.timedDrag(
+        _stage,
+        const Offset(-140, 0),
+        const Duration(milliseconds: 180),
+      );
+      await tester.pumpAndSettle();
+      if (workload.maxLive > _deckWindow) {
+        _recordRealReport('deck window handoff', {
+          'page': index,
+          'liveAfterSettle': workload.live.toList()..sort(),
+          'mountedAfterSettle': find.byType(Image).evaluate().length,
+          'maxLive': workload.maxLive,
+          'events': workload.liveEvents,
+        });
+      }
+      _steadyBudget(tester, workload, 1000, allowTransientProbes: true);
       // The deck does not loop: offsets clamp at the list ends, so page 1
       // keeps four live slots, not five.
       final expected = <String>{
@@ -536,12 +567,132 @@ void main() {
             'budget-photo-${index + offset}',
       };
       expect(workload.live, expected);
+    }
+    // Ten pages sweep the probe window from 0..20 forward; each url is
+    // resolved once and cached across the sweep.
+    expect(workload.loads.toSet().length, lessThanOrEqualTo(_probeWindow + 10));
+    expect(workload.loads.length, lessThanOrEqualTo(_probeWindow + 14));
+    expect(tester.binding.hasScheduledFrame, isFalse);
+  });
+  for (final count in [24, 1000]) {
+    testWidgets('$count photos bound card motions and per-frame geometry work', (
+      tester,
+    ) async {
+      await _mount(tester, count: count);
+      final dynamic state = tester.state(find.byType(ImageStackGallery));
+      expect(state.debugCardControllers, lessThanOrEqualTo(_deckWindow));
+      final beforeGeometry = state.debugGeometryBuilds as int;
+      final beforeVisits = state.debugFrameRigVisits as int;
+      final drag = await tester.startGesture(tester.getCenter(_stage));
+      await drag.moveBy(const Offset(-20, 0));
+      await tester.pump(const Duration(milliseconds: 8));
+      for (var i = 0; i < 20; i++) {
+        await drag.moveBy(const Offset(-1, 0));
+        await tester.pump(const Duration(milliseconds: 8));
       }
-      // Ten pages sweep the probe window from 0..20 forward; each url is
-      // resolved once and cached across the sweep.
-      expect(workload.loads.toSet().length, lessThanOrEqualTo(_probeWindow + 10));
-      expect(workload.loads.length, lessThanOrEqualTo(_probeWindow + 14));
-      expect(tester.binding.hasScheduledFrame, isFalse);
-    },
-  );
+      // The drag needs at most current/adjacent deck geometry, never one sort per tick.
+      expect(
+        (state.debugGeometryBuilds as int) - beforeGeometry,
+        lessThanOrEqualTo(2),
+      );
+      expect(
+        (state.debugFrameRigVisits as int) - beforeVisits,
+        lessThanOrEqualTo(22 * _deckWindow),
+      );
+      await drag.up();
+      await tester.pump(const Duration(milliseconds: 8));
+      expect(state.debugActiveCardMotions, lessThanOrEqualTo(_deckWindow + 1));
+      expect(state.debugCardControllers, lessThanOrEqualTo(_deckWindow + 1));
+      await tester.pumpAndSettle();
+      expect(state.debugActiveCardMotions, 0);
+
+      await tester.tap(find.byType(ImageStackModeToggle));
+      await tester.pump(const Duration(milliseconds: 16));
+      // 390x844 viewport plus existing prefetch window includes fewer than 20 cards.
+      expect(state.debugActiveCardMotions, lessThanOrEqualTo(20));
+      expect(state.debugCardControllers, lessThanOrEqualTo(20));
+      await tester.pumpAndSettle();
+      expect(state.debugActiveCardMotions, 0);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('pending ratio probes detach on URL replacement and disposal', (
+    tester,
+  ) async {
+    final pending = <String, _PendingCompleter>{};
+    Future<void> mount(String prefix, {String source = ''}) =>
+        tester.pumpWidget(
+          MaterialApp(
+            theme: buildAppTheme(Brightness.light),
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: ImageStackGallery(
+                  key: const ValueKey('pending-stack'),
+                  urls: List.generate(24, (i) => '$prefix-$i'),
+                  gallery: List.generate(24, (i) => '$prefix-$i'),
+                  galleryStartIndex: 0,
+                  imageProviderBuilder: (url, width) =>
+                      _PendingPhoto('$source$url:$width', pending),
+                ),
+              ),
+            ),
+          ),
+        );
+    addTearDown(() {
+      PaintingBinding.instance.imageCache.clear();
+      PaintingBinding.instance.imageCache.clearLiveImages();
+    });
+    await mount('old');
+    await tester.pump();
+    final dynamic state = tester.state(find.byType(ImageStackGallery));
+    expect(state.debugProbeCount, greaterThan(0));
+    final oldProbes = {
+      for (final entry in pending.entries)
+        if (entry.key.startsWith('old-') && entry.key.endsWith(':64'))
+          entry.key: entry.value.listeners.length,
+    };
+    expect(oldProbes, isNotEmpty);
+    final stale = pending[oldProbes.keys.first]!.listeners.last;
+    await mount('old', source: 'replacement-');
+    await tester.pump();
+    for (final entry in oldProbes.entries) {
+      expect(pending[entry.key]!.listeners.length, entry.value - 1);
+    }
+    final probeCount = state.debugProbeCount;
+    final pixels = (await tester.runAsync(
+      () => createTestImage(width: 48, height: 64, cache: false),
+    ))!;
+    stale.onImage(ImageInfo(image: pixels), false);
+    expect(
+      state.debugProbeCount,
+      probeCount,
+      reason: 'stale callback must not detach the replacement probe',
+    );
+    final replacementProbes = {
+      for (final entry in pending.entries)
+        if (entry.key.startsWith('replacement-') && entry.key.endsWith(':64'))
+          entry.key: entry.value.listeners.length,
+    };
+    await mount('new');
+    await tester.pump();
+    for (final entry in replacementProbes.entries) {
+      // The pending image cache owns one listener until it is cleared; the probe does not.
+      expect(pending[entry.key]!.listeners.length, entry.value - 1);
+    }
+    final newProbes = {
+      for (final entry in pending.entries)
+        if (entry.key.startsWith('new-') && entry.key.endsWith(':64'))
+          entry.key: entry.value.listeners.length,
+    };
+    expect(newProbes, isNotEmpty);
+    await tester.pumpWidget(const SizedBox.shrink());
+    for (final entry in newProbes.entries) {
+      expect(pending[entry.key]!.listeners.length, entry.value - 1);
+    }
+    expect(state.debugProbeCount, 0);
+    PaintingBinding.instance.imageCache.clear();
+    expect(pending.values.every((p) => p.listeners.isEmpty), isTrue);
+    expect(tester.takeException(), isNull);
+  });
 }
