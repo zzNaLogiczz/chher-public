@@ -117,9 +117,7 @@ class ArticleCommentTile extends StatelessWidget {
                           child: DecoratedBox(
                             decoration: BoxDecoration(
                               color: t.accentFill,
-                              borderRadius: BorderRadius.circular(
-                                AppRadii.xs - 2,
-                              ),
+                              borderRadius: BorderRadius.circular(AppRadii.xs),
                             ),
                             child: Padding(
                               padding: const EdgeInsets.symmetric(

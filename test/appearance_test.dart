@@ -30,7 +30,7 @@ void main() {
     expect(controller.mode.themeMode, ThemeMode.system);
   });
 
-  test('缺失偏好文件缺省薄雾白,朱砂红引导未消费', () async {
+  test('缺失偏好文件缺省薄暮,朱砂引导未消费', () async {
     await controller.load();
     expect(controller.mode, AppearanceMode.system);
     expect(controller.mode.themeMode, ThemeMode.system);
@@ -38,7 +38,7 @@ void main() {
     expect(controller.styleDotSeen, isFalse);
   });
 
-  test('styleDotSeen 未置位时朱砂红带引导红点,消费后持久化', () async {
+  test('styleDotSeen 未置位时朱砂带引导红点,消费后持久化', () async {
     await controller.load();
     final notifications = <bool>[];
     controller.addListener(
@@ -98,7 +98,7 @@ void main() {
     expect(restored.style, AppearanceStyle.misty);
   });
 
-  test('未知的 style 值降级薄雾白', () async {
+  test('未知的 style 值降级薄暮', () async {
     await preference().writeAsString(
       '{"version":1,"mode":"dark","style":"neon"}',
     );

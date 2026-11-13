@@ -3,11 +3,12 @@ library;
 
 import 'package:flutter/material.dart';
 import '../design/icons.dart';
+import '../design/motion.dart';
+import '../design/shapes.dart';
 import '../design/tokens.dart';
 import '../ui/press.dart';
 import '../design/typography.dart';
 import 'avatar_image.dart';
-import 'expressive_controls.dart';
 
 /// 分组里的身份一行:头像 56、名字、UID,点进个人主页(或登录)
 class AccountIdentityRow extends StatelessWidget {
@@ -86,56 +87,248 @@ class AccountAvatar extends StatelessWidget {
       AvatarImage(url: url, size: size, refreshable: refreshable);
 }
 
-/// “我的”页定稿入口行:无卡片、无底色,直接排在纸面上的四列。
-/// 国色线形图标 + 13px 标签 + 细竖线分隔;颜色只留在图标上。
-class EntryRow extends StatelessWidget {
-  final List<EntryCell> cells;
-  const EntryRow({super.key, required this.cells});
+/// 薄暮名片（方案 M-A）：24dp 主卡同心内嵌 18dp 浅雾槽（24 - 6 = 18），四柱无框轻盈陈列。
+class MistyAccountHub extends StatelessWidget {
+  final String name;
+  final String? avatarUrl;
+  final String? detail;
+  final VoidCallback? onIdentityTap;
+  final List<MistyAccountEntry> entries;
+
+  const MistyAccountHub({
+    super.key,
+    required this.name,
+    this.avatarUrl,
+    this.detail,
+    this.onIdentityTap,
+    this.entries = const [],
+  });
 
   @override
   Widget build(BuildContext context) {
-    final scaler = MediaQuery.textScalerOf(context);
-    // 1.5 倍及以上字号退成两列,保证标签完整
-    final perRow = scaler.scale(1) >= 1.5 ? 2 : 4;
-    final rows = <Widget>[];
-    for (var i = 0; i < cells.length; i += perRow) {
-      final slice = [
-        for (var j = i; j < (i + perRow).clamp(0, cells.length); j++) cells[j],
-      ];
-      rows.add(
-        Row(
+    final t = AppTokens.of(context);
+    final columns = MediaQuery.textScalerOf(context).scale(1) >= 1.5 ? 2 : 4;
+    return DecoratedBox(
+      decoration: ShapeDecoration(
+        color: t.surface,
+        shape: appShape(AppRadii.lg),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(6),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            for (var k = 0; k < slice.length; k++) ...[
-              if (k > 0)
-                Container(
-                  width: AppSpace.hairline,
-                  height: 34,
-                  color: AppTokens.of(context).separator,
+            AppClip(
+              radius: AppRadii.md,
+              child: PressHighlight(
+                onTap: onIdentityTap,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 14),
+                  child: Row(
+                    children: [
+                      AccountAvatar(url: avatarUrl, size: 54),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              name,
+                              style: AppType.title2.copyWith(color: t.text),
+                            ),
+                            if (detail != null) ...[
+                              const SizedBox(height: 2),
+                              Text(
+                                detail!,
+                                style: AppType.footnote.copyWith(color: t.text3),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      if (onIdentityTap != null) ...[
+                        const SizedBox(width: 8),
+                        Icon(AppIcons.forward, size: 14, color: t.text3),
+                      ],
+                    ],
+                  ),
                 ),
-              Expanded(child: slice[k]),
-            ],
+              ),
+            ),
+            if (entries.isNotEmpty)
+              DecoratedBox(
+                decoration: ShapeDecoration(
+                  color: t.mistyTray,
+                  shape: appShape(AppRadii.md),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 4,
+                  ),
+                  child: Column(
+                    children: [
+                      for (var i = 0; i < entries.length; i += columns)
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            for (var j = i; j < i + columns; j++)
+                              Expanded(
+                                child: j < entries.length
+                                    ? entries[j]
+                                    : const SizedBox.shrink(),
+                              ),
+                          ],
+                        ),
+                    ],
+                  ),
+                ),
+              ),
           ],
         ),
-      );
-      if (i + perRow < cells.length) rows.add(const SizedBox(height: 14));
-    }
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(10, 14, 10, 10),
-      child: Column(children: rows),
+      ),
     );
   }
 }
 
-/// [EntryRow] 的一格:图标 24 加小标签,整格可点
-class EntryCell extends StatelessWidget {
+class MistyAccountEntry extends StatelessWidget {
   final IconData icon;
   final Color tint;
   final String label;
-  final VoidCallback? onTap;
-  const EntryCell({
+  final VoidCallback onTap;
+  const MistyAccountEntry({
     super.key,
     required this.icon,
     required this.tint,
+    required this.label,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
+    return AppClip(
+      radius: AppRadii.sm,
+      child: PressScale(
+        onTap: onTap,
+        semanticLabel: label,
+        scale: .94,
+        motion: AppMotion.entryTap,
+        pressedColor: t.surface,
+        child: ExcludeSemantics(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 44),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(2, 13, 2, 12),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(icon, size: 22, color: tint),
+                  const SizedBox(height: 7),
+                  Text(
+                    label,
+                    textAlign: TextAlign.center,
+                    style: AppType.footnote.copyWith(
+                      color: t.text,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 工具图标使用与全站 IconTile 同规格的 30dp AppRadii.xs 超椭圆柔和色托。
+class AccountToolWell extends StatelessWidget {
+  final IconData icon;
+  final bool accent;
+  const AccountToolWell({super.key, required this.icon, this.accent = false});
+
+  @override
+  Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
+    return DecoratedBox(
+      decoration: ShapeDecoration(
+        color: accent ? t.accentFill : t.fill,
+        shape: appShape(AppRadii.xs),
+      ),
+      child: SizedBox.square(
+        dimension: 30,
+        child: Icon(icon, size: 17, color: accent ? t.accent : t.text2),
+      ),
+    );
+  }
+}
+
+/// 漆面上的深漆凹槽:四列等宽入口,顶部内影与下沿细高光。
+class LacEntryStrip extends StatelessWidget {
+  final List<LacEntryCell> cells;
+  const LacEntryStrip({super.key, required this.cells});
+
+  @override
+  Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
+    return AppClip(
+      radius: AppRadii.md,
+      child: ColoredBox(
+        color: t.lacRecess,
+        child: Stack(
+          children: [
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              height: 3,
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        t.lacRecessShade,
+                        t.lacRecessShade.withValues(alpha: 0),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(6),
+              child: Row(
+                children: [for (final cell in cells) Expanded(child: cell)],
+              ),
+            ),
+            Positioned(
+              bottom: 0,
+              left: 0,
+              right: 0,
+              height: AppSpace.hairline,
+              child: IgnorePointer(
+                child: ColoredBox(color: t.lacRecessHighlight),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 深漆入口:实心图标与奶白标签,按压缩放和填色共享手势与语义。
+class LacEntryCell extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback? onTap;
+  const LacEntryCell({
+    super.key,
+    required this.icon,
     required this.label,
     this.onTap,
   });
@@ -147,23 +340,32 @@ class EntryCell extends StatelessWidget {
       onTap: onTap,
       semanticLabel: label,
       scale: .94,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SizedBox(height: 24, child: Icon(icon, size: 24, color: tint)),
-            const SizedBox(height: 8),
-            Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: AppType.footnote.copyWith(
-                color: t.text2,
-                fontWeight: FontWeight.w500,
-              ),
+      motion: AppMotion.entryTap,
+      pressedColor: t.onLac.withValues(alpha: .08),
+      child: ExcludeSemantics(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 44),
+          child: Padding(
+            padding: const EdgeInsets.only(top: 14, bottom: 12),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 22, color: t.onLac),
+                const SizedBox(height: 9),
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppType.footnote.copyWith(
+                    color: t.onLac.withValues(alpha: .9),
+                    fontWeight: FontWeight.w500,
+                    letterSpacing: .3,
+                    height: 1.2,
+                  ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );

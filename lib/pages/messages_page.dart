@@ -238,25 +238,18 @@ class _MessagesBodyState extends State<MessagesBody> {
         ),
       );
     }
+    if (widget.showTitle) {
+      return LargeTitleScaffold(
+        title: '消息',
+        showBack: true,
+        header: segmented,
+        body: Builder(
+          builder: (context) => stack(PrimaryScrollController.maybeOf(context)),
+        ),
+      );
+    }
     return Column(
       children: [
-        if (widget.showTitle)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 4, 20, 8),
-            child: Row(
-              children: [
-                BackButton(onPressed: () => Navigator.of(context).maybePop()),
-                Text(
-                  '消息',
-                  style: TextStyle(
-                    fontSize: AppType.sizeTitle2,
-                    fontWeight: FontWeight.w700,
-                    color: t.text,
-                  ),
-                ),
-              ],
-            ),
-          ),
         segmented,
         Expanded(child: stack(null)),
       ],

@@ -11,6 +11,7 @@ import 'package:motor/motor.dart';
 import '../design/icons.dart';
 import '../design/motion.dart';
 import '../design/tokens.dart';
+import '../design/shapes.dart';
 import '../design/typography.dart';
 import 'press.dart';
 import 'sheet_scaffold.dart';
@@ -152,10 +153,13 @@ class _PickerSheetState<T> extends State<_PickerSheet<T>> {
           onTap: () => _choose(option),
           semanticLabel: option.label,
           child: DecoratedBox(
-            decoration: BoxDecoration(
+            decoration: ShapeDecoration(
               color: selected ? t.accentFill : t.fill,
-              borderRadius: BorderRadius.circular(16),
-              border: selected ? Border.all(color: t.accent, width: 1.5) : null,
+              shape: appShape(AppRadii.md).copyWith(
+                side: selected
+                    ? BorderSide(color: t.accent, width: 1.5)
+                    : BorderSide.none,
+              ),
             ),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),

@@ -10,6 +10,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import '../widgets/compact_scaffold.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
 import '../core/app_log.dart';
@@ -186,43 +187,27 @@ class _WebPostPageState extends State<WebPostPage> {
     final covered = _phase == _Phase.loading || _phase == _Phase.failed;
     return PopScope(
       canPop: _phase != _Phase.submitting,
-      child: Scaffold(
-        backgroundColor: t.surface,
-        appBar: PreferredSize(
-          preferredSize: const Size.fromHeight(52),
-          child: SafeArea(
-            bottom: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(8, 4, 12, 4),
-              child: Row(
-                children: [
-                  AppButton(
-                    label: '取消',
-                    variant: AppButtonVariant.quiet,
-                    onPressed: _phase == _Phase.submitting
-                        ? null
-                        : () => Navigator.maybePop(context),
-                  ),
-                  Expanded(
-                    child: Column(
-                      children: [
-                        Text(
-                          '人机验证',
-                          style: AppType.headline.copyWith(color: t.text),
-                        ),
-                        Text(
-                          _phase == _Phase.submitting
-                              ? '正在发表'
-                              : '内容已填好，完成验证后发表',
-                          style: AppType.footnote.copyWith(color: t.text3),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 64),
-                ],
-              ),
-            ),
+      child: CompactScaffold(
+        title: '人机验证',
+        actions: [
+          AppButton(
+            label: '取消',
+            variant: AppButtonVariant.quiet,
+            onPressed: _phase == _Phase.submitting
+                ? null
+                : () => Navigator.maybePop(context),
+          ),
+        ],
+        bottom: PreferredSize(
+          preferredSize: Size.fromHeight(
+            MediaQuery.textScalerOf(context).scale(AppType.sizeFootnote) *
+                AppType.footnote.height!,
+          ),
+          child: Text(
+            _phase == _Phase.submitting ? '正在发表' : '内容已填好，完成验证后发表',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppType.footnote.copyWith(color: t.text3),
           ),
         ),
         body: Stack(

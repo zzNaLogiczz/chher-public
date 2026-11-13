@@ -12,6 +12,7 @@ import 'package:motor/motor.dart';
 import 'package:solar_icons/solar_icons.dart';
 
 import '../design/tokens.dart';
+import '../design/shapes.dart';
 import '../models/models.dart';
 
 /// Actual queries submitted during this process session, never a fabricated hot list.
@@ -79,9 +80,7 @@ class SearchEntryHero extends StatelessWidget {
           builder: (context, _) => Material(
             type: MaterialType.transparency,
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(
-                lerpDouble(14, 22, animation.value)!,
-              ),
+              borderRadius: BorderRadius.circular(AppRadii.full),
               child: ColoredBox(
                 color: t.fill,
                 child: Align(
@@ -257,10 +256,11 @@ class SearchLoadingPanel extends StatelessWidget {
           itemBuilder: (context, index) => Container(
             padding: const EdgeInsets.all(18),
             margin: const EdgeInsets.only(bottom: 12),
-            decoration: BoxDecoration(
+            decoration: ShapeDecoration(
               color: t.surface,
-              borderRadius: BorderRadius.circular(AppRadii.lg),
-              border: Border.all(color: t.separator, width: .5),
+              shape: appShape(
+                AppRadii.lg,
+              ).copyWith(side: BorderSide(color: t.separator, width: .5)),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,

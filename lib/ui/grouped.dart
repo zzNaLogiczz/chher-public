@@ -47,7 +47,7 @@ class GroupedSection extends StatelessWidget {
             child: Divider(
               height: AppSpace.hairline,
               thickness: AppSpace.hairline,
-              color: t.separator,
+              color: t.separator.withValues(alpha: .42),
             ),
           ),
         );
@@ -61,7 +61,12 @@ class GroupedSection extends StatelessWidget {
         children: [
           if (header != null)
             Padding(
-              padding: const EdgeInsets.fromLTRB(32, 0, 32, 7),
+              padding: const EdgeInsets.fromLTRB(
+                AppSpace.groupInset + AppSpace.rowInset,
+                0,
+                AppSpace.groupInset + AppSpace.rowInset,
+                7,
+              ),
               child: Row(
                 children: [
                   Expanded(child: Text(header!, style: caption)),
@@ -91,7 +96,12 @@ class GroupedSection extends StatelessWidget {
           ),
           if (footer != null)
             Padding(
-              padding: const EdgeInsets.fromLTRB(32, 6, 32, 0),
+              padding: const EdgeInsets.fromLTRB(
+                AppSpace.groupInset + AppSpace.rowInset,
+                6,
+                AppSpace.groupInset + AppSpace.rowInset,
+                0,
+              ),
               child: Text(
                 footer!,
                 style: AppType.footnote.copyWith(color: t.text3),
@@ -133,8 +143,9 @@ class GroupedRow extends StatelessWidget {
   });
 
   /// 分隔线从文字起点开始:有前置时跳过前置宽度
-  double get separatorInset =>
-      icon != null ? AppSpace.rowInset + IconTile.size + 12 : AppSpace.rowInset;
+  double get separatorInset => (icon != null || leading != null)
+      ? AppSpace.rowInset + IconTile.size + 12
+      : AppSpace.rowInset;
 
   @override
   Widget build(BuildContext context) {
@@ -144,9 +155,23 @@ class GroupedRow extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(title, style: AppType.callout.copyWith(color: t.text)),
-        if (subtitle != null)
-          Text(subtitle!, style: AppType.footnote.copyWith(color: t.text3)),
+        Text(
+          title,
+          style: subtitle != null
+              ? AppType.callout.copyWith(
+                  color: t.text,
+                  fontWeight: FontWeight.w500,
+                  height: 1.35,
+                )
+              : AppType.callout.copyWith(color: t.text),
+        ),
+        if (subtitle != null) ...[
+          const SizedBox(height: 2),
+          Text(
+            subtitle!,
+            style: AppType.footnote.copyWith(color: t.text3, height: 1.35),
+          ),
+        ],
       ],
     );
     final chevronIcon = [
@@ -218,7 +243,7 @@ class GroupedDestructiveRow extends StatelessWidget {
       onTap: onTap,
       semanticLabel: label,
       child: ConstrainedBox(
-        constraints: const BoxConstraints(minHeight: 48),
+        constraints: const BoxConstraints(minHeight: 50),
         child: Center(
           child: Text(
             label,
@@ -254,7 +279,7 @@ class IconTile extends StatelessWidget {
 }
 
 /// "我的"页的入口方块:白色卡片 + 左上彩色方块图标 + 粗标签,
-/// 按下弹性缩放。薄雾白风格沿用 1.0.7 的入口形态;朱漆红走 EntryRow。
+/// 按下弹性缩放。薄雾白与推送路由沿用此入口形态;朱漆红首页使用漆面凹槽。
 class EntryTile extends StatelessWidget {
   final IconData icon;
   final Color tint;
@@ -321,9 +346,7 @@ class EntryGrid extends StatelessWidget {
             children: [
               for (var j = i; j < i + perRow; j++) ...[
                 if (j > i) const SizedBox(width: _gap),
-                Expanded(
-                  child: j < tiles.length ? tiles[j] : const SizedBox(),
-                ),
+                Expanded(child: j < tiles.length ? tiles[j] : const SizedBox()),
               ],
             ],
           ),

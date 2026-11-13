@@ -6,7 +6,6 @@ import 'package:chh_app/models/models.dart';
 import 'package:chh_app/network/chh_client.dart';
 import 'package:chh_app/pages/forum_threads_page.dart';
 import 'package:chh_app/ui/chrome_button.dart';
-import 'package:chh_app/ui/picker.dart';
 import 'package:chh_app/ui/plain_rows.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -126,7 +125,7 @@ void main() {
             .widget<ChromeGroup>(find.byType(ChromeGroup))
             .items
             .map((i) => i.tooltip),
-        ['排序', '搜索帖子', '收藏版块'],
+        ['分类筛选', '排序', '搜索帖子', '收藏版块'],
       );
       expect(repo.requests.single.orderby, isNull);
     },
@@ -151,7 +150,7 @@ void main() {
   ) async {
     final repo = _Forums();
     await _mount(tester, repo, 1103);
-    await tester.tap(find.byType(PickerButton<int>));
+    await tester.tap(find.byTooltip('分类筛选'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('硬件').last);
     await tester.pump(const Duration(milliseconds: 200));
@@ -159,7 +158,7 @@ void main() {
     await _pick(tester, '查看最多');
     expect(repo.requests.last.typeid, 1010);
     expect(repo.requests.last.orderby, 'views');
-    await tester.tap(find.byType(PickerButton<int>));
+    await tester.tap(find.byTooltip('分类筛选'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('全部分类').last);
     await tester.pump(const Duration(milliseconds: 200));
@@ -202,7 +201,7 @@ void main() {
   testWidgets('page two preserves selected sort parameters', (tester) async {
     final repo = _Forums()..paginate = true;
     await _mount(tester, repo, 1107);
-    await tester.tap(find.byType(PickerButton<int>));
+    await tester.tap(find.byTooltip('分类筛选'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('硬件').last);
     await tester.pump(const Duration(milliseconds: 200));
@@ -268,7 +267,7 @@ void main() {
     '320dp at 2x keeps actions reachable and sort sheet labels readable',
     (tester) async {
       await _mount(tester, _Forums(), 1110, narrow: true);
-      for (final tooltip in ['排序', '搜索帖子', '收藏版块']) {
+      for (final tooltip in ['分类筛选', '排序', '搜索帖子', '收藏版块']) {
         final size = tester.getSize(find.byTooltip(tooltip));
         expect(size.width, greaterThanOrEqualTo(44));
         expect(size.height, greaterThanOrEqualTo(44));

@@ -17,3 +17,35 @@ lib/widgets/editorial_article_route.dart:raw duration:Duration(milliseconds: _re
 lib/widgets/thread_conversation_sheet.dart:raw duration:const Duration(milliseconds: 180)) {
 # 消息深链被占住时重试导航的等待间隔,不是界面动画
 lib/pages/home_page.dart:raw duration:const Duration(milliseconds: 500),
+# 漆面导航控件既有白色前景,本次不改颜色
+lib/ui/chrome_button.dart:Colors.*:? Colors.white
+# 计数徽章既有紧凑字号,本次不改字号
+lib/ui/chrome_button.dart:raw fontSize:fontSize: 10,
+# 警示徽章既有白色前景,本次不改颜色
+lib/ui/chrome_button.dart:Colors.*:color: alert ? Colors.white : t.bg,
+# Toast 既有停留时间,本次不改动效参数
+lib/ui/feedback.dart:raw duration:static const hold = Duration(milliseconds: 1600);
+# Toast 既有深色浮层底色,本次不改颜色
+lib/ui/feedback.dart:raw color:color: const Color(0xF01E1E20),
+# Toast 图标既有白色前景,本次不改颜色
+lib/ui/feedback.dart:Colors.*:Icon(widget.icon, size: 18, color: Colors.white),
+# Toast 文字既有白色前景,本次不改颜色
+lib/ui/feedback.dart:Colors.*:color: Colors.white,
+# 彩色图标块既有白色图标,本次不改颜色
+lib/ui/grouped.dart:Colors.*:child: Icon(icon, size: 17, color: Colors.white),
+# 选择面板既有选中后关闭延迟,本次不改动效参数
+lib/ui/picker.dart:raw duration:static const _closeDelay = Duration(milliseconds: 200);
+# 按压反馈既有恢复时间,本次不改动效参数
+lib/ui/press.dart:raw duration:static const fadeBack = Duration(milliseconds: 200);
+# 漆面分段控件既有选中底色,本次不改颜色
+lib/ui/segmented.dart:raw color:? const Color(0xFFFFF8F5)
+# 深色分段控件既有选中底色,本次不改颜色
+lib/ui/segmented.dart:raw color:? const Color(0xFF636366)
+# 漆面分段控件既有阴影,规格明确保留 BoxShadow
+lib/ui/segmented.dart:raw shadow:BoxShadow(
+# 漆面分段控件既有阴影色,本次不改颜色
+lib/ui/segmented.dart:raw color:color: Color(0x4D5A0508),
+# 漆面分段控件既有选中文字颜色,本次不改颜色
+lib/ui/segmented.dart:raw color:final selectedColor = widget.onLac ? const Color(0xFF5A0E10) : t.text;
+# 黑名单撤销反馈既有 Material 按钮,本次仅归一容器半径
+lib/ui/user_block_action.dart:material buttons:TextButton(

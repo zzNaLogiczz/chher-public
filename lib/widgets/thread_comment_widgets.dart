@@ -7,6 +7,7 @@ import '../ui/press.dart';
 import 'package:solar_icons/solar_icons.dart';
 
 import '../design/tokens.dart';
+import '../design/shapes.dart';
 import '../design/typography.dart';
 import '../models/models.dart';
 import 'comment_mode_bar.dart';
@@ -98,10 +99,7 @@ class ThreadReplyStrip extends StatelessWidget {
     final count = replies.length;
     final previewCount = count > 2 ? 2 : count;
     return Container(
-      decoration: BoxDecoration(
-        color: t.fill,
-        borderRadius: BorderRadius.circular(AppRadii.md),
-      ),
+      decoration: ShapeDecoration(color: t.fill, shape: appShape(AppRadii.md)),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -257,9 +255,9 @@ class ThreadReplyContext extends StatelessWidget {
         child: Container(
           constraints: const BoxConstraints(minHeight: 44),
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          decoration: BoxDecoration(
+          decoration: ShapeDecoration(
             color: t.accentFill,
-            borderRadius: BorderRadius.circular(AppRadii.sm),
+            shape: appShape(AppRadii.sm),
           ),
           child: Row(
             children: [

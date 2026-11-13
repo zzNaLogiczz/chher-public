@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:motor/motor.dart';
 
 import 'package:chh_app/design/motion.dart';
+import 'package:chh_app/design/shapes.dart';
 import 'package:chh_app/design/tokens.dart';
 import 'package:chh_app/design/typography.dart';
 
@@ -85,6 +86,38 @@ void main() {
       (AppMotion.pop.duration, AppMotion.pop.bounce),
       (const Duration(milliseconds: 300), 0.30),
     );
+  });
+
+  testWidgets('grouped card clipping preserves only its outer corners', (
+    tester,
+  ) async {
+    for (final first in [false, true]) {
+      for (final last in [false, true]) {
+        final radius = BorderRadius.vertical(
+          top: first ? const Radius.circular(AppRadii.md) : Radius.zero,
+          bottom: last ? const Radius.circular(AppRadii.md) : Radius.zero,
+        );
+        await tester.pumpWidget(
+          AppClip.borderRadius(
+            borderRadius: radius,
+            child: const SizedBox(width: 100, height: 44),
+          ),
+        );
+        if (kContinuousCorners) {
+          expect(
+            tester
+                .widget<ClipRSuperellipse>(find.byType(ClipRSuperellipse))
+                .borderRadius,
+            radius,
+          );
+        } else {
+          expect(
+            tester.widget<ClipRRect>(find.byType(ClipRRect)).borderRadius,
+            radius,
+          );
+        }
+      }
+    }
   });
 
   testWidgets('reduced motion maps every spring to no motion', (tester) async {

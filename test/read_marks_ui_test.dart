@@ -261,7 +261,7 @@ void main() {
     expect(find.textContaining('新回复'), findsNothing);
   });
 
-  testWidgets('已看:标题降为 text2,气泡显示回复数', (tester) async {
+  testWidgets('已看:标题降为 text2,数字显示回复数', (tester) async {
     await tester.pumpWidget(
       app(ThreadRow(thread: thread(1), readState: const ThreadReadSeen())),
     );
@@ -270,7 +270,7 @@ void main() {
     expect(find.text('10'), findsOneWidget);
   });
 
-  testWidgets('有新回复:标题回强色且独立胶囊出现 +3', (tester) async {
+  testWidgets('有新回复:标题回强色且独立数字出现 +3', (tester) async {
     await tester.pumpWidget(
       app(
         ThreadRow(thread: thread(1), readState: const ThreadReadNewReplies(3)),
@@ -281,7 +281,7 @@ void main() {
     expect(find.text('+3'), findsOneWidget);
     expect(
       DefaultTextStyle.of(tester.element(find.text('+3'))).style.color,
-      t.onAccent,
+      t.accent,
     );
     // 仍无分隔符与图标
     expect(find.textContaining('·'), findsNothing);

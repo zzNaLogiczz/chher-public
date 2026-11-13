@@ -47,7 +47,7 @@ class ReadingBar extends StatelessWidget {
     final bottom = MediaQuery.paddingOf(context).bottom;
     final surface = BoxDecoration(
       color: t.glass,
-      borderRadius: BorderRadius.circular(22),
+      borderRadius: BorderRadius.circular(AppRadii.full),
       boxShadow: t.shadowE1,
     );
     return DecoratedBox(
@@ -141,7 +141,7 @@ class ReadingBar extends StatelessWidget {
                       Positioned.fill(
                         child: DecoratedBox(
                           decoration: surface.copyWith(
-                            borderRadius: BorderRadius.circular(22),
+                            borderRadius: BorderRadius.circular(AppRadii.full),
                           ),
                         ),
                       ),
@@ -228,7 +228,7 @@ class ComposeCapsule extends StatelessWidget {
       child: DecoratedBox(
         decoration: BoxDecoration(
           color: color ?? t.fill,
-          borderRadius: BorderRadius.circular(22),
+          borderRadius: BorderRadius.circular(AppRadii.full),
           boxShadow: shadows,
         ),
         child: SizedBox(

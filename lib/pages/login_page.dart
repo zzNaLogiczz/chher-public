@@ -8,6 +8,7 @@ import '../design/motion.dart';
 import '../design/typography.dart';
 import 'dart:collection';
 import 'package:flutter/material.dart';
+import '../widgets/compact_scaffold.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import '../core/chh_urls.dart';
 import '../design/tokens.dart';
@@ -65,25 +66,17 @@ class _LoginPageState extends State<LoginPage> {
   @override
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('登录 CHH'),
-        leading: Navigator.canPop(context)
-            ? ChromeButton(
-                icon: AppIcons.back,
-                tooltip: '返回',
-                onPressed: () => Navigator.maybePop(context),
-              )
-            : null,
-        actions: [
-          ChromeButton(
-            tooltip: '重新加载登录页',
-            onPressed: _reload,
-            icon: AppIcons.refresh,
-          ),
-          const SizedBox(width: 8),
-        ],
-      ),
+    return CompactScaffold(
+      title: '登录 CHH',
+      showBack: Navigator.canPop(context),
+      actions: [
+        ChromeButton(
+          tooltip: '重新加载登录页',
+          onPressed: _reload,
+          icon: AppIcons.refresh,
+        ),
+        const SizedBox(width: 8),
+      ],
       body: Column(
         children: [
           Padding(

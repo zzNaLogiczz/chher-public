@@ -4,7 +4,7 @@ library;
 import 'package:flutter/material.dart';
 import '../ui/picker.dart';
 import '../design/typography.dart';
-import '../ui/grouped.dart';
+import '../ui/plain_rows.dart';
 
 import '../di.dart';
 import '../design/tokens.dart';
@@ -137,32 +137,23 @@ class _ForumIndexViewState extends State<ForumIndexView> {
                 ),
               for (final category in visible) ...[
                 SliverPadding(
-                  // 分组标题:分区短名 + 版块数;源站长说明只在这里出现一次
-                  padding: const EdgeInsets.fromLTRB(32, 20, 32, 7),
+                  // 分区标签与版块名同缩进;源站长说明只在这里出现一次
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpace.screen,
+                    20,
+                    AppSpace.screen,
+                    7,
+                  ),
                   sliver: SliverToBoxAdapter(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                _categoryName(category.name).title,
-                                style: AppType.footnote.copyWith(
-                                  color: t.text3,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                            Text(
-                              '${category.forums.length}',
-                              semanticsLabel: '${category.forums.length}个版块',
-                              style: AppType.footnote.copyWith(
-                                color: t.text3,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
+                        Text(
+                          _categoryName(category.name).title,
+                          style: AppType.footnote.copyWith(
+                            color: t.text3,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                         if (_categoryName(category.name).description
                             case final String description)
@@ -174,17 +165,11 @@ class _ForumIndexViewState extends State<ForumIndexView> {
                     ),
                   ),
                 ),
-                SliverPadding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpace.groupInset,
-                  ),
-                  sliver: SliverList.builder(
-                    itemCount: category.forums.length,
-                    itemBuilder: (context, i) => _ForumRow(
-                      forum: category.forums[i],
-                      first: i == 0,
-                      last: i == category.forums.length - 1,
-                    ),
+                SliverList.builder(
+                  itemCount: category.forums.length,
+                  itemBuilder: (context, i) => _ForumRow(
+                    forum: category.forums[i],
+                    last: i == category.forums.length - 1,
                   ),
                 ),
               ],
@@ -213,11 +198,7 @@ class _ForumIndexViewState extends State<ForumIndexView> {
           titleAccessory: picker,
           body: body,
         )
-      : LacScaffold(
-          title: '版块',
-          actions: [?picker],
-          body: body,
-        );
+      : LacScaffold(title: '版块', actions: [?picker], body: body);
 }
 
 ({String title, String? description}) _categoryName(String name) {
@@ -232,56 +213,48 @@ class _ForumIndexViewState extends State<ForumIndexView> {
   );
 }
 
-/// 版块行:分组面里的一行,逐行惰性构建,首尾两行负责圆角
+/// 版块行:平铺在页面底色上,版块名是唯一主角,主题数退为行尾灰字
 class _ForumRow extends StatelessWidget {
   final Forum forum;
-  final bool first;
   final bool last;
-  const _ForumRow({
-    required this.forum,
-    required this.first,
-    required this.last,
-  });
+  const _ForumRow({required this.forum, required this.last});
 
   @override
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
-    final count = forum.threadCount != null
-        ? '${forum.threadCount} 个主题'
+    final (count, unit) = forum.threadCount != null
+        ? (forum.threadCount, '个主题')
         : forum.postCount != null
-        ? '${forum.postCount} 个帖子'
-        : null;
-    return ClipRRect(
-      borderRadius: BorderRadius.vertical(
-        top: first ? const Radius.circular(AppRadii.md) : Radius.zero,
-        bottom: last ? const Radius.circular(AppRadii.md) : Radius.zero,
+        ? (forum.postCount, '个帖子')
+        : (null, null);
+    return PlainRow(
+      separator: !last,
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => ForumThreadsPage(fid: forum.fid, title: forum.name),
+        ),
       ),
-      child: ColoredBox(
-        color: t.surface,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            GroupedRow(
-              title: forum.name,
-              subtitle: count,
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) =>
-                      ForumThreadsPage(fid: forum.fid, title: forum.name),
-                ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              forum.name,
+              style: AppType.headline.copyWith(color: t.text),
+            ),
+          ),
+          if (count != null) ...[
+            const SizedBox(width: 12),
+            Text(
+              '$count',
+              key: ValueKey('forum-count-${forum.fid}'),
+              semanticsLabel: '$count $unit',
+              style: AppType.footnote.copyWith(
+                color: t.text3,
+                fontFeatures: const [FontFeature.tabularFigures()],
               ),
             ),
-            if (!last)
-              Padding(
-                padding: const EdgeInsets.only(left: AppSpace.rowInset),
-                child: Divider(
-                  height: AppSpace.hairline,
-                  thickness: AppSpace.hairline,
-                  color: t.separator,
-                ),
-              ),
           ],
-        ),
+        ],
       ),
     );
   }

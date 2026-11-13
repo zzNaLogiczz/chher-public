@@ -91,7 +91,7 @@ void _showUndo(
           animateOnMount: true,
           child: Material(
             color: t.text,
-            borderRadius: BorderRadius.circular(999),
+            borderRadius: BorderRadius.circular(AppRadii.full),
             child: Padding(
               padding: const EdgeInsets.only(left: 16, right: 8),
               child: Row(

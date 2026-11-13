@@ -9,6 +9,7 @@ import '../data/space_repository.dart';
 import '../widgets/large_title_scaffold.dart';
 import '../widgets/expressive_controls.dart';
 import '../design/tokens.dart';
+import '../design/shapes.dart';
 import '../design/typography.dart';
 import '../ui/grouped.dart';
 import '../ui/sheet_scaffold.dart';
@@ -156,7 +157,7 @@ class _MedalCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
-    return ClipRRect(
+    return AppClip.borderRadius(
       borderRadius: BorderRadius.vertical(
         top: first ? const Radius.circular(AppRadii.md) : Radius.zero,
         bottom: last ? const Radius.circular(AppRadii.md) : Radius.zero,

@@ -10,7 +10,7 @@ import '../design/tokens.dart';
 import '../design/typography.dart';
 import 'press.dart';
 
-/// 气泡:圆角 20,靠外的下角收成 6;对方 fill 底,自己 accent 底
+/// 气泡:圆角 md,靠外的下角收成 xs;对方 fill 底,自己 accent 底
 class ChatBubble extends StatelessWidget {
   final String text;
   final bool mine;
@@ -19,8 +19,8 @@ class ChatBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
-    const round = Radius.circular(20);
-    const tail = Radius.circular(6);
+    const round = Radius.circular(AppRadii.md);
+    const tail = Radius.circular(AppRadii.xs);
     return DecoratedBox(
       decoration: BoxDecoration(
         color: mine ? t.accent : t.fill,

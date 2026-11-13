@@ -21,21 +21,27 @@ void main() {
   });
 
   // 缓存走真实文件 IO,而页面在 fake 时钟里:交替放行真实 IO 与泵帧
-  Future<void> settleIo(WidgetTester tester) async {
-    for (var i = 0; i < 5; i++) {
+  Future<void> settleIo(WidgetTester tester, String label) async {
+    final deadline = Stopwatch()..start();
+    while (find.text(label).evaluate().isEmpty &&
+        deadline.elapsed < const Duration(seconds: 5)) {
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 20)),
       );
       await tester.pump();
     }
     await tester.pumpAndSettle();
+    expect(find.text(label), findsOneWidget);
   }
 
   // 用全新实例重新扫目录,得到磁盘上的真实字节数,且不卡在页面 fake 时钟里的队列上
   Future<int?> diskBytes(WidgetTester tester) =>
       tester.runAsync(() => ImageDiskCache(dir).totalBytes());
 
-  Future<void> pumpSettings(WidgetTester tester) async {
+  Future<void> pumpSettings(
+    WidgetTester tester, {
+    String label = '1.5 KB',
+  }) async {
     await tester.pumpWidget(
       MaterialApp(
         theme: buildAppTheme(Brightness.light),
@@ -43,7 +49,7 @@ void main() {
       ),
     );
     // totalBytes 走真实文件 IO,需放到真实异步里等它算完
-    await settleIo(tester);
+    await settleIo(tester, label);
   }
 
   testWidgets('图片缓存行显示大小,确认后清除', (tester) async {
@@ -69,7 +75,7 @@ void main() {
     expect(find.byType(AlertDialog), findsOneWidget);
 
     await tester.tap(find.text('清除'));
-    await settleIo(tester);
+    await settleIo(tester, '0 B');
 
     expect(find.byType(AlertDialog), findsNothing);
     expect(await diskBytes(tester), 0);
@@ -124,13 +130,13 @@ void main() {
     expect(find.text('2.0 KB'), findsNothing);
     expect(find.text('计算中'), findsOneWidget);
 
-    await settleIo(tester);
+    await settleIo(tester, '2.0 KB');
     expect(find.text('2.0 KB'), findsOneWidget);
   });
 
   testWidgets('统计失败时显示中性值而不是一直计算中', (tester) async {
     imageDiskCache = _ThrowingCache(dir, failTotal: true);
-    await pumpSettings(tester);
+    await pumpSettings(tester, label: '—');
     await tester.scrollUntilVisible(
       find.text('图片缓存'),
       200,
@@ -165,7 +171,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('清除失败，请稍后重试'), findsOneWidget);
-    await settleIo(tester);
+    await settleIo(tester, '0 B');
 
     expect(find.text('1.5 KB'), findsNothing);
     expect(find.text('0 B'), findsOneWidget);
@@ -181,7 +187,7 @@ void main() {
         Uint8List((2.5 * 1024 * 1024).round()),
       ),
     );
-    await pumpSettings(tester);
+    await pumpSettings(tester, label: '2.5 MB');
     await tester.scrollUntilVisible(
       find.text('图片缓存'),
       200,

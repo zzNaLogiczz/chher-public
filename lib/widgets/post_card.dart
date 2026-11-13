@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import '../ui/app_button.dart';
 
 import '../design/tokens.dart';
+import '../design/shapes.dart';
 import '../design/reading.dart';
 import 'package:solar_icons/solar_icons.dart';
 import '../ui/press.dart';
@@ -264,7 +265,7 @@ class PostCard extends StatelessWidget {
     child: DecoratedBox(
       decoration: BoxDecoration(
         color: t.accentFill,
-        borderRadius: BorderRadius.circular(AppRadii.xs - 2),
+        borderRadius: BorderRadius.circular(AppRadii.xs),
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
@@ -295,10 +296,7 @@ class PostCard extends StatelessWidget {
       key: ValueKey('post-lock-${post.pid}'),
       padding: const EdgeInsets.all(14),
       margin: const EdgeInsets.only(bottom: 6),
-      decoration: BoxDecoration(
-        color: t.fill,
-        borderRadius: BorderRadius.circular(AppRadii.sm),
-      ),
+      decoration: ShapeDecoration(color: t.fill, shape: appShape(AppRadii.sm)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -704,7 +702,7 @@ class PostCard extends StatelessWidget {
           decoration: BoxDecoration(
             color: t.warnBg,
             borderRadius: const BorderRadius.horizontal(
-              left: Radius.circular(4),
+              left: Radius.circular(AppRadii.xs),
               right: Radius.circular(AppRadii.sm),
             ),
             border: Border(left: BorderSide(color: t.warn, width: 3)),

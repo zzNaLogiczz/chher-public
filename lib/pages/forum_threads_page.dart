@@ -3,8 +3,8 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:motor/motor.dart';
+import '../design/icons.dart';
 import '../design/motion.dart';
-import '../design/typography.dart';
 import '../ui/app_button.dart';
 import '../models/thread_list_time.dart';
 
@@ -15,7 +15,6 @@ import '../ui/favorite_action.dart';
 import '../models/models.dart';
 import '../models/thread_sort.dart';
 import '../widgets/browse_controls.dart';
-import '../design/tokens.dart';
 import '../ui/chrome_button.dart';
 import '../ui/picker.dart';
 import '../widgets/browse_thread_list.dart';
@@ -44,6 +43,7 @@ class _ForumThreadsPageState extends State<ForumThreadsPage> {
   static final Map<int, ThreadSort> _sortMemory = {};
   late ThreadSort _sort;
   bool _sortPickerOpen = false;
+  bool _typePickerOpen = false;
   final _composeVisible = ValueNotifier<bool>(true);
   double _dragDistance = 0;
   List<ThreadType> _types = const [];
@@ -90,6 +90,21 @@ class _ForumThreadsPageState extends State<ForumThreadsPage> {
     if (mounted && picked != null) _selectSort(picked.value);
   }
 
+  Future<void> _pickType(List<PickerOption<int>> options) async {
+    if (_typePickerOpen) return;
+    _typePickerOpen = true;
+    final picked = await showPickerSheet<int>(
+      context,
+      title: '选择分类',
+      options: options,
+      value: _typeid,
+    );
+    _typePickerOpen = false;
+    if (!mounted || picked == null || picked.value == _typeid) return;
+    setState(() => _typeid = picked.value);
+    _composeVisible.value = true;
+  }
+
   void _selectSort(ThreadSort sort) {
     if (sort == _sort) return;
     setState(() => _sort = sort);
@@ -134,15 +149,10 @@ class _ForumThreadsPageState extends State<ForumThreadsPage> {
       for (final type in _types.where((type) => type.typeid != 0))
         PickerOption(value: type.typeid, label: type.name),
     ];
+    final hasCategories = options.length > 1;
     final now = DateTime.now();
     final sort = _sort;
     final typeid = _typeid;
-    final scaler = MediaQuery.textScalerOf(context);
-    final controlHeight =
-        (scaler.scale(AppType.sizeSubhead) * AppType.subhead.height!).clamp(
-          44.0,
-          double.infinity,
-        );
     return BrowseScaffold(
       title: widget.title,
       actions: [
@@ -154,10 +164,17 @@ class _ForumThreadsPageState extends State<ForumThreadsPage> {
           ),
           builder: (context, favorited, busy, toggle) => ChromeGroup(
             items: [
+              if (hasCategories)
+                ChromeGroupItem(
+                  tooltip: '分类筛选',
+                  icon: AppIcons.filter,
+                  selected: typeid != 0,
+                  onPressed: () => _pickType(options),
+                ),
               ChromeGroupItem(
                 tooltip: '排序',
                 icon: AppIcons.sort,
-                selected: _sort != ThreadSort.fallback,
+                selected: sort != ThreadSort.fallback,
                 onPressed: _pickSort,
               ),
               ChromeGroupItem(
@@ -178,34 +195,6 @@ class _ForumThreadsPageState extends State<ForumThreadsPage> {
           ),
         ),
       ],
-      pinnedHeader: options.length <= 1
-          ? null
-          : PreferredSize(
-              preferredSize: Size.fromHeight(controlHeight + 4),
-              child: Padding(
-                key: const ValueKey('forum-filters'),
-                padding: const EdgeInsets.fromLTRB(
-                  AppSpace.screen,
-                  0,
-                  AppSpace.screen,
-                  4,
-                ),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: PickerButton<int>(
-                    sheetTitle: '选择分类',
-                    options: options,
-                    value: _typeid,
-                    onChanged: (id) {
-                      if (id != _typeid) {
-                        setState(() => _typeid = id);
-                        _composeVisible.value = true;
-                      }
-                    },
-                  ),
-                ),
-              ),
-            ),
       floatingActionButton: ValueListenableBuilder<bool>(
         valueListenable: _composeVisible,
         child: Tooltip(

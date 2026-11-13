@@ -13,6 +13,8 @@ import 'package:chh_app/pages/pm_thread_page.dart';
 import 'package:chh_app/parser/header_parser.dart';
 import 'package:chh_app/ui/picker.dart';
 import 'package:chh_app/ui/chat.dart';
+import 'package:chh_app/widgets/large_title_scaffold.dart';
+import 'package:chh_app/widgets/compact_scaffold.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -136,6 +138,46 @@ void phone(WidgetTester tester) {
 
 void main() {
   chatButtonTests();
+  testWidgets('titled messages keep section state and shared back navigation', (
+    tester,
+  ) async {
+    phone(tester);
+    final repository = _CountingMessages();
+    await tester.pumpWidget(
+      app(
+        Builder(
+          builder: (context) => GestureDetector(
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) =>
+                    MessagesBody(showTitle: true, repository: repository),
+              ),
+            ),
+            child: const Text('打开消息'),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('打开消息'));
+    await tester.pumpAndSettle();
+    final scaffold = tester.widget<LargeTitleScaffold>(
+      find.byType(LargeTitleScaffold),
+    );
+    expect(scaffold.title, '消息');
+    expect(scaffold.showBack, isTrue);
+    expect(repository.noticeReads, 1);
+    expect(repository.pmReads, 0);
+    await tester.tap(find.text('私信'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('提醒'));
+    await tester.pumpAndSettle();
+    expect(repository.noticeReads, 1);
+    expect(repository.pmReads, 1);
+    expect(tester.takeException(), isNull);
+    await tester.tap(find.byTooltip('返回'));
+    await tester.pumpAndSettle();
+    expect(find.byType(MessagesBody), findsNothing);
+  });
   testWidgets('switching sections keeps both lists instead of reloading', (
     tester,
   ) async {
@@ -187,8 +229,8 @@ void main() {
     await showPm(tester, FakeMessages());
     final name = tester.getCenter(
       find.descendant(
-        of: find.byType(AppBar),
-        matching: find.text(pmFixture.peer),
+        of: find.byType(CompactScaffold),
+        matching: find.byKey(const ValueKey('compact-scaffold-title')),
       ),
     );
     expect(name.dx, moreOrLessEquals(195, epsilon: 1));

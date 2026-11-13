@@ -177,12 +177,12 @@ class AppButton extends StatelessWidget {
                 ? null
                 : Color.lerp(t.btnTop, t.green, progress),
             boxShadow: progress <= 0.001 ? t.btnShadow : null,
-            borderRadius: BorderRadius.circular(height / 2),
+            borderRadius: BorderRadius.circular(AppRadii.full),
           );
         } else {
           decoration = BoxDecoration(
             color: base == null ? null : Color.lerp(base, t.green, progress),
-            borderRadius: BorderRadius.circular(height / 2),
+            borderRadius: BorderRadius.circular(AppRadii.full),
           );
         }
         return DecoratedBox(

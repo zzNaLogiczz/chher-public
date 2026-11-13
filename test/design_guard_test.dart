@@ -18,14 +18,14 @@ final rules = <String, RegExp>{
 };
 
 void main() {
-  test('pages and widgets only use design tokens and ui parts', () {
+  test('pages, widgets and ui only use design tokens and ui parts', () {
     final allow = File('test/design_guard_allowlist.txt')
         .readAsLinesSync()
         .map((l) => l.trim())
         .where((l) => l.isNotEmpty && !l.startsWith('#'))
         .toSet();
     final hits = <String>[];
-    for (final dir in ['lib/pages', 'lib/widgets']) {
+    for (final dir in ['lib/pages', 'lib/widgets', 'lib/ui']) {
       final files =
           Directory(dir)
               .listSync(recursive: true)

@@ -131,13 +131,12 @@ void main() {
     );
   });
 
-  Widget grid(double scale) => app(
-    EntryRow(
+  Widget strip(double scale) => app(
+    LacEntryStrip(
       cells: [
         for (final label in ['我的帖子', '我的收藏', '积分记录', '勋章'])
-          EntryCell(
-            icon: AppIcons.article,
-            tint: IconTints.blue,
+          LacEntryCell(
+            icon: AppIcons.articleBold,
             label: label,
             onTap: () {},
           ),
@@ -146,25 +145,22 @@ void main() {
     textScale: scale,
   );
 
-  testWidgets('entry row lays four cells on one line at normal text', (tester) async {
-    await tester.pumpWidget(grid(1));
-    expect(
-      tester.getCenter(find.text('我的帖子')).dy,
-      tester.getCenter(find.text('我的收藏')).dy,
-    );
-  });
-
-  testWidgets('entry row wraps to two columns at 1.5x text', (tester) async {
-    await tester.pumpWidget(grid(1.5));
-    // 前两个仍在同一行,后两个换行:大字号下标签不截断
-    expect(
-      tester.getCenter(find.text('积分记录')).dy,
-      greaterThan(tester.getCenter(find.text('我的帖子')).dy),
-    );
-    expect(
-      tester.getCenter(find.text('我的收藏')).dy,
-      tester.getCenter(find.text('我的帖子')).dy,
-    );
-    expect(tester.takeException(), isNull);
-  });
+  for (final scale in [1.0, 1.3, 2.0]) {
+    testWidgets('lacquer strip keeps four equal columns at ${scale}x text', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(320, 640));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(strip(scale));
+      final cells = find.byType(LacEntryCell);
+      final first = tester.getRect(cells.first);
+      for (final cell in cells.evaluate()) {
+        final rect = tester.getRect(find.byWidget(cell.widget));
+        expect(rect.top, first.top);
+        expect(rect.width, first.width);
+        expect(rect.height, greaterThanOrEqualTo(44));
+      }
+      expect(tester.takeException(), isNull);
+    });
+  }
 }

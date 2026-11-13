@@ -13,6 +13,13 @@ abstract final class AppMotion {
     snapToEnd: true,
   );
 
+  /// 漆面入口按压,沿用共享按压核心与减少动态效果规则。
+  static const entryTap = CupertinoMotion(
+    duration: Duration(milliseconds: 220),
+    bounce: 0,
+    snapToEnd: true,
+  );
+
   /// 分段滑块、底栏、展开箭头、选择器文字替换
   static const select = CupertinoMotion(
     duration: Duration(milliseconds: 340),

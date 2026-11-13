@@ -155,7 +155,7 @@ class _AppSegmentedState<T> extends State<AppSegmented<T>>
             color: widget.onLac
                 ? const Color.fromRGBO(255, 248, 245, .18)
                 : t.fill,
-            borderRadius: BorderRadius.circular(height / 2),
+            borderRadius: BorderRadius.circular(AppRadii.full),
           ),
           child: SizedBox(
             width: total,
@@ -179,9 +179,7 @@ class _AppSegmentedState<T> extends State<AppSegmented<T>>
                               : t.isDark
                               ? const Color(0xFF636366)
                               : t.surface,
-                          borderRadius: BorderRadius.circular(
-                            height / 2 - _inset,
-                          ),
+                          borderRadius: BorderRadius.circular(AppRadii.full),
                           boxShadow: widget.onLac
                               ? const [
                                   BoxShadow(
@@ -244,7 +242,11 @@ class _AppSegmentedState<T> extends State<AppSegmented<T>>
                 ),
                 // 新功能引导红点(例如朱砂红上线):悬在文字右上角
                 if (widget.options[i].dot)
-                  const Positioned(top: -5, right: -10, child: DotBadge(visible: true)),
+                  const Positioned(
+                    top: -5,
+                    right: -10,
+                    child: DotBadge(visible: true),
+                  ),
               ],
             ),
           ),

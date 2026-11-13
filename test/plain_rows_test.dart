@@ -1,4 +1,5 @@
 import 'package:chh_app/design/theme.dart';
+import 'package:chh_app/design/tokens.dart';
 import 'package:chh_app/design/icons.dart';
 import 'package:chh_app/models/models.dart';
 import 'package:chh_app/ui/plain_rows.dart';
@@ -55,7 +56,19 @@ void main() {
       tester.getSize(find.byKey(const ValueKey('thread-count-1'))).width,
       44,
     );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('thread-count-1')),
+        matching: find.byType(AnimatedContainer),
+      ),
+      findsNothing,
+    );
     expect(find.textContaining('电脑讨论(新)', findRichText: true), findsOneWidget);
+    final metadata = tester.widget<Text>(find.textContaining('电脑讨论(新)'));
+    final spans = (metadata.textSpan! as TextSpan).children!.cast<TextSpan>();
+    expect(spans.first.text, '电脑讨论(新)  ');
+    expect(spans.first.style, spans.last.style);
+    expect(spans.first.style?.color, AppTokens.light.text3);
     expect(find.textContaining('测试主题作者', findRichText: true), findsOneWidget);
   });
 

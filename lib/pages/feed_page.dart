@@ -13,6 +13,7 @@ import '../design/typography.dart';
 import '../ui/picker.dart';
 import '../ui/segmented.dart';
 import '../design/tokens.dart';
+import '../design/shapes.dart';
 import '../di.dart';
 import '../models/models.dart';
 import '../widgets/search_entry_route.dart';
@@ -163,9 +164,9 @@ class _FeedPageState extends State<FeedPage> {
             ),
             child: Container(
               height: 400,
-              decoration: BoxDecoration(
+              decoration: ShapeDecoration(
                 color: t.fill,
-                borderRadius: BorderRadius.circular(AppRadii.lg),
+                shape: appShape(AppRadii.lg),
               ),
             ),
           );
@@ -431,14 +432,14 @@ class _EditorialCard extends StatelessWidget {
         onTap: onTap,
         scale: .97,
         child: DecoratedBox(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(AppRadii.lg),
-            boxShadow: t.shadowE2,
+          decoration: ShapeDecoration(
+            shape: appShape(AppRadii.lg),
+            shadows: t.shadowE2,
           ),
           child: SizedBox(
             height: height,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(AppRadii.lg),
+            child: AppClip(
+              radius: AppRadii.lg,
               child: EditorialCover(
                 article: article,
                 heroTag: heroTag,

@@ -1,12 +1,16 @@
 import 'package:chh_app/data/space_repository.dart';
+import 'package:chh_app/design/icons.dart';
+import 'package:chh_app/design/shapes.dart';
 import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/design/tokens.dart';
+import 'package:chh_app/design/typography.dart';
 import 'package:chh_app/models/models.dart';
 import 'package:chh_app/pages/credit_log_page.dart';
 import 'package:chh_app/pages/forum_index_view.dart';
 import 'package:chh_app/pages/log_page.dart';
 import 'package:chh_app/pages/user_page.dart';
 import 'package:chh_app/ui/grouped.dart';
+import 'package:chh_app/ui/plain_rows.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -44,30 +48,74 @@ class _SignedCredits extends FixtureSpace {
 }
 
 void main() {
-  testWidgets('forum index rows show topic counts without leading icons', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      app(
-        Scaffold(
-          body: ForumIndexView(
-            loadForums: (_) async => const [
-              ForumCategory(
-                name: '互动区-勋章和活动的会场',
-                forums: [Forum(fid: 1, name: '勋章申请区', threadCount: 2)],
+  for (final style in AppearanceStyle.values) {
+    testWidgets(
+      'forum index uses flat headline rows with trailing counts and no icons or cards ($style)',
+      (tester) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: buildAppTheme(Brightness.light, style),
+            home: Scaffold(
+              body: ForumIndexView(
+                loadForums: (_) async => const [
+                  ForumCategory(
+                    name: '互动区-勋章和活动的会场',
+                    forums: [Forum(fid: 1, name: '勋章申请区', threadCount: 2)],
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
-        ),
-      ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.byType(GroupedRow), findsNothing);
+        final row = find.widgetWithText(PlainRow, '勋章申请区');
+        expect(row, findsOneWidget);
+        final count = tester.widget<Text>(
+          find.byKey(const ValueKey('forum-count-1')),
+        );
+        expect(count.data, '2');
+        expect(count.semanticsLabel, '2 个主题');
+        expect(find.text('2 个主题'), findsNothing);
+        expect(
+          find.descendant(of: row, matching: find.byIcon(AppIcons.forward)),
+          findsNothing,
+        );
+        expect(
+          find.descendant(of: row, matching: find.byType(Icon)),
+          findsNothing,
+        );
+        final rowContent = tester.widget<Row>(
+          find.descendant(of: row, matching: find.byType(Row)),
+        );
+        expect(rowContent.children.first, isA<Expanded>());
+        expect((rowContent.children.first as Expanded).child, isA<Text>());
+        expect(
+          (rowContent.children.first as Expanded).child,
+          tester.widget<Text>(find.text('勋章申请区')),
+        );
+        expect(rowContent.children.last, count);
+        expect(
+          find.descendant(
+            of: find.byType(ForumIndexView),
+            matching: find.byType(AppClip),
+          ),
+          findsNothing,
+        );
+        final name = tester.widget<Text>(find.text('勋章申请区'));
+        expect(name.style!.fontSize, AppType.sizeBody);
+        expect(name.style!.fontWeight, FontWeight.w600);
+        expect(
+          (tester.getTopLeft(find.text('互动区')).dx -
+                  tester.getTopLeft(find.text('勋章申请区')).dx)
+              .abs(),
+          lessThan(0.5),
+        );
+        expect(find.text('1'), findsNothing);
+        expect(find.text('勋章和活动的会场'), findsOneWidget);
+      },
     );
-    await tester.pumpAndSettle();
-    expect(find.text('2 个主题'), findsOneWidget);
-    final row = find.widgetWithText(GroupedRow, '勋章申请区');
-    expect(row, findsOneWidget);
-    expect(tester.widget<GroupedRow>(row).icon, isNull);
-    expect(tester.widget<GroupedRow>(row).leading, isNull);
-  });
+  }
 
   testWidgets(
     'user statistics share one neutral surface with three equal columns',

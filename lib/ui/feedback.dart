@@ -110,7 +110,7 @@ class _ToastViewState extends State<_ToastView> with TickerProviderStateMixin {
             child: DecoratedBox(
               decoration: BoxDecoration(
                 color: const Color(0xF01E1E20),
-                borderRadius: BorderRadius.circular(22),
+                borderRadius: BorderRadius.circular(AppRadii.full),
               ),
               child: ConstrainedBox(
                 constraints: const BoxConstraints(minHeight: 44),
@@ -165,7 +165,7 @@ class SkeletonList extends StatelessWidget {
         child: DecoratedBox(
           decoration: BoxDecoration(
             color: t.fill,
-            borderRadius: BorderRadius.circular(6),
+            borderRadius: BorderRadius.circular(AppRadii.xs),
           ),
           child: SizedBox(height: height),
         ),

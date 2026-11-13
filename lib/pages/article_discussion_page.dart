@@ -2,12 +2,13 @@
 library;
 
 import 'package:flutter/material.dart';
+import '../widgets/compact_scaffold.dart';
 import '../design/motion.dart';
 import '../design/reading.dart';
 import '../ui/app_button.dart';
 import '../design/icons.dart';
 import '../ui/bottom_bar.dart';
-import '../ui/chrome_button.dart';
+import '../design/shapes.dart';
 import '../design/typography.dart';
 import '../ui/reading_bar.dart';
 import '../ui/sheet_scaffold.dart';
@@ -488,17 +489,13 @@ class _ArticleDiscussionPageState extends State<ArticleDiscussionPage>
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
     if (widget._asSheet) return _sheetPresentation(t);
-    return Scaffold(
-      appBar: AppBar(
-        title: _titleRow(t),
-        leading: Navigator.canPop(context)
-            ? ChromeButton(
-                icon: AppIcons.back,
-                tooltip: '返回',
-                onPressed: () => Navigator.of(context).maybePop(),
-              )
-            : null,
-      ),
+    return CompactScaffold(
+      title: _heading,
+      showBack: Navigator.canPop(context),
+      actions: [
+        if (_discussion?.total != null)
+          Text('${_discussion!.total}', style: TextStyle(color: t.text3)),
+      ],
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -712,12 +709,12 @@ class _ArticleDiscussionPageState extends State<ArticleDiscussionPage>
       builder: (context, child) => AppSheetSurface(child: child),
     ),
     child: SheetContentScaffold(
-      backgroundColor: t.surface,
+      backgroundColor: t.bg,
       topBar: _sheetHeader(t),
       body: SizedBox.expand(
         child: RefreshIndicator(
           color: t.accent,
-          backgroundColor: t.surface,
+          backgroundColor: t.bg,
           onRefresh: () => _load(1, refresh: true),
           child: _discussionBody(t),
         ),
@@ -731,18 +728,6 @@ class _ArticleDiscussionPageState extends State<ArticleDiscussionPage>
 
   /// 头部只有标题与关闭;文章名一行;展开靠拖动,刷新靠下拉
   String get _heading => _forumOnly ? '原帖讨论' : '评论';
-
-  /// 页面模式的标题:与弹层头部一致,标题 + text3 计数
-  Widget _titleRow(AppTokens t) => Row(
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      Text(_heading),
-      if (_discussion?.total != null) ...[
-        const SizedBox(width: 6),
-        Text('${_discussion!.total}', style: TextStyle(color: t.text3)),
-      ],
-    ],
-  );
 
   Widget _sheetHeader(AppTokens t) => Column(
     mainAxisSize: MainAxisSize.min,
@@ -788,41 +773,44 @@ class _ArticleDiscussionPageState extends State<ArticleDiscussionPage>
 
   Widget _threadEntry(AppTokens t) => Padding(
     padding: const EdgeInsets.fromLTRB(24, 20, 24, 12),
-    child: CupertinoButton(
-      padding: const EdgeInsets.all(16),
-      color: t.accentFill,
-      borderRadius: BorderRadius.circular(AppRadii.md),
-      pressedOpacity: .85,
-      onPressed: _openThread,
-      child: Row(
-        children: [
-          Icon(SolarIconsBold.chatRoundDots, color: t.accent, size: 24),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '论坛跟帖',
-                  style: TextStyle(
-                    fontSize: AppType.sizeBody,
-                    fontWeight: FontWeight.w600,
-                    color: t.text,
+    child: AppClip(
+      radius: AppRadii.md,
+      child: CupertinoButton(
+        padding: const EdgeInsets.all(AppSpace.groupInset),
+        color: t.accentFill,
+        borderRadius: BorderRadius.zero,
+        pressedOpacity: .85,
+        onPressed: _openThread,
+        child: Row(
+          children: [
+            Icon(SolarIconsBold.chatRoundDots, color: t.accent, size: 24),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '论坛跟帖',
+                    style: TextStyle(
+                      fontSize: AppType.sizeBody,
+                      fontWeight: FontWeight.w600,
+                      color: t.text,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  _forumOnly ? '在原帖中参与讨论' : '查看关联的论坛讨论',
-                  style: TextStyle(
-                    fontSize: AppType.sizeFootnote,
-                    color: t.text2,
+                  const SizedBox(height: 4),
+                  Text(
+                    _forumOnly ? '在原帖中参与讨论' : '查看关联的论坛讨论',
+                    style: TextStyle(
+                      fontSize: AppType.sizeFootnote,
+                      color: t.text2,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-          Icon(SolarIconsBold.altArrowRight, size: 20, color: t.accent),
-        ],
+            Icon(SolarIconsBold.altArrowRight, size: 20, color: t.accent),
+          ],
+        ),
       ),
     ),
   );

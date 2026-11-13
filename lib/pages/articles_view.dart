@@ -8,6 +8,7 @@ import '../design/typography.dart';
 import '../ui/picker.dart';
 
 import '../design/tokens.dart';
+import '../design/shapes.dart';
 import '../di.dart';
 import '../models/models.dart';
 import '../widgets/browse_controls.dart';
@@ -323,10 +324,11 @@ class _FeaturedArticle extends StatelessWidget {
         onTap: () => _openArticle(context, article),
         child: Container(
           clipBehavior: Clip.antiAlias,
-          decoration: BoxDecoration(
+          decoration: ShapeDecoration(
             color: t.surface,
-            borderRadius: BorderRadius.circular(AppRadii.lg),
-            border: Border.all(color: t.separator, width: .5),
+            shape: appShape(
+              AppRadii.lg,
+            ).copyWith(side: BorderSide(color: t.separator, width: .5)),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,

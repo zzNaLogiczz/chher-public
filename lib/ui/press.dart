@@ -11,6 +11,7 @@ import 'package:flutter/services.dart';
 import 'package:motor/motor.dart';
 
 import '../design/motion.dart';
+import '../design/shapes.dart';
 import '../design/tokens.dart';
 import '../widgets/expressive_controls.dart' show ActionFocusRing;
 
@@ -138,6 +139,10 @@ class PressScale extends StatefulWidget {
   /// Optional contrast feedback for small inline marks whose scale is subtle.
   final double pressedOpacity;
 
+  /// 可选的紧凑圆角底色,与缩放共享同一次按压状态。
+  final Color? pressedColor;
+  final CupertinoMotion motion;
+
   const PressScale({
     super.key,
     required this.child,
@@ -146,6 +151,8 @@ class PressScale extends StatefulWidget {
     this.scale = 0.96,
     this.semanticLabel,
     this.pressedOpacity = 1,
+    this.pressedColor,
+    this.motion = AppMotion.tap,
   }) : assert(pressedOpacity > 0 && pressedOpacity <= 1);
 
   @override
@@ -155,7 +162,7 @@ class PressScale extends StatefulWidget {
 class _PressScaleState extends State<PressScale>
     with SingleTickerProviderStateMixin {
   late final _scale = SingleMotionController(
-    motion: AppMotion.tap,
+    motion: widget.motion,
     vsync: this,
     initialValue: 1,
   );
@@ -170,7 +177,8 @@ class _PressScaleState extends State<PressScale>
   }
 
   void _onPressed(bool down) {
-    if (widget.pressedOpacity < 1 && _pressed != down) {
+    if ((widget.pressedOpacity < 1 || widget.pressedColor != null) &&
+        _pressed != down) {
       setState(() => _pressed = down);
     }
     if (_reduced) {
@@ -194,7 +202,19 @@ class _PressScaleState extends State<PressScale>
     onPressedChanged: _onPressed,
     builder: (_, ringed) => AnimatedBuilder(
       animation: _scale,
-      child: ringed,
+      child: widget.pressedColor == null
+          ? ringed
+          : AnimatedContainer(
+              duration: _pressed || _reduced ? Duration.zero : AppMotion.fade,
+              curve: Curves.easeOut,
+              decoration: ShapeDecoration(
+                color: widget.pressedColor!.withValues(
+                  alpha: _pressed ? widget.pressedColor!.a : 0,
+                ),
+                shape: appShape(AppRadii.sm),
+              ),
+              child: ringed,
+            ),
       builder: (_, child) => Transform.scale(scale: _scale.value, child: child),
     ),
     child: widget.pressedOpacity == 1

@@ -255,7 +255,7 @@ void main() {
           )
           .map((b) => b.decoration)
           .whereType<BoxDecoration>()
-          .firstWhere((d) => d.borderRadius == BorderRadius.circular(22));
+          .firstWhere((d) => d.borderRadius == BorderRadius.circular(AppRadii.full));
       expect(capsule.color, AppTokens.light.fill);
       // 评论与帖子评论同样式:圆形头像、浅色"回复"文字
       final tile = find.byType(ArticleCommentTile).first;

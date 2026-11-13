@@ -2,6 +2,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import '../widgets/compact_scaffold.dart';
 import '../ui/editor_touch.dart';
 import '../ui/picker.dart';
 import '../design/typography.dart';
@@ -9,6 +10,7 @@ import '../ui/app_button.dart';
 
 import '../attachments/attachment_controller.dart';
 import '../design/tokens.dart';
+import '../design/shapes.dart';
 import '../di.dart';
 import '../models/models.dart';
 import '../widgets/attachment_bar.dart';
@@ -174,42 +176,21 @@ class _NewThreadPageState extends State<NewThreadPage> {
         _failure?.kind != PostResultKind.unknown;
     return PopScope(
       canPop: !_sending,
-      child: Scaffold(
-        backgroundColor: t.bg,
-        // 与回复编辑同一结构:取消 / 标题 / 发表,发表钮在右上角始终可见
-        appBar: PreferredSize(
-          preferredSize: const Size.fromHeight(52),
-          child: SafeArea(
-            bottom: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(8, 4, 12, 4),
-              child: Row(
-                children: [
-                  AppButton(
-                    label: '取消',
-                    variant: AppButtonVariant.quiet,
-                    onPressed: _sending
-                        ? null
-                        : () => Navigator.maybePop(context),
-                  ),
-                  Expanded(
-                    child: Text(
-                      '发表主题',
-                      textAlign: TextAlign.center,
-                      style: AppType.headline.copyWith(color: t.text),
-                    ),
-                  ),
-                  AppButton(
-                    label: _sending ? '发表中' : '发表',
-                    small: true,
-                    state: _sending ? AppButtonState.busy : AppButtonState.idle,
-                    onPressed: enabled ? _submit : null,
-                  ),
-                ],
-              ),
-            ),
+      child: CompactScaffold(
+        title: '发表主题',
+        actions: [
+          AppButton(
+            label: '取消',
+            variant: AppButtonVariant.quiet,
+            onPressed: _sending ? null : () => Navigator.maybePop(context),
           ),
-        ),
+          AppButton(
+            label: _sending ? '发表中' : '发表',
+            small: true,
+            state: _sending ? AppButtonState.busy : AppButtonState.idle,
+            onPressed: enabled ? _submit : null,
+          ),
+        ],
         body: FutureBuilder<PostForm?>(
           future: _future,
           builder: (context, snap) {
@@ -345,9 +326,9 @@ class _NewThreadPageState extends State<NewThreadPage> {
             ? const SizedBox.shrink()
             : Container(
                 padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
+                decoration: ShapeDecoration(
                   color: t.warnBg,
-                  borderRadius: BorderRadius.circular(AppRadii.md),
+                  shape: appShape(AppRadii.md),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,

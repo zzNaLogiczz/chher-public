@@ -6,12 +6,11 @@ import 'package:flutter/services.dart';
 
 import '../core/app_info.dart';
 import '../design/brand.dart';
-import '../design/icons.dart';
 import '../design/tokens.dart';
 import '../design/typography.dart';
-import '../ui/chrome_button.dart';
 import '../ui/feedback.dart';
 import '../ui/grouped.dart';
+import '../widgets/large_title_scaffold.dart';
 import '../widgets/link_opener.dart';
 import '../widgets/update_sheet.dart';
 
@@ -47,113 +46,100 @@ class AboutPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
-    final top = MediaQuery.paddingOf(context).top;
     final body = AppType.body.copyWith(color: t.text, height: 1.75);
-    return Scaffold(
-      backgroundColor: t.grouped,
-      body: Stack(
+    return LargeTitleScaffold(
+      title: '关于',
+      surface: AppSurface.grouped,
+      body: ListView(
+        padding: const EdgeInsets.only(bottom: 48),
         children: [
-          ListView(
-            padding: EdgeInsets.only(top: top + 64, bottom: 48),
+          Center(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(AppRadii.lg),
+                boxShadow: t.shadowE1,
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(AppRadii.lg),
+                child: Image.asset(
+                  appLogoAsset,
+                  width: _logoSize,
+                  height: _logoSize,
+                  semanticLabel: 'Chher 图标',
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Chher',
+            textAlign: TextAlign.center,
+            style: AppType.title2.copyWith(color: t.text),
+          ),
+          // 版本号右侧就是检查更新:有新版本时文字变成"有新版本"
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Center(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(AppRadii.lg),
-                    boxShadow: t.shadowE1,
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(AppRadii.lg),
-                    child: Image.asset(
-                      appLogoAsset,
-                      width: _logoSize,
-                      height: _logoSize,
-                      semanticLabel: 'Chher 图标',
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
               Text(
-                'Chher',
-                textAlign: TextAlign.center,
-                style: AppType.title2.copyWith(color: t.text),
+                '版本 ${AppInfo.version}',
+                key: const ValueKey('about-version'),
+                style: AppType.subhead.copyWith(color: t.text2),
               ),
-              // 版本号右侧就是检查更新:有新版本时文字变成"有新版本"
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    '版本 ${AppInfo.version}',
-                    key: const ValueKey('about-version'),
-                    style: AppType.subhead.copyWith(color: t.text2),
-                  ),
-                  const SizedBox(width: 6),
-                  const UpdateCheckLink(),
-                ],
-              ),
-              const SizedBox(height: 28),
-              GroupedSection(
-                header: '介绍',
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(
-                      AppSpace.rowInset,
-                      14,
-                      AppSpace.rowInset,
-                      16,
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Chher 是 Chiphell 论坛的第三方 Android 客户端，'
-                          '为在手机上阅读和参与讨论而做，由坛友自制。',
-                          style: body,
-                        ),
-                        const SizedBox(height: 10),
-                        Text('本项目为公益项目，不以盈利为目的。', style: body),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              GroupedSection(
-                header: '反馈',
-                footer: '遇到 bug 或有功能需求，欢迎来信。',
-                children: [
-                  GroupedRow(
-                    key: const ValueKey('about-feedback'),
-                    title: '发送邮件',
-                    value: feedbackEmail,
-                    valueColor: t.accent,
-                    onTap: () => _mail(context),
-                  ),
-                ],
-              ),
+              const SizedBox(width: 6),
+              const UpdateCheckLink(),
+            ],
+          ),
+          const SizedBox(height: 28),
+          GroupedSection(
+            header: '介绍',
+            children: [
               Padding(
-                // 与分组说明同一缩进
                 padding: const EdgeInsets.fromLTRB(
-                  AppSpace.groupInset + AppSpace.rowInset,
-                  4,
-                  AppSpace.groupInset + AppSpace.rowInset,
-                  0,
+                  AppSpace.rowInset,
+                  14,
+                  AppSpace.rowInset,
+                  16,
                 ),
-                child: Text(
-                  '检查更新时会发送一个随机生成的安装标识，用于统计安装量和分批推送更新；'
-                  '不关联论坛账号，也不读取设备信息。',
-                  style: AppType.footnote.copyWith(color: t.text3, height: 1.6),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Chher 是 Chiphell 论坛的第三方 Android 客户端，'
+                      '为在手机上阅读和参与讨论而做，由坛友自制。',
+                      style: body,
+                    ),
+                    const SizedBox(height: 10),
+                    Text('本项目为公益项目，不以盈利为目的。', style: body),
+                  ],
                 ),
               ),
             ],
           ),
-          Positioned(
-            top: top + 4,
-            left: 10,
-            child: ChromeButton(
-              icon: AppIcons.back,
-              tooltip: '返回',
-              onPressed: () => Navigator.of(context).maybePop(),
+          GroupedSection(
+            header: '反馈',
+            footer: '遇到 bug 或有功能需求，欢迎来信。',
+            children: [
+              GroupedRow(
+                key: const ValueKey('about-feedback'),
+                title: '发送邮件',
+                value: feedbackEmail,
+                valueColor: t.accent,
+                onTap: () => _mail(context),
+              ),
+            ],
+          ),
+          Padding(
+            // 与分组说明同一缩进
+            padding: const EdgeInsets.fromLTRB(
+              AppSpace.groupInset + AppSpace.rowInset,
+              4,
+              AppSpace.groupInset + AppSpace.rowInset,
+              0,
+            ),
+            child: Text(
+              '检查更新时会发送一个随机生成的安装标识，用于统计安装量和分批推送更新；'
+              '不关联论坛账号，也不读取设备信息。',
+              style: AppType.footnote.copyWith(color: t.text3, height: 1.6),
             ),
           ),
         ],

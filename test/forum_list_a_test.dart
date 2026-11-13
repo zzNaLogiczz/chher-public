@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:chh_app/data/forum_repository.dart';
 import 'package:chh_app/design/theme.dart';
+import 'package:chh_app/design/icons.dart';
 import 'package:chh_app/design/tokens.dart';
 import 'package:chh_app/ui/chrome_button.dart';
 import 'package:chh_app/models/models.dart';
@@ -96,16 +97,27 @@ Future<void> _pick(WidgetTester tester, Finder control, String value) async {
 
 void main() {
   testWidgets(
-    'category keeps blue text without background and sort stays in navigation',
+    'category filter is an unselected navigation icon alongside sort',
     (tester) async {
       await _forum(tester, _Forums(), 2103);
-      final category = find.byType(PickerButton<int>);
+      final category = find.byTooltip('分类筛选');
+      expect(find.byType(PickerButton<int>), findsNothing);
+      expect(find.byKey(const ValueKey('forum-filters')), findsNothing);
       expect(tester.getSize(category).height, greaterThanOrEqualTo(44));
       expect(tester.getSize(category).width, greaterThanOrEqualTo(44));
-      final label = tester.widget<Text>(
-        find.descendant(of: category, matching: find.text('全部分类')),
+      final icon = find.descendant(
+        of: category,
+        matching: find.byIcon(AppIcons.filter),
       );
-      expect(label.style?.color, AppTokens.light.accent);
+      expect(tester.widget<Icon>(icon).color, AppTokens.light.text);
+      expect(
+        tester
+            .widget<ChromeGroup>(find.byType(ChromeGroup))
+            .items
+            .first
+            .selected,
+        isFalse,
+      );
       final paintedBackgrounds = tester
           .widgetList<DecoratedBox>(
             find.descendant(of: category, matching: find.byType(DecoratedBox)),
@@ -121,7 +133,32 @@ void main() {
             .widget<ChromeGroup>(find.byType(ChromeGroup))
             .items
             .map((item) => item.tooltip),
-        ['排序', '搜索帖子', '收藏版块'],
+        ['分类筛选', '排序', '搜索帖子', '收藏版块'],
+      );
+      await tester.tap(category);
+      await tester.pumpAndSettle();
+      expect(find.text('选择分类'), findsOneWidget);
+      await tester.tap(find.text('硬件').last);
+      await tester.pump(const Duration(milliseconds: 200));
+      await tester.pumpAndSettle();
+      expect(tester.widget<Icon>(icon).color, AppTokens.light.accent);
+      expect(
+        tester
+            .widget<ChromeGroup>(find.byType(ChromeGroup))
+            .items
+            .first
+            .selected,
+        isTrue,
+      );
+      await _pick(tester, category, '全部分类');
+      expect(tester.widget<Icon>(icon).color, AppTokens.light.text);
+      expect(
+        tester
+            .widget<ChromeGroup>(find.byType(ChromeGroup))
+            .items
+            .first
+            .selected,
+        isFalse,
       );
       expect(find.byType(PickerButton<ThreadSort>), findsNothing);
       final sort = find.byTooltip('排序');
@@ -141,62 +178,97 @@ void main() {
     expect(find.byKey(const ValueKey('forum-filters')), findsNothing);
     expect(find.byType(PickerButton<int>), findsNothing);
     expect(find.byTooltip('排序').hitTestable(), findsOneWidget);
+    expect(
+      tester
+          .widget<ChromeGroup>(find.byType(ChromeGroup))
+          .items
+          .map((item) => item.tooltip),
+      ['排序', '搜索帖子', '收藏版块'],
+    );
+    expect(
+      tester.widget<BrowseScaffold>(find.byType(BrowseScaffold)).pinnedHeader,
+      isNull,
+    );
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets(
-    '320dp and 2x retains reachable category and navigation sorting',
-    (tester) async {
-      await _forum(tester, _Forums(), 2104, width: 320, textScale: 2);
-      for (final control in [
-        find.byType(PickerButton<int>),
-        find.byTooltip('排序'),
-      ]) {
-        expect(tester.getSize(control).height, greaterThanOrEqualTo(44));
-        expect(control.hitTestable(), findsOneWidget);
-      }
-      await _pick(tester, find.byType(PickerButton<int>), '硬件');
-      expect(
-        tester.widget<PickerButton<int>>(find.byType(PickerButton<int>)).value,
-        101,
+  for (final width in [390.0, 320.0]) {
+    for (final textScale in [1.0, 2.0]) {
+      testWidgets(
+        '${width}dp and ${textScale}x retain reachable category and navigation sorting',
+        (tester) async {
+          await _forum(
+            tester,
+            _Forums(),
+            2104,
+            width: width,
+            textScale: textScale,
+          );
+          for (final control in [
+            find.byTooltip('分类筛选'),
+            find.byTooltip('排序'),
+            find.byTooltip('搜索帖子'),
+            find.byTooltip('收藏版块'),
+          ]) {
+            expect(tester.getSize(control).height, greaterThanOrEqualTo(44));
+            expect(tester.getSize(control).width, greaterThanOrEqualTo(44));
+            expect(control.hitTestable(), findsOneWidget);
+          }
+          for (final item
+              in tester.widget<ChromeGroup>(find.byType(ChromeGroup)).items) {
+            expect(item.onPressed, isNotNull);
+          }
+          expect(find.text('硬件讨论'), findsWidgets);
+          for (final title in find.text('硬件讨论').evaluate()) {
+            expect(
+              tester.getSize(find.byWidget(title.widget)).width,
+              greaterThan(0),
+            );
+          }
+          await _pick(tester, find.byTooltip('分类筛选'), '硬件');
+          expect(
+            tester
+                .widget<ChromeGroup>(find.byType(ChromeGroup))
+                .items
+                .first
+                .selected,
+            isTrue,
+          );
+          await _pick(tester, find.byTooltip('排序'), '最新发布');
+          expect(
+            tester
+                .widget<ChromeGroup>(find.byType(ChromeGroup))
+                .items
+                .firstWhere((item) => item.tooltip == '排序')
+                .selected,
+            isTrue,
+          );
+          expect(tester.takeException(), isNull);
+        },
       );
-      await _pick(tester, find.byTooltip('排序'), '最新发布');
-      expect(
-        tester
-            .widget<ChromeGroup>(find.byType(ChromeGroup))
-            .items
-            .firstWhere((item) => item.tooltip == '排序')
-            .selected,
-        isTrue,
-      );
-      expect(tester.takeException(), isNull);
-    },
-  );
+    }
+  }
 
   for (final width in [390.0, 320.0]) {
-    testWidgets(
-      'short and long categories keep filter and sort geometry at $width',
-      (tester) async {
-        final repo = _Forums()
-          ..types = const [
-            ThreadType(typeid: 101, name: '硬件'),
-            ThreadType(typeid: 102, name: '机箱风道与水冷散热深度讨论区'),
-          ];
-        await _forum(tester, repo, width == 390 ? 2105 : 2106, width: width);
-        final bar = find.byKey(const ValueKey('forum-filters'));
-        final sort = find.byTooltip('排序');
-        final originalBar = tester.getRect(bar);
-        final originalSort = tester.getRect(sort);
-        for (final category in ['机箱风道与水冷散热深度讨论区', '硬件', '全部分类']) {
-          await _pick(tester, find.byType(PickerButton<int>), category);
-          expect(tester.getRect(bar).height, closeTo(originalBar.height, .1));
-          expect(tester.getRect(sort).top, closeTo(originalSort.top, .1));
-          expect(tester.getRect(sort).left, closeTo(originalSort.left, .1));
-          expect(tester.getRect(sort).size, originalSort.size);
-        }
-        expect(tester.takeException(), isNull);
-      },
-    );
+    testWidgets('short and long categories keep sort geometry at $width', (
+      tester,
+    ) async {
+      final repo = _Forums()
+        ..types = const [
+          ThreadType(typeid: 101, name: '硬件'),
+          ThreadType(typeid: 102, name: '机箱风道与水冷散热深度讨论区'),
+        ];
+      await _forum(tester, repo, width == 390 ? 2105 : 2106, width: width);
+      final sort = find.byTooltip('排序');
+      final originalSort = tester.getRect(sort);
+      for (final category in ['机箱风道与水冷散热深度讨论区', '硬件', '全部分类']) {
+        await _pick(tester, find.byTooltip('分类筛选'), category);
+        expect(tester.getRect(sort).top, closeTo(originalSort.top, .1));
+        expect(tester.getRect(sort).left, closeTo(originalSort.left, .1));
+        expect(tester.getRect(sort).size, originalSort.size);
+      }
+      expect(tester.takeException(), isNull);
+    });
   }
 
   testWidgets('user scroll hides compose and reverse scroll restores it', (
@@ -221,21 +293,28 @@ void main() {
     (tester) async {
       final repo = _Forums();
       await _forum(tester, repo, 2102);
+      final sort = find.byTooltip('排序');
+      final pinned = tester.getRect(sort);
+      void expectPinned() {
+        expect(tester.getRect(sort).top, closeTo(pinned.top, .01));
+        expect(tester.getRect(sort).left, closeTo(pinned.left, .01));
+        expect(tester.getRect(sort).size, pinned.size);
+      }
+
       await tester.drag(find.byType(ListView), const Offset(0, -550));
       await tester.pumpAndSettle();
-      final filters = find.byKey(const ValueKey('forum-filters'));
-      final pinned = tester.getRect(filters);
+      expectPinned();
       await tester.drag(find.byType(ListView), const Offset(0, -250));
       await tester.pumpAndSettle();
-      expect(tester.getRect(filters).top, closeTo(pinned.top, .01));
+      expectPinned();
       repo.pendingSort = Completer<ThreadListPage>();
       await _pick(tester, find.byTooltip('排序'), '最新发布');
-      expect(tester.getRect(filters).top, closeTo(pinned.top, .01));
+      expectPinned();
       repo.pendingSort!.complete(repo.result);
       await tester.pumpAndSettle();
-      expect(tester.getRect(filters).top, closeTo(pinned.top, .01));
-      await _pick(tester, find.byType(PickerButton<int>), '硬件');
-      expect(tester.getRect(filters).top, closeTo(pinned.top, .01));
+      expectPinned();
+      await _pick(tester, find.byTooltip('分类筛选'), '硬件');
+      expectPinned();
       expect(tester.takeException(), isNull);
     },
   );

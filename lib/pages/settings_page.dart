@@ -3,16 +3,19 @@ library;
 
 import 'package:flutter/material.dart';
 import '../ui/app_button.dart';
-import '../ui/segmented.dart';
+import '../design/icons.dart';
+import '../design/motion.dart';
+import '../design/shapes.dart';
+import '../design/theme.dart';
+import '../ui/grouped.dart';
+import '../widgets/account_widgets.dart';
+import '../widgets/settings_appearance.dart';
 import '../design/tokens.dart';
 import '../design/typography.dart';
-import '../ui/picker.dart';
 import '../di.dart';
 import '../data/image_disk_cache.dart';
 import '../widgets/large_title_scaffold.dart';
-import '../widgets/expressive_controls.dart';
 import '../ui/feedback.dart';
-import '../ui/grouped.dart';
 import '../update/update_controller.dart';
 import '../core/app_info.dart';
 import '../core/appearance.dart';
@@ -22,12 +25,35 @@ import 'log_page.dart';
 class SettingsPage extends StatelessWidget {
   final AppearanceController? appearanceController;
   const SettingsPage({super.key, this.appearanceController});
+
   @override
-  Widget build(BuildContext context) => LargeTitleScaffold(
-    title: '设置',
-    surface: AppSurface.grouped,
-    body: SettingsBody(appearanceController: appearanceController),
-  );
+  Widget build(BuildContext context) {
+    final ctrl = appearanceController ?? appearance;
+    return ListenableBuilder(
+      listenable: ctrl,
+      builder: (context, _) {
+        final outerBrightness = Theme.of(context).brightness;
+        final targetBrightness = switch (ctrl.mode) {
+          AppearanceMode.light => Brightness.light,
+          AppearanceMode.dark => Brightness.dark,
+          AppearanceMode.system => outerBrightness,
+        };
+        final disableAnimations = MediaQuery.disableAnimationsOf(context);
+        return AnimatedTheme(
+          data: buildAppTheme(targetBrightness, ctrl.style),
+          duration: disableAnimations
+              ? Duration.zero
+              : AppMotion.revealDuration,
+          curve: AppMotion.revealCurve,
+          child: LargeTitleScaffold(
+            title: '设置',
+            surface: AppSurface.grouped,
+            body: SettingsBody(appearanceController: appearanceController),
+          ),
+        );
+      },
+    );
+  }
 }
 
 class SettingsBody extends StatefulWidget {
@@ -49,9 +75,9 @@ class _SettingsBodyState extends State<SettingsBody> {
 
   @override
   void dispose() {
-    // 朱砂红上线引导:用户查看过设置页后消费红点(离开页面时底栏、
+    // 朱砂上线引导:用户查看过设置页后消费红点(离开页面时底栏、
     // 设置行、风格选项的红点全部消失并持久化,后续安装更新不再出现)。
-    // 放在 dispose 而非 initState:让设置页内"朱砂红"选项上的红点
+    // 放在 dispose 而非 initState:让设置页内"朱砂"选项上的红点
     // 至少可见一次,引导才成立。
     (widget.appearanceController ?? appearance).markStyleDotSeen();
     super.dispose();
@@ -69,140 +95,106 @@ class _SettingsBodyState extends State<SettingsBody> {
   }
 
   @override
-  Widget build(BuildContext context) => ListView(
-    padding: const EdgeInsets.only(bottom: 112),
-    children: [
-      ListenableBuilder(
-        listenable: widget.appearanceController ?? appearance,
-        builder: (context, _) {
-          final controller = widget.appearanceController ?? appearance;
-          return Padding(
-            padding: const EdgeInsets.only(top: 20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(32, 0, 32, 7),
-                  child: Text(
-                    '外观',
-                    style: AppType.footnote.copyWith(
-                      color: AppTokens.of(context).text3,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpace.screen,
-                  ),
-                  child: AppSegmented<AppearanceMode>(
-                    fallbackTitle: '外观',
-                    options: [
-                      for (final mode in AppearanceMode.values)
-                        PickerOption(value: mode, label: mode.label),
-                    ],
-                    value: controller.mode,
-                    onChanged: controller.set,
-                  ),
-                ),
-                // 界面风格:薄雾白(1.0.7 纸面)与朱砂红(漆面),与明暗正交
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(32, 20, 32, 7),
-                  child: Text(
-                    '界面风格',
-                    style: AppType.footnote.copyWith(
-                      color: AppTokens.of(context).text3,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpace.screen,
-                  ),
-                  child: AppSegmented<AppearanceStyle>(
-                    fallbackTitle: '界面风格',
-                    options: [
-                      for (final style in AppearanceStyle.values)
-                        PickerOption(
-                          value: style,
-                          label: style.label,
-                          // 朱砂红上线引导:未进过设置页时新主题带红点
-                          dot:
-                              style == AppearanceStyle.cinnabar &&
-                              !controller.styleDotSeen,
-                        ),
-                    ],
-                    value: controller.style,
-                    onChanged: controller.setStyle,
-                  ),
-                ),
-              ],
+  Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpace.groupInset,
+        0,
+        AppSpace.groupInset,
+        64,
+      ),
+      children: [
+        _SettingsSection(
+          key: const ValueKey('settings-appearance'),
+          title: '外观与风格',
+          child: ListenableBuilder(
+            listenable: widget.appearanceController ?? appearance,
+            builder: (context, _) => SettingsAppearance(
+              controller: widget.appearanceController ?? appearance,
             ),
-          );
-        },
-      ),
-      GroupedSection(
-        header: '存储',
-        children: [
-          GroupedRow(
-            title: '图片缓存',
-            value: _cacheLabel,
-            icon: const IconTile(icon: AppIcons.image, tint: IconTints.teal),
-            onTap: () => _clearCache(context),
           ),
-        ],
-      ),
-      // 检查更新与安装统计说明都在关于页里;有新版本时这里带红点
-      GroupedSection(
-        header: '关于',
-        children: [
-          ListenableBuilder(
+        ),
+        _SettingsSection(
+          key: const ValueKey('settings-storage'),
+          title: '存储与诊断',
+          child: Column(
+            children: [
+              GroupedRow(
+                title: '图片缓存',
+                value: _cacheLabel,
+                leading: const AccountToolWell(icon: AppIcons.imageBold),
+                onTap: () => _clearCache(context),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(
+                  left: AppSpace.rowInset + IconTile.size + 12,
+                ),
+                child: Divider(
+                  height: AppSpace.hairline,
+                  thickness: AppSpace.hairline,
+                  color: t.separator.withValues(alpha: .42),
+                ),
+              ),
+              GroupedRow(
+                title: '运行日志',
+                leading: const AccountToolWell(icon: AppIcons.logBold),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const LogPage()),
+                ),
+              ),
+            ],
+          ),
+        ),
+        _SettingsSection(
+          key: const ValueKey('settings-about-section'),
+          title: '关于',
+          child: ListenableBuilder(
             listenable: appUpdater,
             builder: (context, _) => GroupedRow(
               key: const ValueKey('settings-about'),
               title: '关于 Chher',
               value: AppInfo.version,
               dot: appUpdater.hasUpdate,
-              leading: ClipRRect(
-                borderRadius: BorderRadius.circular(AppRadii.xs),
+              leading: AppClip(
+                radius: AppRadii.xs,
                 child: Image.asset(
                   appLogoAsset,
                   width: IconTile.size,
                   height: IconTile.size,
                 ),
               ),
-              onTap: () => Navigator.of(
-                context,
-              ).push(MaterialPageRoute(builder: (_) => const AboutPage())),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const AboutPage()),
+              ),
             ),
           ),
-          GroupedRow(
-            title: '运行日志',
-            icon: const IconTile(icon: AppIcons.log, tint: IconTints.teal),
-            onTap: () => Navigator.of(
-              context,
-            ).push(MaterialPageRoute(builder: (_) => const LogPage())),
-          ),
-        ],
-      ),
-      // 退出登录放在最底部,单独一组,先确认再清会话
-      ListenableBuilder(
-        listenable: chhSession,
-        builder: (context, _) => chhSession.loggedIn
-            ? GroupedSection(
-                children: [
-                  GroupedDestructiveRow(
-                    label: '退出登录',
-                    onTap: () => _logout(context),
+        ),
+        ListenableBuilder(
+          listenable: chhSession,
+          builder: (context, _) => chhSession.loggedIn
+              ? Padding(
+                  padding: const EdgeInsets.only(top: 20),
+                  child: DecoratedBox(
+                    decoration: ShapeDecoration(
+                      color: t.surface,
+                      shape: appShape(AppRadii.md),
+                    ),
+                    child: AppClip(
+                      radius: AppRadii.md,
+                      child: GroupedDestructiveRow(
+                        key: const ValueKey('settings-logout'),
+                        label: '退出登录',
+                        onTap: () => _logout(context),
+                      ),
+                    ),
                   ),
-                ],
-              )
-            : const SizedBox.shrink(),
-      ),
-    ],
-  );
+                )
+              : const SizedBox.shrink(),
+        ),
+      ],
+    );
+  }
 
   Future<void> _clearCache(BuildContext context) async {
     final ok = await showDialog<bool>(
@@ -261,4 +253,45 @@ String _formatBytes(int bytes) {
   if (bytes < 1024) return '$bytes B';
   if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
   return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+}
+
+class _SettingsSection extends StatelessWidget {
+  final String title;
+  final Widget child;
+  const _SettingsSection({super.key, required this.title, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(top: 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpace.rowInset,
+              0,
+              AppSpace.rowInset,
+              7,
+            ),
+            child: Text(
+              title,
+              style: AppType.footnote.copyWith(
+                color: t.text3,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          DecoratedBox(
+            decoration: ShapeDecoration(
+              color: t.surface,
+              shape: appShape(AppRadii.md),
+            ),
+            child: AppClip(radius: AppRadii.md, child: child),
+          ),
+        ],
+      ),
+    );
+  }
 }

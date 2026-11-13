@@ -16,7 +16,7 @@ import 'package:chh_app/ui/nav_bar.dart';
 import 'package:chh_app/pages/log_page.dart';
 import 'package:chh_app/pages/settings_page.dart';
 import 'package:chh_app/ui/app_button.dart';
-import 'package:chh_app/ui/grouped.dart';
+import 'package:chh_app/ui/plain_rows.dart';
 import 'package:chh_app/ui/picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -258,7 +258,8 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
-        expect(find.byType(GroupedRow).evaluate().length, lessThan(40));
+        expect(find.byType(PlainRow).evaluate().length, lessThan(40));
+        expect(find.byType(PlainRow).evaluate().length, greaterThan(0));
         final results = find.byType(CustomScrollView).last;
         await tester.drag(results, const Offset(0, -650));
         await tester.pumpAndSettle();
@@ -276,7 +277,8 @@ void main() {
         await tester.pumpAndSettle();
         expect(picker.hitTestable(), findsOneWidget);
         expect(find.text('版块 0'), findsOneWidget);
-        expect(find.byType(GroupedRow).evaluate().length, lessThan(40));
+        expect(find.byType(PlainRow).evaluate().length, lessThan(40));
+        expect(find.byType(PlainRow).evaluate().length, greaterThan(0));
         expect(loads, 1);
         expect(tester.takeException(), isNull);
         await tester.drag(results, const Offset(0, 1000));
@@ -374,7 +376,8 @@ void main() {
           reason: 'Picker rides the title row accessory',
         );
         expect(find.byType(AppBottomNavigation), findsOneWidget);
-        expect(find.byType(GroupedRow).evaluate().length, lessThan(40));
+        expect(find.byType(PlainRow).evaluate().length, lessThan(40));
+        expect(find.byType(PlainRow).evaluate().length, greaterThan(0));
         await _shot(tester, 'home-forum-initial-$scale');
         final results = find.byType(CustomScrollView).last;
         for (var i = 0; i < 4; i++) {

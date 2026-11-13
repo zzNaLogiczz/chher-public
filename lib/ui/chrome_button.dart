@@ -132,7 +132,7 @@ class ChromeGroup extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
-    final radius = BorderRadius.circular(_visual / 2);
+    final radius = BorderRadius.circular(AppRadii.full);
     return SizedBox(
       height: _hit,
       child: Stack(
@@ -333,7 +333,7 @@ class _CountBadgeState extends State<CountBadge>
             key: CountBadge.surfaceKey,
             decoration: BoxDecoration(
               color: alert ? t.red : t.text,
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(AppRadii.full),
             ),
             child: ConstrainedBox(
               constraints: const BoxConstraints(minWidth: 16, minHeight: 16),

@@ -4,6 +4,7 @@ library;
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../widgets/compact_scaffold.dart';
 import '../ui/editor_touch.dart';
 import '../ui/app_button.dart';
 import '../ui/bottom_bar.dart';
@@ -231,51 +232,28 @@ class _PmThreadPageState extends State<PmThreadPage> {
   @override
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
-    return Scaffold(
-      backgroundColor: t.bg,
+    return CompactScaffold(
+      title: widget.conversation.peer,
+      centerTitle: true,
+      showBack: Navigator.canPop(context),
       resizeToAvoidBottomInset: true,
-      appBar: AppBar(
-        backgroundColor: t.bg,
-        toolbarHeight:
-            56 +
-            (MediaQuery.textScalerOf(context).scale(AppType.sizeBody) -
-                    AppType.sizeBody) *
-                2,
-        leading: Navigator.canPop(context)
-            ? ChromeButton(
-                icon: AppIcons.back,
-                tooltip: '返回',
-                onPressed: () => Navigator.of(context).maybePop(),
-              )
-            : null,
-        // 对方名字居中(规格 §7 私信会话),安卓默认标题靠左
-        centerTitle: true,
-        title: Column(
-          children: [
-            Text(
-              widget.conversation.peer,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: AppType.sizeBody,
-                fontWeight: FontWeight.w600,
-                color: t.text,
-              ),
-            ),
-            Text(
-              _announcement ? '公共消息' : '私人消息',
-              style: TextStyle(fontSize: AppType.sizeFootnote, color: t.text2),
-            ),
-          ],
+      actions: [
+        ChromeButton(
+          tooltip: '刷新会话',
+          icon: AppIcons.refresh,
+          onPressed: _loading || _sending ? null : () => _load(),
         ),
-        actions: [
-          ChromeButton(
-            tooltip: '刷新会话',
-            icon: AppIcons.refresh,
-            onPressed: _loading || _sending ? null : () => _load(),
-          ),
-          const SizedBox(width: 8),
-        ],
+        const SizedBox(width: 8),
+      ],
+      bottom: PreferredSize(
+        preferredSize: Size.fromHeight(
+          MediaQuery.textScalerOf(context).scale(AppType.sizeFootnote) *
+              AppType.footnote.height!,
+        ),
+        child: Text(
+          _announcement ? '公共消息' : '私人消息',
+          style: TextStyle(fontSize: AppType.sizeFootnote, color: t.text2),
+        ),
       ),
       body: Column(
         children: [
@@ -387,7 +365,7 @@ class _PmThreadPageState extends State<PmThreadPage> {
                     filled: true,
                     fillColor: t.fill,
                     contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 16,
+                      horizontal: AppSpace.groupInset,
                       vertical: 10,
                     ),
                     border: OutlineInputBorder(

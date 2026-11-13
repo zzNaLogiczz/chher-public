@@ -2,8 +2,7 @@ import 'package:chh_app/core/appearance.dart';
 import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/design/tokens.dart';
 import 'package:chh_app/pages/settings_page.dart';
-import 'package:chh_app/ui/grouped.dart';
-import 'package:chh_app/ui/segmented.dart';
+import 'package:chh_app/widgets/settings_appearance.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -16,28 +15,28 @@ void main() {
 
   tearDown(() => controller.dispose());
 
-  testWidgets('外观直接位于页面背景上并随列表滚动，标题样式与分组一致', (tester) async {
+  testWidgets('风格预览与明暗模式在同一平面分组里随列表滚动', (tester) async {
     await tester.pumpWidget(_app(controller));
     await tester.pumpAndSettle();
 
-    final appearance = find.byType(AppSegmented<AppearanceMode>);
+    final appearance = find.byType(SettingsAppearance);
+    final section = find.byKey(const ValueKey('settings-appearance'));
     expect(appearance, findsOneWidget);
-    expect(find.byType(AppSegmented<int>), findsNothing);
     expect(
-      find.ancestor(of: appearance, matching: find.byType(GroupedSection)),
-      findsNothing,
+      find.descendant(of: section, matching: appearance),
+      findsOneWidget,
     );
     expect(
-      tester.getRect(appearance).left -
+      tester.getRect(section).left -
           tester.getRect(find.byType(ListView)).left,
-      AppSpace.screen,
+      AppSpace.groupInset,
     );
     expect(
-      tester.widget<Text>(find.text('外观')).style,
-      tester.widget<Text>(find.text('存储')).style,
+      tester.widget<Text>(find.text('外观与风格')).style,
+      tester.widget<Text>(find.text('存储与诊断')).style,
     );
     expect(
-      tester.getTopLeft(find.text('外观')).dy,
+      tester.getTopLeft(find.text('外观与风格')).dy,
       lessThan(tester.getTopLeft(appearance).dy),
     );
     expect(
@@ -45,15 +44,24 @@ void main() {
       findsOneWidget,
     );
     expect(
-      tester
-          .widget<AppSegmented<AppearanceMode>>(appearance)
-          .options
-          .map((option) => option.label),
-      ['跟随系统', '浅色', '深色'],
+      find.descendant(of: appearance, matching: find.byType(StylePreviewCard)),
+      findsNWidgets(2),
     );
+    final previews = find.byType(StylePreviewCard);
+    for (final mode in AppearanceMode.values) {
+      final control = find.byKey(ValueKey('settings-mode-${mode.name}'));
+      expect(
+        find.descendant(of: control, matching: find.text(mode.label)),
+        findsOneWidget,
+      );
+      expect(
+        tester.getTopLeft(control).dy,
+        greaterThan(tester.getBottomLeft(previews.first).dy),
+      );
+    }
     expect(
       tester.getBottomLeft(appearance).dy,
-      lessThan(tester.getTopLeft(find.text('存储')).dy),
+      lessThan(tester.getTopLeft(find.text('存储与诊断')).dy),
     );
     expect(tester.takeException(), isNull);
   });

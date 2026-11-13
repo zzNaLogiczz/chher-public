@@ -6,7 +6,6 @@ import 'package:chh_app/pages/me_page.dart';
 import 'package:chh_app/pages/settings_page.dart';
 import 'package:chh_app/parser/header_parser.dart';
 import 'package:chh_app/ui/grouped.dart';
-import 'package:chh_app/widgets/account_widgets.dart';
 import 'package:chh_app/widgets/browse_controls.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -62,7 +61,7 @@ void main() {
     );
     expect(find.text('测试账号'), findsOneWidget);
     expect(find.text('UID 100001'), findsOneWidget);
-    expect(find.byType(EntryCell), findsNWidgets(4));
+    expect(find.byType(EntryTile), findsNWidgets(4));
     for (final label in ['我的帖子', '我的收藏', '积分记录', '勋章', '设置']) {
       expect(find.text(label), findsOneWidget, reason: label);
     }
@@ -88,37 +87,27 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        final sections = tester.widgetList<GroupedSection>(
-          find.byType(GroupedSection),
-        );
-        expect(sections.map((section) => section.header), [
-          '存储',
-          '关于',
-          if (loggedIn) null,
-        ]);
-        final storage = find.byWidgetPredicate(
-          (widget) => widget is GroupedSection && widget.header == '存储',
-        );
-        final about = find.byWidgetPredicate(
-          (widget) => widget is GroupedSection && widget.header == '关于',
+        final appearance = find.byKey(const ValueKey('settings-appearance'));
+        final storage = find.byKey(const ValueKey('settings-storage'));
+        final about = find.byKey(const ValueKey('settings-about-section'));
+        expect(appearance, findsOneWidget);
+        expect(storage, findsOneWidget);
+        expect(about, findsOneWidget);
+        for (final label in ['图片缓存', '运行日志']) {
+          expect(
+            find.descendant(of: storage, matching: find.text(label)),
+            findsOneWidget,
+          );
+        }
+        expect(
+          find.descendant(of: about, matching: find.text('关于 Chher')),
+          findsOneWidget,
         );
         expect(
-          tester
-              .widgetList<GroupedRow>(
-                find.descendant(of: storage, matching: find.byType(GroupedRow)),
-              )
-              .map((row) => row.title),
-          ['图片缓存'],
+          find.descendant(of: about, matching: find.text('运行日志')),
+          findsNothing,
         );
-        expect(
-          tester
-              .widgetList<GroupedRow>(
-                find.descendant(of: about, matching: find.byType(GroupedRow)),
-              )
-              .map((row) => row.title),
-          ['关于 Chher', '运行日志'],
-        );
-        final labels = ['外观', '存储', '关于', if (loggedIn) '退出登录'];
+        final labels = ['外观与风格', '存储与诊断', '关于', if (loggedIn) '退出登录'];
         for (var i = 1; i < labels.length; i++) {
           expect(
             tester.getTopLeft(find.text(labels[i - 1])).dy,
@@ -133,6 +122,8 @@ void main() {
         expect(find.byType(CircularProgressIndicator), findsNothing);
         expect(tester.takeException(), isNull);
 
+        await tester.ensureVisible(find.text('运行日志'));
+        await tester.pumpAndSettle();
         await tester.tap(find.text('运行日志'));
         await tester.pumpAndSettle();
         expect(find.byType(LogPage), findsOneWidget);
@@ -167,7 +158,14 @@ void main() {
     changeSession(false);
     await tester.pumpAndSettle();
     expect(find.text('退出登录'), findsNothing);
-    expect(find.byType(GroupedSection), findsNWidgets(2));
+    expect(find.byKey(const ValueKey('settings-logout')), findsNothing);
+    for (final key in [
+      'settings-appearance',
+      'settings-storage',
+      'settings-about-section',
+    ]) {
+      expect(find.byKey(ValueKey(key)), findsOneWidget);
+    }
     expect(tester.widget<ListView>(find.byType(ListView)), same(list));
     expect(
       tester.widget(find.byKey(const ValueKey('settings-about'))),
@@ -177,7 +175,7 @@ void main() {
     changeSession(true);
     await tester.pumpAndSettle();
     expect(find.text('退出登录'), findsOneWidget);
-    expect(find.byType(GroupedSection), findsNWidgets(3));
+    expect(find.byKey(const ValueKey('settings-logout')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -227,7 +225,9 @@ void main() {
       tester.getTopLeft(find.text('退出登录')).dy,
       greaterThan(tester.getTopLeft(find.text('运行日志')).dy),
     );
-    expect(find.byType(GroupedDestructiveRow), findsOneWidget);
+    final logout = find.byKey(const ValueKey('settings-logout'));
+    expect(logout, findsOneWidget);
+    expect(tester.getSize(logout).height, greaterThanOrEqualTo(50));
     // 只露出一角时点不中,先整行滚进视野
     await tester.ensureVisible(find.text('退出登录'));
     await tester.pumpAndSettle();

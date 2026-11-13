@@ -89,7 +89,7 @@ class SheetHeader extends StatelessWidget {
               child: DecoratedBox(
                 decoration: BoxDecoration(
                   color: t.fill2,
-                  borderRadius: BorderRadius.circular(2.5),
+                  borderRadius: BorderRadius.circular(AppRadii.bar),
                 ),
                 child: const SizedBox(width: 36, height: 5),
               ),

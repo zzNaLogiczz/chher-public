@@ -1,5 +1,6 @@
 import 'package:chh_app/core/app_info.dart';
 import 'package:chh_app/design/theme.dart';
+import 'package:chh_app/design/tokens.dart';
 import 'package:chh_app/pages/about_page.dart';
 import 'package:chh_app/pages/settings_page.dart';
 import 'package:flutter/material.dart';
@@ -9,6 +10,7 @@ import 'package:chh_app/ui/chrome_button.dart';
 import 'package:chh_app/ui/grouped.dart';
 import 'package:chh_app/widgets/app_shell.dart';
 import 'package:chh_app/widgets/link_opener.dart';
+import 'package:chh_app/widgets/large_title_scaffold.dart';
 
 void main() {
   testWidgets('设置里点关于进入关于页:图标在上,版本号其次,介绍在下', (tester) async {
@@ -25,10 +27,21 @@ void main() {
       200,
       scrollable: find.byType(Scrollable).last,
     );
+    await tester.ensureVisible(row);
+    await tester.pumpAndSettle();
     await tester.tap(row);
     await tester.pumpAndSettle();
 
     expect(find.byType(AboutPage), findsOneWidget);
+    final scaffold = tester.widget<LargeTitleScaffold>(
+      find.descendant(
+        of: find.byType(AboutPage),
+        matching: find.byType(LargeTitleScaffold),
+      ),
+    );
+    expect(scaffold.title, '关于');
+    expect(scaffold.surface, AppSurface.grouped);
+    expect(scaffold.showBack, isTrue);
     final logo = find.bySemanticsLabel('Chher 图标');
     final version = find.byKey(const ValueKey('about-version'));
     final intro = find.textContaining('第三方 Android 客户端');
@@ -54,6 +67,16 @@ void main() {
     );
     expect(find.textContaining('公益项目'), findsOneWidget);
     expect(find.text(feedbackEmail), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.textContaining('随机生成的安装标识'),
+      200,
+      scrollable: find
+          .descendant(
+            of: find.byType(AboutPage),
+            matching: find.byType(Scrollable),
+          )
+          .last,
+    );
     expect(find.textContaining('随机生成的安装标识'), findsOneWidget);
 
     await tester.tap(find.byTooltip('返回'));

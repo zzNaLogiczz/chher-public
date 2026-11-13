@@ -1,5 +1,5 @@
-/// 界面风格切换(薄雾白/朱砂红)回归:token 四组合注入、壳分支、
-/// 设置页入口,以及薄雾白壳下分段切换不复现灰屏。
+/// 界面风格切换(薄暮/朱砂)回归:token 四组合注入、壳分支、
+/// 设置页入口,以及薄暮壳下分段切换不复现灰屏。
 library;
 
 import 'package:chh_app/core/appearance.dart';
@@ -80,12 +80,12 @@ void main() {
       tokensFor(Brightness.dark, AppearanceStyle.cinnabar),
       same(AppTokens.cinnabarDark),
     );
-    // 兼容别名保持朱砂红(历史引用点与既有测试依赖)
+    // 兼容别名保持朱砂(历史引用点与既有测试依赖)
     expect(AppTokens.light, same(AppTokens.cinnabarLight));
     expect(AppTokens.dark, same(AppTokens.cinnabarDark));
   });
 
-  test('薄雾白令牌组携带风格标记,漆面渐变退化为纸面纯色', () {
+  test('薄暮令牌组携带风格标记,漆面渐变退化为纸面纯色', () {
     expect(AppTokens.mistyLight.style, AppearanceStyle.misty);
     expect(AppTokens.mistyDark.style, AppearanceStyle.misty);
     expect(AppTokens.cinnabarLight.style, AppearanceStyle.cinnabar);
@@ -117,6 +117,8 @@ void main() {
   });
 
   testWidgets('设置页切换界面风格并写回 controller', (tester) async {
+    expect(AppearanceStyle.misty.label, '薄暮');
+    expect(AppearanceStyle.cinnabar.label, '朱砂');
     final controller = AppearanceController(directory: () async => null);
     addTearDown(controller.dispose);
     await tester.pumpWidget(
@@ -127,16 +129,16 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('薄雾白'));
+    await tester.tap(find.text('薄暮'));
     await tester.pumpAndSettle();
     expect(controller.style, AppearanceStyle.misty);
 
-    await tester.tap(find.text('朱砂红'));
+    await tester.tap(find.text('朱砂'));
     await tester.pumpAndSettle();
     expect(controller.style, AppearanceStyle.cinnabar);
   });
 
-  testWidgets('薄雾白下一级页走纸面骨架,消息分段切换不复现灰屏', (tester) async {
+  testWidgets('薄暮下一级页走纸面骨架,消息分段切换不复现灰屏', (tester) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -160,7 +162,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // 薄雾白消息页:纸面大标题骨架,漆面骨架不在树上
+    // 薄暮消息页:纸面大标题骨架,漆面骨架不在树上
     await tester.tap(
       find.descendant(
         of: find.byType(AppBottomNavigation),
@@ -171,7 +173,7 @@ void main() {
     expect(find.byType(LargeTitleScaffold), findsOneWidget);
     expect(find.byType(LacScaffold), findsNothing);
 
-    // 交替切分段(灰屏序列)在薄雾白壳下同样安全
+    // 交替切分段(灰屏序列)在薄暮壳下同样安全
     for (var round = 0; round < 3; round++) {
       for (final segment in ['私信', '提醒']) {
         await tester.tap(find.textContaining(segment));
@@ -193,7 +195,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('薄雾白启动屏用纸面底', (tester) async {
+  testWidgets('薄暮启动屏用纸面底', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
         theme: buildAppTheme(Brightness.light, AppearanceStyle.misty),
@@ -205,7 +207,7 @@ void main() {
     expect(AppTokens.of(context).style, AppearanceStyle.misty);
   });
 
-  testWidgets('朱砂红上线引导:设置页内红点可见,离开后永久消失', (tester) async {
+  testWidgets('朱砂上线引导:设置页内红点可见,离开后永久消失', (tester) async {
     final controller = AppearanceController(directory: () async => null);
     addTearDown(controller.dispose);
     expect(controller.styleDotSeen, isFalse);
@@ -218,7 +220,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // 设置页内:朱砂红选项带引导红点(薄雾白没有)
+    // 设置页内:朱砂选项带引导红点(薄暮没有)
     expect(find.byType(DotBadge), findsOneWidget);
 
     // 离开设置页(卸载页面)→ 消费引导
@@ -290,7 +292,7 @@ void main() {
     expect(badge.visible, isFalse);
   });
 
-  testWidgets('朱砂红启动屏保持漆面渐变', (tester) async {
+  testWidgets('朱砂启动屏保持漆面渐变', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
         theme: buildAppTheme(Brightness.light, AppearanceStyle.cinnabar),

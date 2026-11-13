@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 
 import '../data/editorial_cover_cache.dart';
 import '../design/tokens.dart';
+import '../design/shapes.dart';
 import '../models/models.dart';
 import 'net_image.dart';
 
@@ -50,17 +51,17 @@ class EditorialCover extends StatelessWidget {
     final remembered = editorialCoverCache.lookup(article.aid);
     final effectiveUrl = remembered ?? article.coverUrl;
     final effectiveFit = remembered != null ? BoxFit.cover : fit;
-    final child = ClipRRect(
-      borderRadius: BorderRadius.circular(expanded ? 0 : AppRadii.lg),
-      child: _CoverContents(
-        article: article,
-        eyebrow: eyebrow,
-        coverUrl: effectiveUrl,
-        fit: effectiveFit,
-        showText: showText,
-        topInset: expanded ? MediaQuery.viewPaddingOf(context).top : 0,
-      ),
+    final contents = _CoverContents(
+      article: article,
+      eyebrow: eyebrow,
+      coverUrl: effectiveUrl,
+      fit: effectiveFit,
+      showText: showText,
+      topInset: expanded ? MediaQuery.viewPaddingOf(context).top : 0,
     );
+    final child = expanded
+        ? ClipRRect(child: contents)
+        : AppClip(radius: AppRadii.lg, child: contents);
     // Reduced motion retains the same content without moving a large picture
     // across the screen. The page route can provide its short crossfade.
     if (MediaQuery.disableAnimationsOf(context)) return child;
@@ -83,9 +84,13 @@ class EditorialCover extends StatelessWidget {
         // A cache update may rebuild the hidden destination during the flight,
         // but must not swap the photograph in its moving shuttle.
         final source = (from.widget as Hero).child;
-        final sourceContents =
-            source is ClipRRect && source.child is _CoverContents
-            ? source.child! as _CoverContents
+        final sourceChild = switch (source) {
+          AppClip(:final child) => child,
+          ClipRRect(:final child) => child,
+          _ => null,
+        };
+        final sourceContents = sourceChild is _CoverContents
+            ? sourceChild
             : null;
         final flightUrl = sourceContents?.coverUrl ?? effectiveUrl;
         final flightFit = sourceContents?.fit ?? effectiveFit;
@@ -102,12 +107,12 @@ class EditorialCover extends StatelessWidget {
               animateImage: false,
             ),
           ),
-          builder: (context, child) => ClipRRect(
-            borderRadius: BorderRadius.circular(
-              lerpDouble(AppRadii.lg, 0, animation.value)!,
-            ),
-            child: child,
-          ),
+          builder: (context, child) => animation.value == 1
+              ? ClipRRect(child: child)
+              : AppClip(
+                  radius: lerpDouble(AppRadii.lg, 0, animation.value)!,
+                  child: child!,
+                ),
         );
       },
       child: child,

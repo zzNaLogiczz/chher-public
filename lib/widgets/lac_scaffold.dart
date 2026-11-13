@@ -25,11 +25,20 @@ class LacScaffold extends StatefulWidget {
   /// 大标题下方的漆面常驻内容(我的=身份卡,消息=分段,版块=搜索+分区)
   final Widget? mast;
 
+  /// 我的页身份与入口按内容撑高,其余一级页保留统一的 mast 高度。
+  final bool fitMast;
+
+  /// 仅在当前页将水印限制在页头,从 30% 到 62% 高度淡出。
+  final bool markFade;
+
   /// 漆面在标题区之下再露出的高度;纸面圆角从这里开始
   final double seamGap;
 
   /// 整头固定(我的页定稿):标题/身份卡/岛不随内容上收,正文独立滚动
   final bool pinned;
+
+  /// 纸面底色类型:内容页用 bg,分组页用 grouped
+  final AppSurface surface;
 
   /// 纸面内容(自身带滚动)
   final Widget body;
@@ -41,8 +50,11 @@ class LacScaffold extends StatefulWidget {
     this.eyebrow,
     this.actions = const [],
     this.mast,
+    this.fitMast = false,
+    this.markFade = false,
     this.seamGap = 20,
     this.pinned = false,
+    this.surface = AppSurface.content,
   });
 
   @override
@@ -97,16 +109,51 @@ class _LacScaffoldState extends State<LacScaffold> {
       ),
     );
 
+    final header = Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(height: top + NavOverlay.barHeight),
+        titleHeader,
+        if (widget.mast != null) mastBox(),
+        SizedBox(height: widget.seamGap),
+      ],
+    );
+    final mastHeader = widget.markFade
+        ? Stack(
+            children: [
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: ShaderMask(
+                    blendMode: BlendMode.dstIn,
+                    shaderCallback: (bounds) => LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [t.onLac, t.onLac.withValues(alpha: 0)],
+                      stops: const [.3, .62],
+                    ).createShader(bounds),
+                    child: const Stack(
+                      children: [
+                        Positioned(top: 4, right: -14, child: _Watermark()),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              header,
+            ],
+          )
+        : header;
+
     final content = widget.pinned
         ? // 整头固定(我的页定稿):大标题与身份卡不许上收,正文独立滚动
           Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              SizedBox(height: top + NavOverlay.barHeight),
-              titleHeader,
-              if (widget.mast != null) mastBox(),
-              SizedBox(height: widget.seamGap),
-              Expanded(child: PaperSheet(child: widget.body)),
+              mastHeader,
+              Expanded(
+                child: PaperSheet(surface: widget.surface, child: widget.body),
+              ),
             ],
           )
         : NotificationListener<ScrollNotification>(
@@ -121,15 +168,18 @@ class _LacScaffoldState extends State<LacScaffold> {
             child: NestedScrollView(
               physics: const BouncingScrollPhysics(),
               headerSliverBuilder: (context, _) => [
-                SliverToBoxAdapter(
-                  child: SizedBox(height: top + NavOverlay.barHeight),
-                ),
-                SliverToBoxAdapter(child: titleHeader),
-                if (widget.mast != null) SliverToBoxAdapter(child: mastBox()),
-                // 漆面脚:纸面圆角从这里开始,红从圆角两侧露出来
-                SliverToBoxAdapter(child: SizedBox(height: widget.seamGap)),
+                if (widget.markFade)
+                  SliverToBoxAdapter(child: mastHeader)
+                else ...[
+                  SliverToBoxAdapter(
+                    child: SizedBox(height: top + NavOverlay.barHeight),
+                  ),
+                  SliverToBoxAdapter(child: titleHeader),
+                  if (widget.mast != null) SliverToBoxAdapter(child: mastBox()),
+                  SliverToBoxAdapter(child: SizedBox(height: widget.seamGap)),
+                ],
               ],
-              body: PaperSheet(child: widget.body),
+              body: PaperSheet(surface: widget.surface, child: widget.body),
             ),
           );
     return ValueListenableBuilder<double>(
@@ -149,7 +199,8 @@ class _LacScaffoldState extends State<LacScaffold> {
           body: Stack(
             children: [
               // chh 水印:压在漆面右上角,滚动内容从它上面划过
-              const Positioned(top: 4, right: -14, child: _Watermark()),
+              if (!widget.markFade)
+                const Positioned(top: 4, right: -14, child: _Watermark()),
               if (widget.pinned) Positioned.fill(child: content) else content,
               Positioned(
                 top: 0,
@@ -159,7 +210,7 @@ class _LacScaffoldState extends State<LacScaffold> {
                   inlineTitle: widget.title,
                   scrollOffset: _offset,
                   collapseAt: _collapseAt,
-                  background: t.bg,
+                  background: t.background(widget.surface),
                   onLac: true,
                   // 圆钮只住大标题右侧(accessory),随标题滚走——设计稿
                   // navtop 非粘性,折叠后顶部只有小标题,不出现第二个钮
@@ -172,31 +223,38 @@ class _LacScaffoldState extends State<LacScaffold> {
     );
   }
 
-  /// mast 容器:统一高度,内容顶对齐,不足留白,超出裁剪
-  Widget mastBox() => SizedBox(
-    height: AppSpace.mastRegion,
-    child: ClipRect(
-      child: OverflowBox(
-        alignment: Alignment.topLeft,
-        minHeight: 0,
-        maxHeight: double.infinity,
-        child: widget.mast,
-      ),
-    ),
-  );
+  /// 默认统一高度;我的页按内容自然撑高,避免入口和大字号被裁剪。
+  Widget mastBox() => widget.fitMast
+      ? widget.mast!
+      : SizedBox(
+          height: AppSpace.mastRegion,
+          child: ClipRect(
+            child: OverflowBox(
+              alignment: Alignment.topLeft,
+              minHeight: 0,
+              maxHeight: double.infinity,
+              child: widget.mast,
+            ),
+          ),
+        );
 }
 
 /// 纸面:上圆角盖住漆面,红调投影让接缝"浮"起来
 class PaperSheet extends StatelessWidget {
   final Widget child;
-  const PaperSheet({super.key, required this.child});
+  final AppSurface surface;
+  const PaperSheet({
+    super.key,
+    required this.child,
+    this.surface = AppSurface.content,
+  });
 
   @override
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: t.bg,
+        color: t.background(surface),
         borderRadius: const BorderRadius.vertical(
           top: Radius.circular(AppRadii.paper),
         ),

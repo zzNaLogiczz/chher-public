@@ -9,15 +9,15 @@ import 'package:flutter/material.dart';
 
 /// 界面风格:与明暗正交的第四象限。
 ///
-/// - cinnabar(朱砂红):1.0.8 起的漆面设计,一级页用 LacScaffold。
-/// - misty(薄雾白):1.0.7 的纸面设计,一级页用 LargeTitleScaffold。
+/// - cinnabar(朱砂):1.0.8 起的漆面设计,一级页用 LacScaffold。
+/// - misty(薄暮):1.0.7 的纸面设计,一级页用 LargeTitleScaffold。
 ///
-/// 两风格共用同一套组件与令牌结构;薄雾白组里漆面相关令牌给纸面
+/// 两风格共用同一套组件与令牌结构;薄暮组里漆面相关令牌给纸面
 /// 退化值(壳不消费它们),色阶常量是 1.0.7 原值(部分 Radix 步级
 /// 在 v2 改过值,不能直接引用现常量)。
 enum AppearanceStyle {
-  misty('薄雾白'),
-  cinnabar('朱砂红');
+  misty('薄暮'),
+  cinnabar('朱砂');
 
   final String label;
   const AppearanceStyle(this.label);
@@ -198,7 +198,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
     required this.tintMo,
   });
 
-  /// 朱砂红 · 浅色(1.0.8 定稿值)
+  /// 朱砂 · 浅色(1.0.8 定稿值)
   static const AppTokens cinnabarLight = AppTokens(
     style: AppearanceStyle.cinnabar,
     // 暖纸基底(v2 从冷灰换成暖调,色相与漆面同带)
@@ -254,7 +254,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
     tintMo: Color(0xFF615956),
   );
 
-  /// 朱砂红 · 深色(1.0.8 定稿值)
+  /// 朱砂 · 深色(1.0.8 定稿值)
   static const AppTokens cinnabarDark = AppTokens(
     style: AppearanceStyle.cinnabar,
     bg: Color(0xFF0D0B0A),
@@ -309,21 +309,21 @@ class AppTokens extends ThemeExtension<AppTokens> {
     tintMo: Color(0xFF59504E),
   );
 
-  /// 兼容别名(历史引用点与测试):不带 style 上下文时默认朱砂红
+  /// 兼容别名(历史引用点与测试):不带 style 上下文时默认朱砂
   static const AppTokens light = cinnabarLight;
   static const AppTokens dark = cinnabarDark;
 
-  /// 薄雾白 · 浅色(1.0.7 基线 e112669 的原值)。
+  /// 薄暮 · 浅色(1.0.7 基线 e112669 的原值)。
   ///
   /// 前半段是 1.0.7 的纸面色板;漆面相关令牌(lac*/onLac*/chip* 等)
-  /// 给纸面退化值——薄雾白一级页不进 LacScaffold,这些值只在组件
+  /// 给纸面退化值——薄暮一级页不进 LacScaffold,这些值只在组件
   /// 意外走到漆面分支时兜底,保持中性不穿帮。
   /// 注:green3/amber3/amber11 的 Radix 步级在 v2 改过值,这里直接写
   /// 1.0.7 原值字面量。
   static const AppTokens mistyLight = AppTokens(
     style: AppearanceStyle.misty,
     bg: Color(0xFFFFFFFF),
-    grouped: Color(0xFFF2F2F7),
+    grouped: Color(0xFFF5F6F8),
     surface: Color(0xFFFFFFFF),
     fill: Color.fromRGBO(118, 118, 128, .12),
     fill2: Color.fromRGBO(118, 118, 128, .22),
@@ -373,7 +373,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
     tintMo: Color(0xFF8B8D98),
   );
 
-  /// 薄雾白 · 深色(1.0.7 基线的深色组 + 同规则退化值)
+  /// 薄暮 · 深色(1.0.7 基线的深色组 + 同规则退化值)
   static const AppTokens mistyDark = AppTokens(
     style: AppearanceStyle.misty,
     bg: Color(0xFF0B0B0C),
@@ -436,6 +436,37 @@ class AppTokens extends ThemeExtension<AppTokens> {
 
   bool get isDark => bg.computeLuminance() < 0.3;
 
+  /// 薄暮名片四柱的淡雅四色，明暗分别匹配定稿。
+  Color get mistyBlue => isDark
+      ? const Color(0xFF62AEF8)
+      : const Color(0xFF1A7AD4);
+  Color get mistyOrange => isDark
+      ? const Color(0xFFE88B50)
+      : const Color(0xFFD66A26);
+  Color get mistyGreen => isDark
+      ? const Color(0xFF48C085)
+      : const Color(0xFF2B8C5E);
+  Color get mistyViolet => isDark
+      ? const Color(0xFFA980D8)
+      : const Color(0xFF7E52AD);
+  Color get mistyTray => Color.lerp(
+    const Color(0xFFF3F4F7),
+    const Color(0xFF25262A),
+    (1.0 - bg.computeLuminance()).clamp(0.0, 1.0),
+  )!;
+  Color get segmentedThumb => Color.lerp(
+    surface,
+    const Color(0xFF636366),
+    (1.0 - bg.computeLuminance()).clamp(0.0, 1.0),
+  )!;
+
+  /// 我的页深漆凹槽:槽底、顶部内影与下沿高光。
+  Color get lacRecess => isDark
+      ? const Color.fromRGBO(0, 0, 0, .24)
+      : const Color.fromRGBO(60, 0, 6, .20);
+  Color get lacRecessShade => const Color.fromRGBO(40, 0, 4, .22);
+  Color get lacRecessHighlight => onLac.withValues(alpha: .12);
+
   /// Thread section bands are slightly lighter than the dark page background.
   Color get threadSectionBand => isDark
       ? (style == AppearanceStyle.misty
@@ -469,7 +500,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
   ];
 
   /// 漆面实心按钮投影(红调;Flutter 无内阴影,高光由渐变自身表现)。
-  /// 薄雾白主按钮是纯色 accent,配中性轻影,不带红光晕。
+  /// 薄暮主按钮是纯色 accent,配中性轻影,不带红光晕。
   List<BoxShadow> get btnShadow => style == AppearanceStyle.misty
       ? const [
           BoxShadow(
@@ -512,7 +543,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
   // 这样描边和投影在同一个 boxShadow 里,圆角形状无需额外 border。
 
   /// e1:浮动圆钮、胶囊、分段滑块、阅读工具栏。
-  /// 朱砂红用暖调影,薄雾白用 1.0.7 的中性影。
+  /// 朱砂用暖调影,薄暮用 1.0.7 的中性影。
   List<BoxShadow> get shadowE1 => style == AppearanceStyle.misty
       ? [
           BoxShadow(
@@ -690,11 +721,62 @@ class AppTokens extends ThemeExtension<AppTokens> {
     );
   }
 
-  /// 主题切换只在两套离散令牌之间跳,不做颜色插值
+  /// 主题与明暗切换时平滑插值各色板，避免整页单帧跳变
   @override
   AppTokens lerp(ThemeExtension<AppTokens>? other, double t) {
     if (other is! AppTokens) return this;
-    return t < 0.5 ? this : other;
+    if (t <= 0) return this;
+    if (t >= 1) return other;
+    return AppTokens(
+      style: t < 0.5 ? style : other.style,
+      bg: Color.lerp(bg, other.bg, t)!,
+      grouped: Color.lerp(grouped, other.grouped, t)!,
+      surface: Color.lerp(surface, other.surface, t)!,
+      fill: Color.lerp(fill, other.fill, t)!,
+      fill2: Color.lerp(fill2, other.fill2, t)!,
+      fill3: Color.lerp(fill3, other.fill3, t)!,
+      greenSoft: Color.lerp(greenSoft, other.greenSoft, t)!,
+      greenFill: Color.lerp(greenFill, other.greenFill, t)!,
+      greenLine: Color.lerp(greenLine, other.greenLine, t)!,
+      separator: Color.lerp(separator, other.separator, t)!,
+      pressed: Color.lerp(pressed, other.pressed, t)!,
+      text: Color.lerp(text, other.text, t)!,
+      text2: Color.lerp(text2, other.text2, t)!,
+      text3: Color.lerp(text3, other.text3, t)!,
+      accent: Color.lerp(accent, other.accent, t)!,
+      accentFill: Color.lerp(accentFill, other.accentFill, t)!,
+      accentFill2: Color.lerp(accentFill2, other.accentFill2, t)!,
+      accentLine: Color.lerp(accentLine, other.accentLine, t)!,
+      onAccent: Color.lerp(onAccent, other.onAccent, t)!,
+      glass: Color.lerp(glass, other.glass, t)!,
+      glassOnImage: Color.lerp(glassOnImage, other.glassOnImage, t)!,
+      frostedMist: Color.lerp(frostedMist, other.frostedMist, t)!,
+      red: Color.lerp(red, other.red, t)!,
+      green: Color.lerp(green, other.green, t)!,
+      warn: Color.lerp(warn, other.warn, t)!,
+      warnBg: Color.lerp(warnBg, other.warnBg, t)!,
+      warnBorder: Color.lerp(warnBorder, other.warnBorder, t)!,
+      scrim: Color.lerp(scrim, other.scrim, t)!,
+      lacTop: Color.lerp(lacTop, other.lacTop, t)!,
+      lacMid: Color.lerp(lacMid, other.lacMid, t)!,
+      lacBot: Color.lerp(lacBot, other.lacBot, t)!,
+      onLac: Color.lerp(onLac, other.onLac, t)!,
+      onLac2: Color.lerp(onLac2, other.onLac2, t)!,
+      onLac3: Color.lerp(onLac3, other.onLac3, t)!,
+      chipBg: Color.lerp(chipBg, other.chipBg, t)!,
+      chipText: Color.lerp(chipText, other.chipText, t)!,
+      unreadBg: Color.lerp(unreadBg, other.unreadBg, t)!,
+      scoreBg: Color.lerp(scoreBg, other.scoreBg, t)!,
+      btnTop: Color.lerp(btnTop, other.btnTop, t)!,
+      btnBot: Color.lerp(btnBot, other.btnBot, t)!,
+      linkLine: Color.lerp(linkLine, other.linkLine, t)!,
+      tintZhu: Color.lerp(tintZhu, other.tintZhu, t)!,
+      tintDai: Color.lerp(tintDai, other.tintDai, t)!,
+      tintTan: Color.lerp(tintTan, other.tintTan, t)!,
+      tintZhe: Color.lerp(tintZhe, other.tintZhe, t)!,
+      tintCi: Color.lerp(tintCi, other.tintCi, t)!,
+      tintMo: Color.lerp(tintMo, other.tintMo, t)!,
+    );
   }
 }
 
@@ -746,7 +828,7 @@ abstract final class IconTints {
   static const teal = Color(0xFF528581); // 瓷(工具行)
   static const gray = Color(0xFF615956); // 墨(工具行)
 
-  /// 薄雾白风格入口方块(EntryGrid)的四色,1.0.7 基线原值;
+  /// 薄暮风格入口方块(EntryGrid)的四色,1.0.7 基线原值;
   /// 上面现值是朱漆红 v2 国色,两套语义并存,按风格取用
   static const mistyBlue = Color(0xFF0090FF);
   static const mistyOrange = Color(0xFFF76B15);

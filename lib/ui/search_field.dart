@@ -70,7 +70,7 @@ class SearchCapsule extends StatelessWidget {
                 color: onLac
                     ? const Color.fromRGBO(255, 248, 245, .16)
                     : t.fill,
-                borderRadius: BorderRadius.circular(20),
+                borderRadius: BorderRadius.circular(AppRadii.full),
               ),
             ),
           ),

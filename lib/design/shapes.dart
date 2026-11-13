@@ -12,13 +12,21 @@ OutlinedBorder appShape(double radius) => kContinuousCorners
 
 /// 按 [appShape] 的曲率裁剪子树
 class AppClip extends StatelessWidget {
-  final double radius;
+  final double? radius;
+  final BorderRadius? borderRadius;
   final Widget child;
-  const AppClip({super.key, required this.radius, required this.child});
+  const AppClip({super.key, required double this.radius, required this.child})
+    : borderRadius = null;
+
+  const AppClip.borderRadius({
+    super.key,
+    required BorderRadius this.borderRadius,
+    required this.child,
+  }) : radius = null;
 
   @override
   Widget build(BuildContext context) {
-    final br = BorderRadius.circular(radius);
+    final br = borderRadius ?? BorderRadius.circular(radius!);
     return kContinuousCorners
         ? ClipRSuperellipse(borderRadius: br, child: child)
         : ClipRRect(borderRadius: br, child: child);

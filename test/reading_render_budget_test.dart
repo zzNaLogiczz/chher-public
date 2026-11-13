@@ -1,5 +1,7 @@
 import 'package:chh_app/controllers/article_reader_controller.dart';
 import 'package:chh_app/design/theme.dart';
+import 'package:chh_app/design/shapes.dart';
+import 'package:chh_app/design/tokens.dart';
 import 'package:chh_app/models/models.dart';
 import 'package:chh_app/pages/thread_detail_page.dart';
 import 'package:chh_app/widgets/cached_net_image.dart';
@@ -199,6 +201,9 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      final collapsedHero = tester.widget<Hero>(find.byType(Hero));
+      expect(collapsedHero.child, isA<AppClip>());
+      expect((collapsedHero.child as AppClip).radius, AppRadii.lg);
       await tester.tap(find.byKey(const ValueKey('open-editorial')));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 120));
@@ -211,6 +216,16 @@ void main() {
       expect(decodedWidths, hasLength(1));
       expect(decodedWidths.single, lessThanOrEqualTo(2048));
       await tester.pumpAndSettle();
+      final expandedHero = tester.widget<Hero>(
+        find.descendant(
+          of: find.byWidgetPredicate(
+            (widget) => widget is EditorialCover && widget.expanded,
+          ),
+          matching: find.byType(Hero),
+        ),
+      );
+      expect(expandedHero.child, isA<ClipRRect>());
+      expect((expandedHero.child as ClipRRect).borderRadius, BorderRadius.zero);
       expect(route.beginDismiss(), isTrue);
       route.updateDismiss(.1);
       route.endDismiss(0);

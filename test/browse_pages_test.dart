@@ -164,7 +164,10 @@ void main() {
     // 目录不再有本地关键字搜索(设计定稿),两个版块都常驻可见
     expect(find.text('iGame Mini 桌搭小钢炮装机赛'), findsOneWidget);
     expect(find.text('产品开箱'), findsOneWidget);
-    expect(find.text('15 个主题'), findsOneWidget);
+    expect(
+      tester.widget<Text>(find.byKey(const ValueKey('forum-count-1'))).data,
+      '15',
+    );
     expect(tester.takeException(), isNull);
   });
 

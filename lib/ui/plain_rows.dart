@@ -289,13 +289,7 @@ class ThreadRow extends StatelessWidget {
               style: style.copyWith(color: t.warn),
             ),
           if (label?.isNotEmpty ?? false)
-            TextSpan(
-              text: '$label  ',
-              style: style.copyWith(
-                color: t.accent,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
+            TextSpan(text: '$label  ', style: style),
           TextSpan(text: thread.author, style: style),
         ],
       ),
@@ -370,41 +364,21 @@ class ThreadRow extends StatelessWidget {
               ? '${thread.replies} 回复'
               : '有 $fresh 条新回复，共 ${thread.replies} 回复',
           excludeSemantics: true,
-          child: AnimatedContainer(
+          child: AnimatedDefaultTextStyle(
             duration: duration,
             curve: Curves.easeOut,
-            constraints: const BoxConstraints(
-              minWidth: 30,
-              minHeight: 22,
-              maxWidth: 44,
-            ),
-            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-            decoration: BoxDecoration(
+            style: AppType.subhead.copyWith(
+              fontWeight: FontWeight.w600,
               color: fresh != null
                   ? t.accent
-                  : seen
-                  ? t.fill3
-                  : thread.replies == 0
-                  ? Colors.transparent
-                  : t.fill,
-              borderRadius: BorderRadius.circular(22),
+                  : seen || thread.replies == 0
+                  ? t.text3
+                  : t.text2,
+              fontFeatures: const [FontFeature.tabularFigures()],
             ),
-            child: AnimatedDefaultTextStyle(
-              duration: duration,
-              curve: Curves.easeOut,
-              style: AppType.footnote.copyWith(
-                fontWeight: FontWeight.w600,
-                color: fresh != null
-                    ? t.onAccent
-                    : seen || thread.replies == 0
-                    ? t.text3
-                    : t.text2,
-                fontFeatures: const [FontFeature.tabularFigures()],
-              ),
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                child: Text(text, maxLines: 1),
-              ),
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(text, maxLines: 1),
             ),
           ),
         ),
