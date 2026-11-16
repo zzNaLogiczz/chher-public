@@ -127,11 +127,7 @@ class _LogPageState extends State<LogPage> {
                     : ListView.separated(
                         padding: const EdgeInsets.fromLTRB(24, 0, 24, 36),
                         itemCount: rows.length,
-                        separatorBuilder: (_, _) => Divider(
-                          height: .5,
-                          thickness: .5,
-                          color: t.separator,
-                        ),
+                        separatorBuilder: (_, _) => const SizedBox(height: 8),
                         itemBuilder: (context, i) => _LogRow(entry: rows[i]),
                       ),
               ),

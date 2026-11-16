@@ -6,6 +6,7 @@ import '../ui/search_field.dart';
 import 'package:flutter/cupertino.dart';
 
 import 'large_title_scaffold.dart';
+import '../design/tokens.dart';
 
 class BrowseSearchField extends StatelessWidget {
   final TextEditingController controller;
@@ -45,6 +46,8 @@ class BrowseSearchField extends StatelessWidget {
 class BrowseScaffold extends StatelessWidget {
   final String title;
   final Widget body;
+  final Widget? header;
+  final AppSurface surface;
   final List<Widget> actions;
   final Widget? floatingActionButton;
   final PreferredSizeWidget? pinnedHeader;
@@ -53,6 +56,8 @@ class BrowseScaffold extends StatelessWidget {
     super.key,
     required this.title,
     required this.body,
+    this.header,
+    this.surface = AppSurface.content,
     this.actions = const [],
     this.floatingActionButton,
     this.pinnedHeader,
@@ -62,6 +67,8 @@ class BrowseScaffold extends StatelessWidget {
   Widget build(BuildContext context) => LargeTitleScaffold(
     title: title,
     body: body,
+    header: header,
+    surface: surface,
     actions: actions,
     floatingActionButton: floatingActionButton,
     pinnedHeader: pinnedHeader,

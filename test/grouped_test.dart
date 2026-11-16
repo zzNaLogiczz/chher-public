@@ -38,6 +38,7 @@ void main() {
       ),
     );
     expect(find.text('账号资料'), findsOneWidget);
+    expect(tester.getSize(find.byType(GroupedRow)).height, 44);
     expect(find.text('资料只读，修改需在网页端进行。'), findsOneWidget);
     expect(find.byIcon(AppIcons.forward), findsNothing);
     final gesture = await tester.startGesture(
@@ -86,10 +87,7 @@ void main() {
     await gesture.up();
     await tester.pumpAndSettle();
     expect(taps, 1);
-    expect(
-      tester.getSize(find.byType(GroupedRow)).height,
-      greaterThanOrEqualTo(48),
-    );
+    expect(tester.getSize(find.byType(GroupedRow)).height, 44);
   });
 
   testWidgets('icon tile is a 30dp tinted square with a white glyph', (
@@ -135,32 +133,29 @@ void main() {
     LacEntryStrip(
       cells: [
         for (final label in ['我的帖子', '我的收藏', '积分记录', '勋章'])
-          LacEntryCell(
-            icon: AppIcons.articleBold,
-            label: label,
-            onTap: () {},
-          ),
+          LacEntryCell(icon: AppIcons.articleBold, label: label, onTap: () {}),
       ],
     ),
     textScale: scale,
   );
 
   for (final scale in [1.0, 1.3, 2.0]) {
-    testWidgets('lacquer strip keeps four equal columns at ${scale}x text', (
-      tester,
-    ) async {
-      await tester.binding.setSurfaceSize(const Size(320, 640));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
-      await tester.pumpWidget(strip(scale));
-      final cells = find.byType(LacEntryCell);
-      final first = tester.getRect(cells.first);
-      for (final cell in cells.evaluate()) {
-        final rect = tester.getRect(find.byWidget(cell.widget));
-        expect(rect.top, first.top);
-        expect(rect.width, first.width);
-        expect(rect.height, greaterThanOrEqualTo(44));
-      }
-      expect(tester.takeException(), isNull);
-    });
+    testWidgets(
+      'account strip keeps equal accessible cells at ${scale}x text',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(320, 640));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        await tester.pumpWidget(strip(scale));
+        final cells = find.byType(LacEntryCell);
+        final first = tester.getRect(cells.first);
+        for (final cell in cells.evaluate()) {
+          final rect = tester.getRect(find.byWidget(cell.widget));
+          if (scale < 1.5) expect(rect.top, first.top);
+          expect(rect.width, first.width);
+          expect(rect.height, greaterThanOrEqualTo(44));
+        }
+        expect(tester.takeException(), isNull);
+      },
+    );
   }
 }

@@ -21,6 +21,7 @@ class _PressCore extends StatefulWidget {
   final VoidCallback? onLongPress;
   final String? semanticLabel;
   final ValueChanged<bool> onPressedChanged;
+  final VoidCallback onPressCancelled;
   final Widget Function(BuildContext context, Widget ringed) builder;
   final Widget child;
 
@@ -29,6 +30,7 @@ class _PressCore extends StatefulWidget {
     required this.onLongPress,
     required this.semanticLabel,
     required this.onPressedChanged,
+    required this.onPressCancelled,
     required this.builder,
     required this.child,
   });
@@ -41,6 +43,34 @@ class _PressCoreState extends State<_PressCore> {
   Offset? _origin;
   bool _down = false;
   bool _showFocus = false;
+  ScrollPosition? _scrollPosition;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final position = Scrollable.maybeOf(context)?.position;
+    if (_scrollPosition == position) return;
+    _scrollPosition?.isScrollingNotifier.removeListener(_scrollChanged);
+    _scrollPosition = position;
+    position?.isScrollingNotifier.addListener(_scrollChanged);
+  }
+
+  void _scrollChanged() {
+    if (_scrollPosition?.isScrollingNotifier.value == true) _cancel();
+  }
+
+  void _cancel() {
+    if (!_down) return;
+    _origin = null;
+    _down = false;
+    widget.onPressCancelled();
+  }
+
+  @override
+  void dispose() {
+    _scrollPosition?.isScrollingNotifier.removeListener(_scrollChanged);
+    super.dispose();
+  }
 
   void _press(bool down) {
     if (!mounted || _down == down || (down && widget.onTap == null)) return;
@@ -53,8 +83,7 @@ class _PressCoreState extends State<_PressCore> {
     super.didUpdateWidget(oldWidget);
     // 按压中途被禁用:立刻释放反馈
     if (widget.onTap == null && _down) {
-      _origin = null;
-      _press(false);
+      _cancel();
     }
   }
 
@@ -98,22 +127,19 @@ class _PressCoreState extends State<_PressCore> {
             if (origin != null &&
                 (event.position - origin).distanceSquared >
                     kTouchSlop * kTouchSlop) {
-              _press(false);
+              _cancel();
             }
           },
           onPointerUp: (_) {
             _origin = null;
             _press(false);
           },
-          onPointerCancel: (_) {
-            _origin = null;
-            _press(false);
-          },
+          onPointerCancel: (_) => _cancel(),
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: widget.onTap,
             onLongPress: widget.onLongPress,
-            onTapCancel: () => _press(false),
+            onTapCancel: _cancel,
             child: widget.builder(
               context,
               ActionFocusRing(
@@ -148,7 +174,7 @@ class PressScale extends StatefulWidget {
     required this.child,
     this.onTap,
     this.onLongPress,
-    this.scale = 0.96,
+    this.scale = AppPressScale.control,
     this.semanticLabel,
     this.pressedOpacity = 1,
     this.pressedColor,
@@ -168,6 +194,7 @@ class _PressScaleState extends State<PressScale>
   );
   bool _reduced = false;
   bool _pressed = false;
+  bool _cancelled = false;
 
   @override
   void didChangeDependencies() {
@@ -177,6 +204,7 @@ class _PressScaleState extends State<PressScale>
   }
 
   void _onPressed(bool down) {
+    _cancelled = false;
     if ((widget.pressedOpacity < 1 || widget.pressedColor != null) &&
         _pressed != down) {
       setState(() => _pressed = down);
@@ -186,6 +214,12 @@ class _PressScaleState extends State<PressScale>
     } else {
       _scale.animateTo(down ? widget.scale : 1);
     }
+  }
+
+  void _onCancelled() {
+    _cancelled = true;
+    if (_pressed) setState(() => _pressed = false);
+    _scale.value = 1;
   }
 
   @override
@@ -200,12 +234,15 @@ class _PressScaleState extends State<PressScale>
     onLongPress: widget.onLongPress,
     semanticLabel: widget.semanticLabel,
     onPressedChanged: _onPressed,
+    onPressCancelled: _onCancelled,
     builder: (_, ringed) => AnimatedBuilder(
       animation: _scale,
       child: widget.pressedColor == null
           ? ringed
           : AnimatedContainer(
-              duration: _pressed || _reduced ? Duration.zero : AppMotion.fade,
+              duration: _pressed || _reduced || _cancelled
+                  ? Duration.zero
+                  : AppMotion.fade,
               curve: Curves.easeOut,
               decoration: ShapeDecoration(
                 color: widget.pressedColor!.withValues(
@@ -221,7 +258,9 @@ class _PressScaleState extends State<PressScale>
         ? widget.child
         : AnimatedOpacity(
             opacity: _pressed ? widget.pressedOpacity : 1,
-            duration: _pressed || _reduced ? Duration.zero : AppMotion.fade,
+            duration: _pressed || _reduced || _cancelled
+                ? Duration.zero
+                : AppMotion.fade,
             curve: Curves.easeOut,
             child: widget.child,
           ),
@@ -289,6 +328,7 @@ class _PressHighlightState extends State<PressHighlight>
       onLongPress: widget.onLongPress,
       semanticLabel: widget.semanticLabel,
       onPressedChanged: _onPressed,
+      onPressCancelled: () => _fade.value = 0,
       builder: (_, ringed) => AnimatedBuilder(
         animation: _fade,
         child: ringed,

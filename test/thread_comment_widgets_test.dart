@@ -3,7 +3,7 @@ import 'dart:collection';
 import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/models/models.dart';
 import 'package:chh_app/widgets/thread_comment_widgets.dart';
-import 'package:chh_app/ui/segmented.dart';
+import 'package:chh_app/widgets/comment_mode_bar.dart';
 import 'package:chh_app/ui/press.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -62,6 +62,26 @@ class _LargeReplies extends ListBase<Post> {
 
 void main() {
   testWidgets(
+    'count becomes busy while switching mode even with a source total',
+    (tester) async {
+      await tester.pumpWidget(
+        _app(
+          ThreadCommentHeading(
+            loadedCount: 10,
+            totalCount: 47,
+            complete: false,
+            busy: true,
+            mode: ThreadViewMode.author,
+            onModeChanged: (_) {},
+          ),
+        ),
+      );
+      expect(find.text('47'), findsNothing);
+      expect(find.byType(CommentModeBusy), findsOneWidget);
+      expect(find.textContaining('已加载'), findsNothing);
+    },
+  );
+  testWidgets(
     'mode selection reports only changes and count never includes an extra opening post',
     (tester) async {
       var mode = ThreadViewMode.threaded;
@@ -82,9 +102,8 @@ void main() {
         ),
       );
       expect(find.text('已加载 2'), findsOneWidget);
-      Finder segment(String label) => find.descendant(
-        of: find.byType(AppSegmented<ThreadViewMode>),
-        matching: find.text(label),
+      Finder segment(String label) => find.byKey(
+        ValueKey('comment-mode-${['评论', '原楼层', '只看楼主'].indexOf(label)}'),
       );
       await tester.tap(segment('评论'));
       await tester.pumpAndSettle();
@@ -101,6 +120,39 @@ void main() {
         ThreadViewMode.threaded,
       ]);
       expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'heading and compact modes share one row and keep the title fixed',
+    (tester) async {
+      var mode = ThreadViewMode.threaded;
+      await tester.pumpWidget(
+        _app(
+          StatefulBuilder(
+            builder: (_, update) => ThreadCommentHeading(
+              loadedCount: 47,
+              complete: true,
+              mode: mode,
+              onModeChanged: (value) => update(() => mode = value),
+            ),
+          ),
+        ),
+      );
+      final heading = find.byType(ThreadCommentHeading);
+      final count = find.text('47');
+      final bar = find.byType(CommentModeBar);
+      final countRect = tester.getRect(count);
+      final barRect = tester.getRect(bar);
+      expect(barRect.center.dy, closeTo(tester.getRect(heading).center.dy, 1));
+      expect(countRect.right, lessThan(barRect.right));
+      expect(tester.getSize(heading).height, 44);
+      for (final index in [1, 2, 0]) {
+        await tester.tap(find.byKey(ValueKey('comment-mode-$index')));
+        await tester.pumpAndSettle();
+        expect(tester.getRect(count), countRect);
+        expect(tester.getRect(bar), barRect);
+      }
     },
   );
 
@@ -274,7 +326,7 @@ void main() {
         ),
       );
       expect(find.text('回复 真实作者'), findsOneWidget);
-      expect(find.text('自己的正文'), findsOneWidget);
+      expect(find.text('自己的正文'), findsNothing);
       expect(find.textContaining('不可信名字'), findsNothing);
       await tester.tap(
         find.byKey(const ValueKey('thread-reply-context-50-99')),

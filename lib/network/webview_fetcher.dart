@@ -14,7 +14,7 @@ import 'chh_fetcher.dart';
 import 'serial_queue.dart';
 import 'webview_trust.dart';
 
-class WebViewFetcher implements ChhFetcher, AjaxFormFetcher {
+class WebViewFetcher implements ChhFetcher, AjaxFormFetcher, FormFieldsFetcher {
   HeadlessInAppWebView? _headless;
   InAppWebViewController? _controller;
   Completer<void>? _loadCompleter;
@@ -185,6 +185,12 @@ class WebViewFetcher implements ChhFetcher, AjaxFormFetcher {
       _enqueue(() => _postForm(url, form));
 
   @override
+  Future<ChhResponse> postFormFields(
+    Uri url,
+    List<MapEntry<String, String>> fields,
+  ) => _enqueue(() => _postForm(url, Map.fromEntries(fields), fields: fields));
+
+  @override
   Future<ChhResponse> postAjaxForm(Uri url, Map<String, String> form) =>
       _enqueue(() => _ajaxRequest(url, form: form));
 
@@ -227,7 +233,11 @@ class WebViewFetcher implements ChhFetcher, AjaxFormFetcher {
     return ChhResponse(-1, '', error: result?.error ?? '引擎未返回响应');
   }
 
-  Future<ChhResponse> _postForm(Uri url, Map<String, String> form) async {
+  Future<ChhResponse> _postForm(
+    Uri url,
+    Map<String, String> form, {
+    List<MapEntry<String, String>>? fields,
+  }) async {
     final controller = await _ensure();
     await _ensureOrigin(controller, url);
     if (_navigationFailed) return _failedResponse();
@@ -240,7 +250,13 @@ class WebViewFetcher implements ChhFetcher, AjaxFormFetcher {
     // 回 Discuz 的 request_tainting(503「含有非法字符」),字段再干净也没用。
     // 这里完全照抄浏览器的做法,同源所以能直接读回 iframe 文档。
     final result = await controller.callAsyncJavaScript(
-      arguments: {'url': url.toString(), 'fields': form},
+      arguments: {
+        'url': url.toString(),
+        'fields': [
+          for (final field in fields ?? form.entries.toList())
+            [field.key, field.value],
+        ],
+      },
       functionBody: r"""
         const name = 'chhpost_' + Date.now();
         const frame = document.createElement('iframe');
@@ -253,11 +269,11 @@ class WebViewFetcher implements ChhFetcher, AjaxFormFetcher {
         f.action = url;
         f.target = name;
         f.acceptCharset = 'utf-8';
-        for (const k in fields) {
+        for (const [key, value] of fields) {
           const i = document.createElement('input');
           i.type = 'hidden';
-          i.name = k;
-          i.value = fields[k];
+          i.name = key;
+          i.value = value;
           f.appendChild(i);
         }
         document.body.appendChild(f);

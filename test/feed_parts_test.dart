@@ -16,7 +16,7 @@ Widget app(Widget child) => MaterialApp(
 void main() {
   test('feed title row carries search and the bell is gone', () {
     final source = File('lib/pages/feed_page.dart').readAsStringSync();
-    expect(source, contains('LacScaffold('));
+    expect(source, contains('LacquerTabScaffold('));
     expect(source, contains("tag: 'search-entry-feed'"));
     expect(source, isNot(contains('MessagesAction')));
     expect(source, isNot(contains('SliverAppBar(')));
@@ -62,15 +62,15 @@ void main() {
           child: ShelfCard(
             image: const ColoredBox(key: ValueKey('image'), color: Colors.grey),
             title: '男女生视角体验阿联酋航空头等舱',
-            source: '灵感与日常',
+
             onTap: () {},
           ),
         ),
       ),
     );
     final image = tester.getRect(find.byKey(const ValueKey('image')));
-    expect(image.width, ShelfCard.width);
-    expect(image.height, closeTo(ShelfCard.width * 9 / 16, .5));
+    expect(image.width, ShelfCard.width - 12);
+    expect(image.height, closeTo((ShelfCard.width - 12) * 2 / 3, .5));
     expect(
       tester.getTopLeft(find.text('男女生视角体验阿联酋航空头等舱')).dy,
       greaterThanOrEqualTo(image.bottom),
@@ -92,14 +92,14 @@ void main() {
                   key: const ValueKey('short'),
                   image: const ColoredBox(color: Colors.grey),
                   title: '短标题',
-                  source: '灵感与日常',
+
                   onTap: () {},
                 ),
                 ShelfCard(
                   key: const ValueKey('long'),
                   image: const ColoredBox(color: Colors.grey),
                   title: '男女生视角体验阿联酋航空头等舱，从值机到落地的完整记录与细节',
-                  source: '灵感与日常',
+
                   onTap: () {},
                 ),
               ],

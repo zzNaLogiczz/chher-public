@@ -17,7 +17,7 @@ import 'package:chh_app/pages/settings_page.dart';
 import 'package:chh_app/widgets/app_shell.dart';
 import 'package:chh_app/ui/chrome_button.dart';
 import 'package:chh_app/widgets/lac_scaffold.dart';
-import 'package:chh_app/widgets/large_title_scaffold.dart';
+import 'package:chh_app/widgets/lacquer_tab_scaffold.dart';
 import 'package:chh_app/widgets/launch_splash.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -138,7 +138,7 @@ void main() {
     expect(controller.style, AppearanceStyle.cinnabar);
   });
 
-  testWidgets('薄暮下一级页走纸面骨架,消息分段切换不复现灰屏', (tester) async {
+  testWidgets('薄暮下一级页使用共用骨架,消息分段切换不复现灰屏', (tester) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -162,7 +162,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // 薄暮消息页:纸面大标题骨架,漆面骨架不在树上
+    // 薄暮消息页复用支持雾面配色的大标题与紧凑栏骨架
     await tester.tap(
       find.descendant(
         of: find.byType(AppBottomNavigation),
@@ -170,13 +170,13 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.byType(LargeTitleScaffold), findsOneWidget);
+    expect(find.byType(LacquerTabScaffold), findsOneWidget);
     expect(find.byType(LacScaffold), findsNothing);
 
     // 交替切分段(灰屏序列)在薄暮壳下同样安全
     for (var round = 0; round < 3; round++) {
       for (final segment in ['私信', '提醒']) {
-        await tester.tap(find.textContaining(segment));
+        await tester.tap(find.text(segment).hitTestable().first);
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 120));
         await tester.pump(const Duration(milliseconds: 300));
@@ -186,12 +186,11 @@ void main() {
     }
 
     // 滚动协调仍在:列表上滑,外层跟随收起
-    await tester.drag(find.byType(ListView).first, const Offset(0, -300));
+    final list = find.byType(CustomScrollView).hitTestable().first;
+    await tester.drag(list, const Offset(0, -300));
     await tester.pumpAndSettle();
-    final outer = tester
-        .state<NestedScrollViewState>(find.byType(NestedScrollView))
-        .outerController;
-    expect(outer.offset, greaterThan(0));
+    final controller = tester.widget<CustomScrollView>(list).controller!;
+    expect(controller.offset, greaterThan(0));
     expect(tester.takeException(), isNull);
   });
 
@@ -221,7 +220,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // 设置页内:朱砂选项带引导红点(薄暮没有)
-    expect(find.byType(DotBadge), findsOneWidget);
+    expect(find.byKey(DotBadge.surfaceKey), findsOneWidget);
 
     // 离开设置页(卸载页面)→ 消费引导
     await tester.pumpWidget(const SizedBox.shrink());
@@ -236,7 +235,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.byType(DotBadge), findsNothing);
+    expect(find.byKey(DotBadge.surfaceKey), findsNothing);
   });
 
   testWidgets('我的页设置行在引导未消费时带红点', (tester) async {

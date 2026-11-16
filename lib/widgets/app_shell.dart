@@ -59,10 +59,7 @@ class AppBottomNavigation extends StatelessWidget {
         AppType.sizeFootnote;
     final height = 68.0 + (scale - 1).clamp(0.0, 1.5) * 20;
     return DecoratedBox(
-      decoration: BoxDecoration(
-        color: t.surface,
-        border: Border(top: BorderSide(color: t.separator, width: .5)),
-      ),
+      decoration: BoxDecoration(color: t.surface),
       child: SafeArea(
         top: false,
         child: SizedBox(
@@ -98,7 +95,7 @@ class AppBottomNavigation extends StatelessWidget {
                             child: PressScale(
                               onTap: () => onNavigate(destinations[i]),
                               semanticLabel: destinations[i].label,
-                              scale: .94,
+                              scale: AppPressScale.control,
                               child: SizedBox(
                                 height: height,
                                 child: Column(

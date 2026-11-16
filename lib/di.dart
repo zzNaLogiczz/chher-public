@@ -14,6 +14,8 @@ import 'data/link_preview_repository.dart';
 import 'data/message_repository.dart';
 import 'data/portal_repository.dart';
 import 'data/post_repository.dart';
+import 'data/rating_repository.dart';
+import 'data/poll_repository.dart';
 import 'data/post_interaction_repository.dart';
 import 'data/user_block_index.dart';
 import 'data/space_repository.dart';
@@ -46,7 +48,17 @@ final PortalRepository portalRepo = PortalRepository(chhClient);
 final MessageRepository messageRepo = MessageRepository(chhClient);
 final SpaceRepository spaceRepo = SpaceRepository(chhClient);
 final UserGroupLevels userGroupLevels = UserGroupLevels(chhClient);
+final PollRepository pollRepo = PollRepository(
+  chhClient,
+  uid: () =>
+      chhSession.loggedIn ? int.tryParse(chhSession.badges.uid ?? '') : null,
+  sessionRevision: () => chhSession.identityRevision,
+);
 final PostRepository postRepo = PostRepository(chhClient);
+final RatingRepository ratingRepo = RatingRepository(
+  chhClient,
+  sessionRevision: () => chhSession.identityRevision,
+);
 final PostInteractionRepository postInteractionRepo = PostInteractionRepository(
   chhClient,
   loggedIn: () => chhSession.loggedIn,
@@ -86,6 +98,7 @@ void setupDependencies() {
   unawaited(_attachReadIndex());
   unawaited(_attachUserBlocks());
   unawaited(_attachGroupLevels());
+  pollStorageReady = _attachPollChoices();
   chhSession.addListener(_favoriteSessionChanged);
   _favoriteStorage = _attachFavoriteIndex();
   _favoriteSessionChanged();
@@ -163,6 +176,13 @@ Future<void> _attachUserBlocks() async {
   }
 }
 
+Future<void> pollStorageReady = Future<void>.value();
+
+Future<void> _attachPollChoices() async {
+  final dir = await AppPaths.instance.subdir('polls');
+  if (dir != null) await pollRepo.attach(File('${dir.path}/choices-v1.json'));
+}
+
 Future<void> _attachGroupLevels() async {
   final dir = await AppPaths.instance.subdir('groups');
   if (dir != null) await userGroupLevels.attach(dir);
@@ -181,6 +201,7 @@ class LifecycleFlusher with WidgetsBindingObserver {
       unawaited(threadReadIndex.flush());
       unawaited(userBlockIndex.flush());
       unawaited(favoriteIndex.flush());
+      unawaited(pollRepo.flush());
       unawaited(AppLog.flush());
     }
   }

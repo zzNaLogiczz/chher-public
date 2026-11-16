@@ -22,10 +22,14 @@ class ChhSession extends ChangeNotifier {
   Map<String, String> cookies = const {};
   int _epoch = 0;
   int _identityRevision = 0;
+  int _authenticationRevision = 0;
 
   /// Changes on logout, auth replacement or account change, even for the same UID.
   /// Draft keys still use the stable UID; only in-flight forms use this revision.
   int get identityRevision => _identityRevision;
+
+  /// New account-backed lists reset on auth changes, not late header hydration.
+  int get authenticationRevision => _authenticationRevision;
   bool _initialRefreshComplete = false;
 
   /// 首次 Cookie 恢复与后续显式登录使用不同的收藏同步时机。
@@ -116,6 +120,7 @@ class ChhSession extends ChangeNotifier {
         if (entry.key.endsWith(_authCookieSuffix)) entry.key: entry.value,
     };
     final identityChanged = !mapEquals(authOnly(map), authOnly(cookies));
+    if (hasAuth != loggedIn || identityChanged) _authenticationRevision++;
     if (identityChanged) {
       _identityRevision++;
       // A new auth cookie may belong to another user. Do not infer self-rating
@@ -212,6 +217,7 @@ class ChhSession extends ChangeNotifier {
       ?..sessionCookies = null
       ..jar.clear();
 
+    _authenticationRevision++;
     loggedIn = false;
     cookies = const {};
     badges = const HeaderBadges(notices: 0, messages: 0);

@@ -2,7 +2,7 @@
 library;
 
 import 'package:flutter/material.dart';
-import 'package:motor/motor.dart';
+import 'package:flutter/rendering.dart';
 import '../design/motion.dart';
 import '../design/tokens.dart';
 
@@ -24,7 +24,9 @@ class ActionFocusRing extends StatelessWidget {
       position: DecorationPosition.foreground,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(AppRadii.sm),
-        border: visible ? Border.all(color: t.accent, width: .5) : null,
+        border: visible
+            ? Border.all(color: t.accent, width: AppSpace.focusWidth)
+            : null,
       ),
       child: child,
     );
@@ -95,18 +97,20 @@ class ExpressivePageReveal extends StatefulWidget {
 
 class _ExpressivePageRevealState extends State<ExpressivePageReveal>
     with SingleTickerProviderStateMixin {
-  late final _progress = SingleMotionController(
-    motion: AppMotion.reveal,
+  late final _progress = AnimationController(
     vsync: this,
-    initialValue: widget.animateOnMount ? 0 : 1,
+    duration: AppMotion.fade,
+    value: widget.animateOnMount && widget.fade ? 0 : 1,
   );
   void _reveal() {
-    if (MediaQuery.disableAnimationsOf(context)) {
+    if (!widget.fade) {
       _progress.value = 1;
-    } else {
-      _progress.value = 0;
-      _progress.animateTo(1);
+      return;
     }
+    _progress.duration = MediaQuery.disableAnimationsOf(context)
+        ? AppMotion.reducedFade
+        : AppMotion.fade;
+    _progress.forward(from: 0);
   }
 
   @override
@@ -122,6 +126,7 @@ class _ExpressivePageRevealState extends State<ExpressivePageReveal>
   @override
   void didUpdateWidget(covariant ExpressivePageReveal oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (!widget.active) _progress.value = 1;
     if (widget.active &&
         (!oldWidget.active || oldWidget.revision != widget.revision)) {
       _reveal();
@@ -141,21 +146,124 @@ class _ExpressivePageRevealState extends State<ExpressivePageReveal>
   }
 
   @override
+  Widget build(BuildContext context) {
+    // Fade a single solid cover instead of alpha-compositing the whole list.
+    final background =
+        context.findAncestorWidgetOfExactType<Scaffold>()?.backgroundColor ??
+        Theme.of(context).scaffoldBackgroundColor;
+    return AnimatedBuilder(
+      animation: _progress,
+      child: widget.sliver
+          ? widget.child
+          : RepaintBoundary(child: widget.child),
+      builder: (_, child) {
+        final color = background.withValues(
+          alpha: widget.fade ? 1 - _progress.value : 0,
+        );
+        return widget.sliver
+            ? _SliverArrivalCover(color: color, child: child!)
+            : _ArrivalCover(color: color, child: child!);
+      },
+    );
+  }
+}
+
+/// Reveals already laid out content by clearing a flat paint cover, with no
+/// offscreen alpha layer for long replies or lists.
+class ContentFade extends StatelessWidget {
+  final Animation<double> opacity;
+  final Color background;
+  final Widget child;
+  const ContentFade({
+    super.key,
+    required this.opacity,
+    required this.background,
+    required this.child,
+  });
+
+  @override
   Widget build(BuildContext context) => AnimatedBuilder(
-    animation: _progress,
-    child: widget.sliver ? widget.child : RepaintBoundary(child: widget.child),
-    builder: (_, child) {
-      final value = _progress.value.clamp(0.0, 1.0);
-      if (widget.sliver) {
-        return SliverOpacity(opacity: widget.fade ? value : 1, sliver: child);
-      }
-      final translated = Transform.translate(
-        offset: Offset(0, (1 - value) * 8),
-        child: child,
-      );
-      return widget.fade
-          ? Opacity(opacity: value, child: translated)
-          : translated;
-    },
+    animation: opacity,
+    child: child,
+    builder: (_, child) => _ArrivalCover(
+      color: background.withValues(alpha: 1 - opacity.value.clamp(0.0, 1.0)),
+      child: child!,
+    ),
   );
+}
+
+class _ArrivalCover extends SingleChildRenderObjectWidget {
+  final Color color;
+  const _ArrivalCover({required this.color, required super.child});
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderArrivalCover(color);
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    _RenderArrivalCover renderObject,
+  ) {
+    renderObject.color = color;
+  }
+}
+
+class _RenderArrivalCover extends RenderProxyBox {
+  _RenderArrivalCover(this._color);
+  Color _color;
+  set color(Color value) {
+    if (_color == value) return;
+    _color = value;
+    markNeedsPaint();
+  }
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    super.paint(context, offset);
+    if (_color.a > 0) {
+      context.canvas.drawRect(offset & size, Paint()..color = _color);
+    }
+  }
+}
+
+class _SliverArrivalCover extends SingleChildRenderObjectWidget {
+  final Color color;
+  const _SliverArrivalCover({required this.color, required super.child});
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderSliverArrivalCover(color);
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    _RenderSliverArrivalCover renderObject,
+  ) {
+    renderObject.color = color;
+  }
+}
+
+class _RenderSliverArrivalCover extends RenderProxySliver {
+  _RenderSliverArrivalCover(this._color);
+  Color _color;
+  set color(Color value) {
+    if (_color == value) return;
+    _color = value;
+    markNeedsPaint();
+  }
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    super.paint(context, offset);
+    if (_color.a > 0 && geometry!.visible) {
+      final vertical = constraints.axis == Axis.vertical;
+      final origin =
+          offset +
+          (vertical
+              ? Offset(0, geometry!.paintOrigin)
+              : Offset(geometry!.paintOrigin, 0));
+      final size = vertical
+          ? Size(constraints.crossAxisExtent, geometry!.paintExtent)
+          : Size(geometry!.paintExtent, constraints.crossAxisExtent);
+      context.canvas.drawRect(origin & size, Paint()..color = _color);
+    }
+  }
 }

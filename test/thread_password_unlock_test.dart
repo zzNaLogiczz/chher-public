@@ -2,8 +2,7 @@ import 'package:chh_app/data/forum_repository.dart';
 import 'package:chh_app/models/models.dart';
 import 'package:chh_app/network/chh_client.dart';
 import 'package:chh_app/pages/thread_detail_page.dart';
-import 'package:chh_app/ui/app_button.dart';
-import 'package:chh_app/ui/segmented.dart';
+import 'package:chh_app/widgets/comment_mode_bar.dart';
 import 'package:chh_app/widgets/thread_comment_widgets.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -55,7 +54,7 @@ ThreadDetail data(bool unlocked) => ThreadDetail(
 );
 
 Future<void> enterPassword(WidgetTester tester, String password) async {
-  final input = find.widgetWithText(AppButton, '输入密码').first;
+  final input = find.text('输入密码').first;
   if (find.byType(Scrollable).evaluate().isNotEmpty) {
     await Scrollable.ensureVisible(tester.element(input), alignment: .3);
     await tester.pumpAndSettle();
@@ -97,7 +96,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(expand);
       await tester.pumpAndSettle();
-      final input = find.widgetWithText(AppButton, '输入密码');
+      final input = find.text('输入密码');
       await tester.scrollUntilVisible(
         input,
         -200,
@@ -115,16 +114,12 @@ void main() {
       expect(scroll.pixels, offset);
       expect(find.byKey(const ValueKey('post-22')), findsOneWidget);
       await tester.scrollUntilVisible(
-        find.byType(AppSegmented<ThreadViewMode>),
+        find.byType(CommentModeBar),
         -200,
         scrollable: find.byType(Scrollable).first,
       );
       expect(
-        tester
-            .widget<AppSegmented<ThreadViewMode>>(
-              find.byType(AppSegmented<ThreadViewMode>),
-            )
-            .value,
+        tester.widget<CommentModeBar>(find.byType(CommentModeBar)).mode,
         ThreadViewMode.threaded,
       );
       expect(reads, [
@@ -156,13 +151,13 @@ void main() {
         ),
       );
       await tester.scrollUntilVisible(
-        find.widgetWithText(AppButton, '输入密码'),
+        find.text('输入密码'),
         200,
         scrollable: find.byType(Scrollable).first,
       );
       await enterPassword(tester, 'wrong');
       expect(find.text('密码不正确'), findsOneWidget);
-      expect(find.text('本帖为密码帖，请输入密码'), findsOneWidget);
+      expect(find.text('这段内容需要密码'), findsOneWidget);
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
     },
@@ -215,7 +210,7 @@ void main() {
     await fixture.tapViewMode(tester, '原楼层');
     await tester.pumpAndSettle();
     expect(find.text('正文2'), findsOneWidget);
-    expect(find.text('本帖为密码帖，请输入密码'), findsNothing);
+    expect(find.text('这段内容需要密码'), findsNothing);
     expect(reads, [null, '1', '1']);
     expect(tester.takeException(), isNull);
   });
@@ -241,7 +236,7 @@ void main() {
     );
     await enterPassword(tester, 'correct');
     expect(find.text('解锁未完成，请重试'), findsOneWidget);
-    expect(find.text('本帖为密码帖，请输入密码'), findsOneWidget);
+    expect(find.text('这段内容需要密码'), findsOneWidget);
     await tester.pumpAndSettle();
   });
 

@@ -55,6 +55,7 @@ class _LoginPageState extends State<LoginPage> {
       _closing = true;
       _poll?.cancel();
       chhClient.clearCache();
+      unawaited(chhSession.ensureIdentity());
       Navigator.of(context).pop(true);
     } catch (_) {
       // A temporary cookie/platform error must not discard the source login page.

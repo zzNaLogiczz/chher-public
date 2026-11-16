@@ -26,6 +26,7 @@ class _Client extends ChhClient {
     Uri url, {
     bool refresh = false,
     bool fallback = true,
+    bool Function()? shouldContinue,
   }) async {
     requests++;
     urls.add(url);

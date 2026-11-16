@@ -193,6 +193,24 @@ void main() {
         scrollable: find.byType(Scrollable).first,
       );
       expect(find.text('暂时无法发表'), findsOneWidget);
+      final failure =
+          tester
+                  .widget<DecoratedBox>(
+                    find
+                        .ancestor(
+                          of: find.text('暂时无法发表'),
+                          matching: find.byWidgetPredicate(
+                            (widget) =>
+                                widget is DecoratedBox &&
+                                widget.decoration is ShapeDecoration,
+                          ),
+                        )
+                        .first,
+                  )
+                  .decoration
+              as ShapeDecoration;
+      final shape = failure.shape as RoundedSuperellipseBorder;
+      expect(shape.borderRadius.resolve(TextDirection.ltr).topLeft.x, 12);
     },
   );
 }

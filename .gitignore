@@ -107,3 +107,6 @@ DESIGN.md
 
 # B-frame design prototypes (83MB embedded samples) stay local-only.
 /design-prototypes/
+
+# Local manual performance probes; keep production and regression code public.
+/tool/diagnostics/

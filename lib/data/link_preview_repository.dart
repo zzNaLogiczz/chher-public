@@ -17,11 +17,21 @@ import 'portal_repository.dart';
 class LinkPreview {
   final String title;
   final DateTime? time;
+  final String? author;
+  final String? excerpt;
+  final String? coverUrl;
 
   /// 文章落到论坛帖时也是 true,卡片按帖子显示
   final bool isThread;
 
-  const LinkPreview({required this.title, this.time, required this.isThread});
+  const LinkPreview({
+    required this.title,
+    this.time,
+    this.author,
+    this.excerpt,
+    this.coverUrl,
+    required this.isThread,
+  });
 }
 
 class LinkPreviewRepository {
@@ -113,13 +123,20 @@ class LinkPreviewRepository {
         );
         return meta == null
             ? null
-            : LinkPreview(title: meta.title, time: meta.time, isThread: true);
+            : LinkPreview(
+                title: meta.title,
+                time: meta.time,
+                author: meta.author,
+                excerpt: meta.excerpt,
+                isThread: true,
+              );
       case ArticleLink(:final aid):
         return switch (await openArticle(aid)) {
           ArticleContent(:final detail) => LinkPreview(
             title: detail.title,
             time: ChhUrls.parseTime(detail.metaRaw ?? ''),
             isThread: false,
+            coverUrl: detail.content.whereType<ImageBlock>().firstOrNull?.url,
           ),
           // 落到论坛帖的文章只拿得到标题
           ThreadContent(:final title) => LinkPreview(

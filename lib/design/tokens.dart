@@ -7,6 +7,12 @@ library;
 
 import 'package:flutter/material.dart';
 
+abstract final class AppPressScale {
+  static const control = .96;
+  static const card = .97;
+  static const content = .985;
+}
+
 /// 界面风格:与明暗正交的第四象限。
 ///
 /// - cinnabar(朱砂):1.0.8 起的漆面设计,一级页用 LacScaffold。
@@ -198,7 +204,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
     required this.tintMo,
   });
 
-  /// 朱砂 · 浅色(1.0.8 定稿值)
+  /// 朱砂 / 浅色(1.0.8 定稿值)
   static const AppTokens cinnabarLight = AppTokens(
     style: AppearanceStyle.cinnabar,
     // 暖纸基底(v2 从冷灰换成暖调,色相与漆面同带)
@@ -254,7 +260,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
     tintMo: Color(0xFF615956),
   );
 
-  /// 朱砂 · 深色(1.0.8 定稿值)
+  /// 朱砂 / 深色(1.0.8 定稿值)
   static const AppTokens cinnabarDark = AppTokens(
     style: AppearanceStyle.cinnabar,
     bg: Color(0xFF0D0B0A),
@@ -313,7 +319,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
   static const AppTokens light = cinnabarLight;
   static const AppTokens dark = cinnabarDark;
 
-  /// 薄暮 · 浅色(1.0.7 基线 e112669 的原值)。
+  /// 薄暮 / 浅色(1.0.7 基线 e112669 的原值)。
   ///
   /// 前半段是 1.0.7 的纸面色板;漆面相关令牌(lac*/onLac*/chip* 等)
   /// 给纸面退化值——薄暮一级页不进 LacScaffold,这些值只在组件
@@ -373,7 +379,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
     tintMo: Color(0xFF8B8D98),
   );
 
-  /// 薄暮 · 深色(1.0.7 基线的深色组 + 同规则退化值)
+  /// 薄暮 / 深色(1.0.7 基线的深色组 + 同规则退化值)
   static const AppTokens mistyDark = AppTokens(
     style: AppearanceStyle.misty,
     bg: Color(0xFF0B0B0C),
@@ -437,18 +443,14 @@ class AppTokens extends ThemeExtension<AppTokens> {
   bool get isDark => bg.computeLuminance() < 0.3;
 
   /// 薄暮名片四柱的淡雅四色，明暗分别匹配定稿。
-  Color get mistyBlue => isDark
-      ? const Color(0xFF62AEF8)
-      : const Color(0xFF1A7AD4);
-  Color get mistyOrange => isDark
-      ? const Color(0xFFE88B50)
-      : const Color(0xFFD66A26);
-  Color get mistyGreen => isDark
-      ? const Color(0xFF48C085)
-      : const Color(0xFF2B8C5E);
-  Color get mistyViolet => isDark
-      ? const Color(0xFFA980D8)
-      : const Color(0xFF7E52AD);
+  Color get mistyBlue =>
+      isDark ? const Color(0xFF62AEF8) : const Color(0xFF1A7AD4);
+  Color get mistyOrange =>
+      isDark ? const Color(0xFFE88B50) : const Color(0xFFD66A26);
+  Color get mistyGreen =>
+      isDark ? const Color(0xFF48C085) : const Color(0xFF2B8C5E);
+  Color get mistyViolet =>
+      isDark ? const Color(0xFFA980D8) : const Color(0xFF7E52AD);
   Color get mistyTray => Color.lerp(
     const Color(0xFFF3F4F7),
     const Color(0xFF25262A),
@@ -539,18 +541,12 @@ class AppTokens extends ThemeExtension<AppTokens> {
 
   // ---- 层级阴影 ----
   //
-  // 0.5px 描边用 spreadRadius .5 / blurRadius 0 的阴影实现,
-  // 这样描边和投影在同一个 boxShadow 里,圆角形状无需额外 border。
+  // 定稿只保留柔和投影，不使用零模糊阴影模拟发丝描边。
 
   /// e1:浮动圆钮、胶囊、分段滑块、阅读工具栏。
   /// 朱砂用暖调影,薄暮用 1.0.7 的中性影。
   List<BoxShadow> get shadowE1 => style == AppearanceStyle.misty
       ? [
-          BoxShadow(
-            color: isDark ? const Color(0x1AFFFFFF) : const Color(0x14000000),
-            spreadRadius: .5,
-            blurRadius: 0,
-          ),
           BoxShadow(
             color: isDark ? const Color(0x80000000) : const Color(0x14000000),
             offset: const Offset(0, 2),
@@ -558,11 +554,6 @@ class AppTokens extends ThemeExtension<AppTokens> {
           ),
         ]
       : [
-          BoxShadow(
-            color: isDark ? const Color(0x17FFF0EB) : const Color(0x143C1E19),
-            spreadRadius: .5,
-            blurRadius: 0,
-          ),
           BoxShadow(
             color: isDark ? const Color(0x80000000) : const Color(0x143C1E19),
             offset: const Offset(0, 2),
@@ -574,11 +565,6 @@ class AppTokens extends ThemeExtension<AppTokens> {
   List<BoxShadow> get shadowE2 => style == AppearanceStyle.misty
       ? (isDark
             ? const [
-                BoxShadow(
-                  color: Color(0x14FFFFFF),
-                  spreadRadius: .5,
-                  blurRadius: 0,
-                ),
                 BoxShadow(
                   color: Color(0x99000000),
                   offset: Offset(0, 10),
@@ -599,7 +585,6 @@ class AppTokens extends ThemeExtension<AppTokens> {
               ])
       : isDark
       ? const [
-          BoxShadow(color: Color(0x12FFF0EB), spreadRadius: .5, blurRadius: 0),
           BoxShadow(
             color: Color(0x99000000),
             offset: Offset(0, 10),
@@ -806,6 +791,7 @@ abstract final class AppSpace {
   static const double rowInset = 16;
   static const double section = 28;
   static const double hairline = 0.5;
+  static const double focusWidth = 1.5;
 
   /// 纸面上浮盖住漆面的深度(接缝)
   static const double seam = 26;
@@ -864,4 +850,338 @@ abstract final class ThreadMetrics {
   static const headingSize = 20.0;
   static const pillRadius = 15.0;
   static const forumRadius = 13.0;
+}
+
+/// Standalone single-line bars and sheet options.
+abstract final class AppSizes {
+  static const singleLineHeight = 44.0;
+}
+
+/// Single-line navigation rows; read-only profile values keep their density.
+abstract final class AppRowTokens {
+  static const actionHeight = 52.0;
+  static const valueHeight = 48.0;
+}
+
+/// Profile statistics with its inset navigation row, polish final §4.
+abstract final class UserProfileTokens {
+  static const cardRadius = 22.0;
+  static const cardInset = 4.0;
+  static const rowRadius = 18.0;
+  static const statisticsHeight = 68.0;
+  static const threadsHeight = 56.0;
+}
+
+/// Settings final, 2026-11-14. Insets keep card and pressed surfaces concentric.
+abstract final class SettingsTokens {
+  static const cardRadius = 22.0;
+  static const cardInset = 4.0;
+  static const rowRadius = 18.0;
+  static const previewInset = 6.0;
+  static const previewRadius = 16.0;
+  static const previewHeight = 104.0;
+  static const previewGap = 12.0;
+  static const selectionWidth = 2.0;
+  static const radioSize = 20.0;
+  static const modeHeight = 44.0;
+  static const modeInset = 4.0;
+  static const modeThumbHeight = 36.0;
+  static const rowHeight = AppRowTokens.actionHeight;
+  static const logoutHeight = AppSizes.singleLineHeight;
+  static const iconSize = 24.0;
+  static const logoRadius = 7.0;
+  static const modeLabel = TextStyle(
+    fontSize: 13.5,
+    fontWeight: FontWeight.w500,
+    height: 1.4,
+  );
+  static const rowLabel = TextStyle(
+    fontSize: 16,
+    fontWeight: FontWeight.w500,
+    height: 1.4,
+  );
+  static const valueLabel = TextStyle(fontSize: 14.5, height: 1.4);
+  static const badgeLabel = TextStyle(
+    fontSize: 12.5,
+    fontWeight: FontWeight.w600,
+    height: 1.4,
+  );
+  static const confirmationTitle = TextStyle(
+    fontSize: 18,
+    fontWeight: FontWeight.w700,
+    height: 1.4,
+  );
+  static const confirmationButtonHeight = 52.0;
+  static Color modeThumb(AppTokens t) => !t.isDark
+      ? t.surface
+      : t.style == AppearanceStyle.misty
+      ? const Color(0xFF3A3A3D)
+      : const Color(0xFF3A3433);
+  static Color modeTrack(AppTokens t) => t.fill.withValues(
+    alpha: t.isDark
+        ? (t.style == AppearanceStyle.misty ? .18 : .16)
+        : (t.style == AppearanceStyle.misty ? .11 : .10),
+  );
+  static Color strongForeground(AppTokens t) => t.isDark ? t.bg : t.onAccent;
+  static List<BoxShadow> cardShadow(AppTokens t) => [
+    for (final shadow in t.shadowE1)
+      if (shadow.blurRadius > 0) shadow,
+  ];
+  static List<BoxShadow> thumbShadow(AppTokens t) => [
+    BoxShadow(
+      color: t.scrim.withValues(alpha: t.isDark ? .4 : .12),
+      offset: const Offset(0, 1),
+      blurRadius: 2,
+    ),
+  ];
+}
+
+/// 我的页定稿的身份与浮卡尺寸。
+abstract final class MeTokens {
+  static const identityInset = 16.0;
+  static const identityGap = 13.0;
+  static const identityTitleGap = 16.0;
+  static const identityAvatar = 56.0;
+  static const guestIcon = 26.0;
+  static const statsGap = 16.0;
+  static const statsHeight = 44.0;
+  static const labelGap = 2.0;
+  static const metadataGap = 6.0;
+  static const loginHeight = 32.0;
+  static const loginPadding = EdgeInsets.symmetric(horizontal: 16, vertical: 6);
+  static const actionTarget = 44.0;
+  static const groupRadius = 10.0;
+  static const groupInset = EdgeInsets.symmetric(horizontal: 7, vertical: 2);
+  static const colophonBottom = 28.0;
+  static const colophonClearance = 68.0;
+  static const identityName = TextStyle(
+    fontSize: 21,
+    fontWeight: FontWeight.w700,
+    fontVariations: [FontVariation('wght', 750)],
+    height: 27 / 21,
+    letterSpacing: -.3,
+  );
+  static const identityMeta = TextStyle(
+    fontSize: 12.5,
+    height: 1.4,
+    fontFeatures: [FontFeature.tabularFigures()],
+  );
+  static const groupLabel = TextStyle(
+    fontSize: 12,
+    fontWeight: FontWeight.w600,
+  );
+  static const homeLabel = TextStyle(
+    fontSize: 13.5,
+    fontWeight: FontWeight.w600,
+  );
+  static const loginLabel = TextStyle(
+    fontSize: 14,
+    fontWeight: FontWeight.w600,
+    height: 1.4,
+  );
+  static const statNumber = TextStyle(
+    fontSize: 20,
+    fontWeight: FontWeight.w700,
+    height: 1.2,
+    letterSpacing: -.2,
+    fontFeatures: [FontFeature.tabularFigures()],
+  );
+  static const statLabel = TextStyle(fontSize: 12, height: 1.2);
+  static const homeChevron = 12.0;
+  static const cardRadius = 22.0;
+  static const innerRadius = 18.0;
+  static const cardGap = 12.0;
+  static const entryIcon = 26.0;
+  static const entryLabel = 12.5;
+  static const toolIconBox = 24.0;
+  static const toolIcon = 21.0;
+  static const avatar = 62.0;
+  static const nameSize = 25.0;
+  static const compactAvatar = 28.0;
+  static const headerLead = 44.0;
+  static const headerTail = 34.0;
+  static List<BoxShadow> cardShadow(AppTokens t) => [
+    for (final shadow in t.shadowE1)
+      if (shadow.blurRadius > 0) shadow,
+  ];
+  static List<BoxShadow> floatingShadow(AppTokens t) => [
+    for (final shadow in t.shadowE2)
+      if (shadow.blurRadius > 0) shadow,
+  ];
+  static const overlap = 34.0;
+  static Color glass(AppTokens t) => t.style == AppearanceStyle.cinnabar
+      ? t.onLac.withValues(alpha: t.isDark ? .10 : .15)
+      : t.surface.withValues(alpha: t.isDark ? .08 : .72);
+}
+
+/// 本期精选封面定稿的静态图像与排版尺寸。
+abstract final class HomeCoverTokens {
+  static const titleSize = 24.0;
+  static const inset = 20.0;
+  static const portraitThreshold = .9;
+  static const portraitAlignment = Alignment(0, -.24);
+  static const parallaxFactor = .15;
+  static const parallaxLimit = 24.0;
+  static const blur = 28.0;
+  static const blurDecodeWidth = 128;
+  static const backdropBrightness = .68;
+  static const portraitFade = Duration(milliseconds: 600);
+}
+
+/// 精选定稿：同心卡片和固定封面比例。
+abstract final class HomeTokens {
+  static const rowInset = 14.0;
+  static List<BoxShadow> cardShadow(AppTokens t) =>
+      t.shadowE1.where((s) => s.blurRadius > 0).toList();
+  static List<BoxShadow> floatingShadow(AppTokens t) =>
+      t.shadowE2.where((s) => s.blurRadius > 0).toList();
+  static const inset = 16.0;
+  static const featureOverlap = 40.0;
+  static const cardRadius = 22.0;
+  static const cardPadding = 4.0;
+  static const rowRadius = 18.0;
+  static const shelfRadius = 22.0;
+  static const shelfImageRadius = 16.0;
+  static const shelfPadding = 6.0;
+  static const shelfWidth = 252.0;
+  static const shelfGap = 12.0;
+  static const shelfImageRatio = 3 / 2;
+  static const rowTitleSize = 16.0;
+  static const shelfTitleSize = 15.0;
+  static const newsDot = 6.0;
+  static double featureHeight(double width) =>
+      (width * 1.1).clamp(360.0, 480.0);
+}
+
+/// Shared tab chrome dimensions from the confirmed November prototypes.
+abstract final class TabChromeTokens {
+  // Compact large titles for the three misty tabs; the featured tab opts out.
+  static const mistyTop = 8.0;
+  static const mistyEyebrowGap = 2.0;
+  static const mistyContentGap = 20.0;
+  static const mistySegmentGap = 12.0;
+  static const mistyGlowHeight = 220.0;
+  static const mistyTitle = TextStyle(
+    fontSize: 34,
+    fontWeight: FontWeight.w700,
+    fontVariations: [FontVariation('wght', 750)],
+    height: 1.15,
+    letterSpacing: -.6,
+  );
+  static const mistyIdentityGap = 8.0;
+  static const mistyAvatar = 56.0;
+  static const mistyNameSize = 24.0;
+  static const mistyName = TextStyle(
+    fontSize: mistyNameSize,
+    fontWeight: FontWeight.w700,
+    fontVariations: [FontVariation('wght', 750)],
+    height: 1.15,
+    letterSpacing: -.3,
+  );
+  static const mistyEntriesGap = 18.0;
+  static const watermarkSize = 128.0;
+  static LinearGradient compactGradient(AppTokens t, double opacity) =>
+      LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          t.lacTop.withValues(alpha: opacity),
+          (t.isDark ? const Color(0xFF661A18) : const Color(0xFFB4252A))
+              .withValues(alpha: opacity),
+        ],
+      );
+  static List<RadialGradient> mistGradients(AppTokens t) {
+    final blue = t.isDark ? const Color(0xFF18213A) : const Color(0xFFE3EBF8);
+    final violet = t.isDark ? const Color(0xFF231B33) : const Color(0xFFEEE7F6);
+    return [
+      RadialGradient(
+        center: Alignment.topLeft,
+        radius: 1.0,
+        colors: [blue, blue.withValues(alpha: 0)],
+      ),
+      RadialGradient(
+        center: Alignment.topRight,
+        radius: .8,
+        colors: [violet, violet.withValues(alpha: 0)],
+      ),
+    ];
+  }
+
+  static const reverseRadius = 16.0;
+  static const seamOverlap = 34.0;
+  static const paperTopInset = 6.0;
+  static const headerTop = 16.0;
+  static const editorialTop = 52.0;
+  static const editorialBottom = 12.0;
+  static const headerBottom = 32.0;
+  static const pageInset = 20.0;
+  static const actionInset = 72.0;
+  static const actionSize = 44.0;
+  static const titleTravel = 28.0;
+  static const refreshHold = 70.0;
+  static const maxPull = 160.0;
+  static const pullResistance = 180.0;
+  static const refreshSize = 20.0;
+  static const refreshStroke = 2.0;
+}
+
+/// Forum directory final, 2026-11-15.
+abstract final class ForumDirectoryTokens {
+  static const paperTopInset = TabChromeTokens.paperTopInset;
+  static const sectionPadding = EdgeInsets.fromLTRB(34, 26, 34, 10);
+  static const markerSize = 36.0;
+  static const markerRadius = 12.0;
+  static const markerIconSize = 20.0;
+  static const markerLightTintAlpha = .13;
+  static const markerDarkTintAlpha = .30;
+  static const markerDarkIconBlend = .5;
+  static const dotSize = 5.0;
+  static const cardRadius = 22.0;
+  static const cardInset = 4.0;
+  static const rowRadius = 18.0;
+  static const rowGap = 13.0;
+  static const rowPadding = EdgeInsets.fromLTRB(12, 12, 14, 12);
+  static const heading = TextStyle(fontSize: 20, fontWeight: FontWeight.w700);
+  static const name = TextStyle(fontSize: 16, fontWeight: FontWeight.w600);
+  static const metadata = TextStyle(fontSize: 12.5, height: 1.4);
+  static const count = TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600);
+}
+
+/// Message list card geometry from the confirmed November design.
+abstract final class MessageListTokens {
+  static const stateMinHeight = 260.0;
+  static const labelHeight = 44.0;
+  static const cardRadius = 22.0;
+  static const inset = 16.0;
+  static const cardPadding = 4.0;
+  static const labelPadding = EdgeInsets.fromLTRB(34, 16, 34, 6);
+  static List<BoxShadow> cardShadow(AppTokens t) =>
+      t.shadowE1.where((s) => s.blurRadius > 0).toList();
+}
+
+/// Compact comment mode selector, polish final §3 (2026-11-16).
+abstract final class CommentModeTokens {
+  static const trackHeight = 32.0;
+  static const hitHeight = 44.0;
+  static const inset = 2.0;
+  static const thumbHeight = 28.0;
+  static const iconSize = 16.0;
+  static const labelGap = 5.0;
+  static const leading = 10.0;
+  static const trailing = 12.0;
+  static const minimumSegment = 36.0;
+  static const iconSegment = 40.0;
+  static const headingGap = 12.0;
+  static const labelReach = .6;
+  static const overscrollResistance = .3;
+  static const overscrollShrink = .35;
+  static const maxShrink = .14;
+  static const velocityLimit = 6.0;
+  static const projectionSeconds = .12;
+  static const iconPressScale = .9;
+  static const pendingOpacity = .45;
+  static const labelStyle = TextStyle(
+    fontSize: 13,
+    fontWeight: FontWeight.w600,
+  );
 }

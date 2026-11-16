@@ -45,7 +45,7 @@ Future<void> showReadingSettingsSheet(BuildContext context) {
                       ),
                     ),
                     Text(
-                      '$fontLabel · ${metrics.bodySize.toInt()}',
+                      '$fontLabel ${metrics.bodySize.toInt()}',
                       style: AppType.footnote.copyWith(color: t.text2),
                     ),
                   ],
@@ -115,7 +115,7 @@ Future<void> showReadingSettingsSheet(BuildContext context) {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  '帖子页和文章页通用 · 会叠加系统字体大小',
+                  '帖子和文章通用，随系统字号调整',
                   textAlign: TextAlign.center,
                   style: AppType.footnote.copyWith(color: t.text3),
                 ),

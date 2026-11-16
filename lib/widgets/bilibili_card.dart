@@ -11,12 +11,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
 import '../core/link_target.dart';
+import '../design/content_video_tokens.dart';
 import '../design/icons.dart';
+import '../design/motion.dart';
 import '../design/shapes.dart';
 import '../design/tokens.dart';
-import '../design/typography.dart';
 import '../models/models.dart';
-import '../ui/app_button.dart';
 import '../ui/press.dart';
 import 'link_opener.dart';
 
@@ -32,11 +32,13 @@ typedef BilibiliPlayerBuilder =
 class BilibiliCard extends StatefulWidget {
   final BilibiliBlock block;
   final BilibiliPlayerBuilder playerBuilder;
+  final bool compact;
 
   const BilibiliCard({
     super.key,
     required this.block,
     this.playerBuilder = _webPlayer,
+    this.compact = false,
   });
 
   /// 页面上正在播放的那张卡片
@@ -48,12 +50,20 @@ class BilibiliCard extends StatefulWidget {
 
 enum _Phase { idle, loading, playing, failed }
 
-class _BilibiliCardState extends State<BilibiliCard> {
-  /// 超过这个时间播放器还没加载完就算失败,给出浏览器入口
+class _BilibiliCardState extends State<BilibiliCard>
+    with TickerProviderStateMixin {
   static const _loadTimeout = Duration(seconds: 15);
 
   var _phase = _Phase.idle;
   Timer? _timeout;
+  int _generation = 0;
+  late final _spring = AnimationController(vsync: this);
+  late final _fade = AnimationController(
+    vsync: this,
+    duration: AppMotion.fade,
+    animationBehavior: AnimationBehavior.preserve,
+  );
+  bool _reduced = false;
 
   BilibiliVideo get _video => widget.block.video;
 
@@ -64,123 +74,284 @@ class _BilibiliCardState extends State<BilibiliCard> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _reduced = MediaQuery.disableAnimationsOf(context);
+    _fade.duration = _reduced ? AppMotion.reducedFade : AppMotion.fade;
+    if (_reduced) _spring.value = 1;
+  }
+
+  @override
+  void didUpdateWidget(covariant BilibiliCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.block.video.key != _video.key) _reset();
+  }
+
+  @override
   void dispose() {
     _timeout?.cancel();
     BilibiliCard._active.removeListener(_onActiveChanged);
     if (BilibiliCard._active.value == this) BilibiliCard._active.value = null;
+    _spring.dispose();
+    _fade.dispose();
     super.dispose();
   }
 
-  /// 别的卡片开始播放时,自己恢复成卡片并销毁播放器
+  void _reset() {
+    _generation++;
+    _timeout?.cancel();
+    _spring.stop();
+    _fade.stop();
+    _phase = _Phase.idle;
+  }
+
+  /// 别的卡片开始播放时销毁播放器，迟到的回调不能改写下一次播放。
   void _onActiveChanged() {
     if (BilibiliCard._active.value == this || _phase == _Phase.idle) return;
-    _timeout?.cancel();
-    setState(() => _phase = _Phase.idle);
+    setState(_reset);
   }
 
   void _play() {
+    if (_phase != _Phase.idle) return;
     BilibiliCard._active.value = this;
+    final generation = ++_generation;
     _timeout?.cancel();
-    _timeout = Timer(_loadTimeout, _fail);
+    _timeout = Timer(_loadTimeout, () => _fail(generation));
     setState(() => _phase = _Phase.loading);
+    _animate();
   }
 
-  void _ready() {
-    if (!mounted || _phase != _Phase.loading) return;
+  void _animate() {
+    _spring.value = 0;
+    AppMotion.settle(
+      _spring,
+      target: 1,
+      motion: _phase == _Phase.loading ? AppMotion.tap : AppMotion.reveal,
+      reduced: _reduced,
+    );
+    _fade.forward(from: 0);
+  }
+
+  void _ready(int generation) {
+    if (!mounted || generation != _generation || _phase != _Phase.loading) {
+      return;
+    }
     _timeout?.cancel();
+    _spring.stop();
+    _fade.stop();
     setState(() => _phase = _Phase.playing);
   }
 
-  void _fail() {
-    if (!mounted || _phase == _Phase.idle) return;
+  void _fail(int generation) {
+    if (!mounted ||
+        generation != _generation ||
+        (_phase != _Phase.loading && _phase != _Phase.playing)) {
+      return;
+    }
     _timeout?.cancel();
     setState(() => _phase = _Phase.failed);
+    _animate();
   }
 
   @override
   Widget build(BuildContext context) {
-    final t = AppTokens.dark;
+    final generation = _generation;
     final showPlayer = _phase == _Phase.loading || _phase == _Phase.playing;
     return AspectRatio(
-      aspectRatio: 16 / 9,
+      aspectRatio: ContentVideoTokens.aspectRatio,
       child: AppClip(
-        radius: AppRadii.sm,
-        child: ColoredBox(
-          color: t.surface,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              if (showPlayer)
-                widget.playerBuilder(context, _video.playerUrl, _ready, _fail),
-              if (_phase == _Phase.loading)
-                Center(
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2.5,
-                    color: t.text,
-                  ),
-                ),
-              if (_phase == _Phase.idle) ..._idle(t),
-              if (_phase == _Phase.failed) _failed(context, t),
+        radius: widget.compact
+            ? ContentVideoTokens.compactRadius
+            : ContentVideoTokens.radius,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            if (showPlayer)
+              widget.playerBuilder(
+                context,
+                _video.playerUrl,
+                () => _ready(generation),
+                () => _fail(generation),
+              ),
+            if (_phase != _Phase.playing) ...[
+              const _VideoSurface(),
+              if (_phase != _Phase.failed) Center(child: _playControl()),
+              Positioned(left: 14, right: 14, bottom: 11, child: _platform()),
+              if (_phase == _Phase.failed) _failed(context),
             ],
-          ),
+          ],
         ),
       ),
     );
   }
 
-  List<Widget> _idle(AppTokens t) => [
-    Center(
-      child: PressScale(
-        onTap: _play,
-        semanticLabel: '播放视频',
-        child: Container(
-          width: 56,
-          height: 56,
-          decoration: ShapeDecoration(
-            color: AppTokens.light.glass,
-            shape: const CircleBorder(),
-          ),
-          child: Icon(AppIcons.play, size: 24, color: AppTokens.light.text),
+  Widget _playControl() => PressScale(
+    onTap: _phase == _Phase.idle ? _play : null,
+    semanticLabel: _phase == _Phase.loading ? '正在加载视频' : '播放视频',
+    child: Container(
+      key: const ValueKey('bilibili-play-circle'),
+      width: ContentVideoTokens.playSize,
+      height: ContentVideoTokens.playSize,
+      decoration: ShapeDecoration(
+        color: ContentVideoTokens.playFill,
+        shape: const CircleBorder(),
+      ),
+      child: AnimatedBuilder(
+        animation: Listenable.merge([_spring, _fade]),
+        builder: (context, _) => Stack(
+          alignment: Alignment.center,
+          children: [
+            Transform.scale(
+              key: const ValueKey('bilibili-play-triangle'),
+              scale: _phase == _Phase.idle ? 1 : 1 - _spring.value,
+              child: const Padding(
+                padding: EdgeInsets.only(left: 3),
+                child: Icon(
+                  AppIcons.play,
+                  size: ContentVideoTokens.playIconSize,
+                  color: ContentVideoTokens.foreground,
+                ),
+              ),
+            ),
+            if (_phase == _Phase.loading)
+              FadeTransition(
+                opacity: _fade,
+                child: SizedBox.square(
+                  dimension: ContentVideoTokens.spinnerSize,
+                  child: CircularProgressIndicator(
+                    // 减少动态效果时保留静态进度标记，不运行持续 Ticker。
+                    value: _reduced ? .65 : null,
+                    strokeWidth: ContentVideoTokens.spinnerStroke,
+                    color: ContentVideoTokens.foreground,
+                    semanticsLabel: '正在加载视频',
+                  ),
+                ),
+              ),
+          ],
         ),
       ),
     ),
-    Positioned(left: 14, bottom: 12, child: _platform(t)),
-  ];
+  );
 
-  Widget _failed(BuildContext context, AppTokens t) => Positioned(
-    left: 14,
-    right: 14,
-    bottom: 12,
-    child: Row(
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _platform(t),
-              Text(
-                '暂时无法播放',
-                style: AppType.subhead.copyWith(
-                  fontWeight: FontWeight.w600,
-                  color: t.text,
+  Widget _failed(BuildContext context) => Positioned.fill(
+    bottom:
+        19 +
+        MediaQuery.textScalerOf(
+              context,
+            ).scale(ContentVideoTokens.identifierStyle.fontSize!) *
+            ContentVideoTokens.identifierStyle.height!,
+    child: Center(
+      child: SingleChildScrollView(
+        child: AnimatedBuilder(
+          animation: Listenable.merge([_spring, _fade]),
+          builder: (context, _) {
+            final opacity = _fade.value;
+            return Transform.translate(
+              key: const ValueKey('bilibili-failure-motion'),
+              offset: Offset(
+                0,
+                ContentVideoTokens.failureTravel * (1 - _spring.value),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      '暂时无法播放',
+                      style: ContentVideoTokens.failureStyle.copyWith(
+                        color: ContentVideoTokens.foreground.withValues(
+                          alpha: opacity,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    PressScale(
+                      onTap: () => openExternal(context, _video.pageUrl),
+                      semanticLabel: '在浏览器打开',
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(minHeight: 44),
+                        child: Center(
+                          widthFactor: 1,
+                          heightFactor: 1,
+                          child: DecoratedBox(
+                            decoration: ShapeDecoration(
+                              color: ContentVideoTokens.foreground.withValues(
+                                alpha: opacity,
+                              ),
+                              shape: appShape(AppRadii.full),
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 8,
+                              ),
+                              child: Text(
+                                '在浏览器打开',
+                                style: ContentVideoTokens.browserStyle.copyWith(
+                                  color: ContentVideoTokens.browserText
+                                      .withValues(alpha: opacity),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            ],
-          ),
+            );
+          },
         ),
-        AppButton(
-          label: '在浏览器打开',
-          small: true,
-          onPressed: () => openExternal(context, _video.pageUrl),
-        ),
-      ],
+      ),
     ),
   );
 
-  Widget _platform(AppTokens t) =>
-      Text('哔哩哔哩', style: AppType.caption.copyWith(color: t.text2));
+  Widget _platform() => Row(
+    children: [
+      Icon(
+        ContentVideoTokens.television,
+        size: 18,
+        color: ContentVideoTokens.label,
+      ),
+      const SizedBox(width: 8),
+      Flexible(
+        child: Text(
+          '哔哩哔哩',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: ContentVideoTokens.platformStyle,
+        ),
+      ),
+      if (_video.bvid != null || _video.aid != null) ...[
+        const SizedBox(width: 8),
+        Flexible(
+          child: Text(
+            _video.bvid ?? 'av${_video.aid}',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: ContentVideoTokens.identifierStyle,
+          ),
+        ),
+      ],
+    ],
+  );
+}
+
+class _VideoSurface extends StatelessWidget {
+  const _VideoSurface();
+
+  @override
+  Widget build(BuildContext context) => const DecoratedBox(
+    decoration: BoxDecoration(gradient: ContentVideoTokens.screen),
+    child: DecoratedBox(
+      decoration: BoxDecoration(gradient: ContentVideoTokens.blueGlow),
+      child: DecoratedBox(
+        decoration: BoxDecoration(gradient: ContentVideoTokens.pinkGlow),
+      ),
+    ),
+  );
 }
 
 /// 等 video 元素出现后开始播放;最多等 10 秒,播放被拒绝时保持播放器原样

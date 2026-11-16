@@ -119,7 +119,7 @@ void main() {
     expect(find.text('电脑硬件与装机讨论'), findsOneWidget);
     expect(tester.widget<Text>(find.text('电脑硬件与装机讨论')).maxLines, isNull);
     expect(
-      tester.getSize(find.byType(PickerButton<int>)).height,
+      tester.getSize(find.byKey(const ValueKey('forum-directory-jump'))).height,
       greaterThanOrEqualTo(44),
     );
     expect(tester.takeException(), isNull);
@@ -150,14 +150,19 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('勋章和活动的会场'), findsOneWidget);
     // 分区导航收进选择面板,面板里用可区分的短名
-    await tester.tap(find.text('全部分区'));
+    await tester.drag(
+      find.byType(CustomScrollView).first,
+      const Offset(0, -160),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('forum-directory-jump')));
     await tester.pumpAndSettle();
     Finder option(int i, String label) => find.descendant(
       of: find.byKey(ValueKey('picker-option-$i')),
       matching: find.text(label),
     );
-    expect(option(1, '互动区'), findsOneWidget);
-    expect(option(2, '分享区'), findsOneWidget);
+    expect(option(0, '互动区'), findsOneWidget);
+    expect(option(1, '分享区'), findsOneWidget);
     await tester.tap(find.byTooltip('关闭'));
     await tester.pumpAndSettle();
     expect(find.byType(SliverGrid), findsNothing);
@@ -165,51 +170,60 @@ void main() {
     expect(find.text('iGame Mini 桌搭小钢炮装机赛'), findsOneWidget);
     expect(find.text('产品开箱'), findsOneWidget);
     expect(
-      tester.widget<Text>(find.byKey(const ValueKey('forum-count-1'))).data,
-      '15',
+      tester
+          .widget<Text>(find.byKey(const ValueKey('forum-count-1')))
+          .textSpan!
+          .toPlainText(),
+      '15 主题',
     );
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('forum directory filters by category without reloading', (
-    tester,
-  ) async {
-    await _phone(tester);
-    var loads = 0;
-    await tester.pumpWidget(
-      _app(
-        Scaffold(
-          body: ForumIndexView(
-            loadForums: (_) async {
-              loads++;
-              return const [
-                ForumCategory(
-                  name: '硬件',
-                  forums: [Forum(fid: 1, name: '电脑讨论', threadCount: 7)],
-                ),
-                ForumCategory(
-                  name: '生活',
-                  forums: [Forum(fid: 2, name: '摄影讨论')],
-                ),
-              ];
-            },
+  testWidgets(
+    'forum directory jumps to category without filtering or reloading',
+    (tester) async {
+      await _phone(tester);
+      var loads = 0;
+      await tester.pumpWidget(
+        _app(
+          Scaffold(
+            body: ForumIndexView(
+              loadForums: (_) async {
+                loads++;
+                return const [
+                  ForumCategory(
+                    name: '硬件',
+                    forums: [Forum(fid: 1, name: '电脑讨论', threadCount: 7)],
+                  ),
+                  ForumCategory(
+                    name: '生活',
+                    forums: [Forum(fid: 2, name: '摄影讨论')],
+                  ),
+                ];
+              },
+            ),
           ),
         ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    expect(find.text('电脑讨论'), findsOneWidget);
-    expect(find.text('摄影讨论'), findsOneWidget);
-    await tester.tap(find.text('全部分区'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('硬件').last);
-    await tester.pump(const Duration(milliseconds: 200));
-    await tester.pumpAndSettle();
-    expect(find.text('电脑讨论'), findsOneWidget);
-    expect(find.text('摄影讨论'), findsNothing);
-    expect(loads, 1);
-    expect(tester.takeException(), isNull);
-  });
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('电脑讨论'), findsOneWidget);
+      expect(find.text('摄影讨论'), findsOneWidget);
+      await tester.drag(
+        find.byType(CustomScrollView).first,
+        const Offset(0, -160),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('forum-directory-jump')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('硬件').last);
+      await tester.pump(const Duration(milliseconds: 200));
+      await tester.pumpAndSettle();
+      expect(find.text('电脑讨论'), findsOneWidget);
+      expect(find.text('摄影讨论'), findsOneWidget);
+      expect(loads, 1);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets(
     'clearing an in-flight search prevents its response restoring results',

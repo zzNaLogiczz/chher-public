@@ -4,7 +4,6 @@ import 'package:chh_app/models/article_discussion.dart';
 import 'package:chh_app/models/models.dart';
 import 'package:chh_app/pages/article_discussion_page.dart';
 import 'package:chh_app/parser/portal_parser.dart';
-import 'package:chh_app/ui/segmented.dart';
 import 'package:chh_app/widgets/article_discussion_widgets.dart';
 import 'package:chh_app/widgets/comment_mode_bar.dart';
 import 'package:flutter/material.dart';
@@ -130,9 +129,8 @@ void main() {
 
     Future<void> pick(WidgetTester tester, String label) async {
       await tester.tap(
-        find.descendant(
-          of: find.byType(AppSegmented<CommentViewMode>),
-          matching: find.text(label),
+        find.byKey(
+          ValueKey('comment-mode-${['评论', '原楼层', '只看作者'].indexOf(label)}'),
         ),
       );
       await tester.pumpAndSettle();

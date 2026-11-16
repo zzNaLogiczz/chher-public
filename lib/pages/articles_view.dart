@@ -326,9 +326,7 @@ class _FeaturedArticle extends StatelessWidget {
           clipBehavior: Clip.antiAlias,
           decoration: ShapeDecoration(
             color: t.surface,
-            shape: appShape(
-              AppRadii.lg,
-            ).copyWith(side: BorderSide(color: t.separator, width: .5)),
+            shape: appShape(AppRadii.lg),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -468,7 +466,7 @@ class _ArticleRow extends StatelessWidget {
             ),
           ),
         ),
-        Divider(height: .5, thickness: .5, color: t.separator),
+        const SizedBox(height: 8),
       ],
     );
   }

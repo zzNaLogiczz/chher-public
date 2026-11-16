@@ -6,10 +6,11 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import 'design/motion.dart';
+import 'design/theme_reveal.dart';
 import 'design/theme.dart';
 import 'design/system_ui.dart';
 import 'design/reading.dart';
+import 'design/scroll_behavior.dart';
 import 'di.dart';
 import 'pages/favorites_page.dart';
 import 'pages/home_page.dart';
@@ -31,14 +32,17 @@ class ChhApp extends StatelessWidget {
         builder: (context, _) => MaterialApp(
           title: 'Chher',
           debugShowCheckedModeBanner: false,
+          scrollBehavior: const AppScrollBehavior(),
           theme: buildAppTheme(Brightness.light, appearance.style),
           darkTheme: buildAppTheme(Brightness.dark, appearance.style),
           themeMode: appearance.mode.themeMode,
-          themeAnimationDuration: AppMotion.revealDuration,
-          themeAnimationCurve: AppMotion.revealCurve,
-          builder: (context, child) => AnnotatedRegion<SystemUiOverlayStyle>(
-            value: AppSystemUi.forBrightness(Theme.of(context).brightness),
-            child: child!,
+          themeAnimationDuration: Duration.zero,
+          builder: (context, child) => ThemeReveal(
+            appearance: appearance,
+            child: AnnotatedRegion<SystemUiOverlayStyle>(
+              value: AppSystemUi.forBrightness(Theme.of(context).brightness),
+              child: child!,
+            ),
           ),
           home: const HomePage(),
           routes: {

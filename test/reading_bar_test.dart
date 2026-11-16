@@ -169,7 +169,7 @@ void main() {
     expect(tester.widget<Text>(find.text('写评论…')).maxLines, 1);
   });
 
-  testWidgets('quote block draws a leading rule, not a filled box', (
+  testWidgets('quote block uses a rounded neutral fill without a rule', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -181,42 +181,39 @@ void main() {
         matching: find.byType(DecoratedBox),
       ),
     );
-    final filled = boxes.where((b) {
-      final d = b.decoration;
-      return d is BoxDecoration && d.color != null && d.color!.a > 0;
-    });
-    expect(filled, isEmpty);
-    final rule = boxes.firstWhere((b) {
-      final d = b.decoration;
-      return d is BoxDecoration && d.border is Border;
-    });
-    final left = ((rule.decoration as BoxDecoration).border! as Border).left;
-    expect(left.width, 3);
-    expect(left.color, AppTokens.light.fill2);
+    final quote = boxes
+        .map((b) => b.decoration)
+        .whereType<BoxDecoration>()
+        .first;
+    expect(quote.color, AppTokens.light.fill);
+    expect(quote.borderRadius, BorderRadius.circular(16));
+    expect(quote.border, isNull);
     expect(find.text('测试回复者甲'), findsOneWidget);
+    expect(find.text('展开'), findsNothing);
   });
 
-  testWidgets('long quotes collapse to two lines and expand on tap', (
+  testWidgets('long quotes expose four lines and expand on tap', (
     tester,
   ) async {
     await tester.pumpWidget(
       app(
         const QuoteView(
           author: '测试回复者甲',
-          text:
-              '很长很长的引用内容很长很长的引用内容很长很长的引用内容很长很长的引用内容很长很长的引用内容很长很长的引用内容很长很长的引用内容'
-              '很长很长的引用内容很长很长的引用内容很长很长的引用内容很长很长的引用内容很长很长的引用内容很长很长的引用内容很长很长的引用内容'
-              '很长很长的引用内容很长很长的引用内容很长很长的引用内容很长很长的引用内容很长很长的引用内容很长很长的引用内容很长很长的引用内容',
+          text: '很长很长第一行\n很长很长第二行\n很长很长第三行\n很长很长第四行\n很长很长第五行\n很长很长第六行',
         ),
       ),
     );
     Text body() => tester.widget<Text>(find.textContaining('很长很长'));
-    expect(body().maxLines, 2);
-    expect(find.text('展开引用'), findsOneWidget);
-    await tester.tap(find.byType(QuoteView));
+    final collapsed = tester.getSize(find.byType(QuoteView)).height;
+    expect(find.text('展开'), findsOneWidget);
+    await tester.tap(find.text('展开'));
     await tester.pumpAndSettle();
     expect(body().maxLines, isNull);
-    expect(find.text('收起引用'), findsOneWidget);
+    expect(find.text('收起'), findsOneWidget);
+    expect(
+      tester.getSize(find.byType(QuoteView)).height,
+      greaterThan(collapsed),
+    );
   });
 }
 
@@ -290,13 +287,13 @@ void postCardTests() {
       postApp(PostCard(post: reply, isOpening: false, onReply: () {})),
     );
     expect(find.text('#3'), findsOneWidget);
-    final action = tester.widget<Text>(find.text('回复 #3'));
-    expect(action.style!.color, AppTokens.light.text3);
+    final action = tester.widget<Text>(find.text('回复'));
+    expect(action.style!.color, AppTokens.light.text2);
     // 回复不再是灰色胶囊:动作周围没有填充底色的 DecoratedBox
     final filled = tester
         .widgetList<DecoratedBox>(
           find.ancestor(
-            of: find.text('回复 #3'),
+            of: find.text('回复'),
             matching: find.byType(DecoratedBox),
           ),
         )

@@ -10,7 +10,7 @@ import '../design/typography.dart';
 import 'chrome_button.dart';
 import 'press.dart';
 
-/// 白色分组面:左右外边距 16,行间 0.5px 分隔线从文字起点开始
+/// 分组面：左右外边距 16，行间只用留白。
 class GroupedSection extends StatelessWidget {
   final String? header;
   final String? headerTrailing;
@@ -32,27 +32,6 @@ class GroupedSection extends StatelessWidget {
       color: t.text3,
       fontWeight: FontWeight.w600,
     );
-    final rows = <Widget>[];
-    for (var i = 0; i < children.length; i++) {
-      rows.add(children[i]);
-      if (i < children.length - 1) {
-        final child = children[i];
-        rows.add(
-          Padding(
-            padding: EdgeInsets.only(
-              left: child is GroupedRow
-                  ? child.separatorInset
-                  : AppSpace.rowInset,
-            ),
-            child: Divider(
-              height: AppSpace.hairline,
-              thickness: AppSpace.hairline,
-              color: t.separator.withValues(alpha: .42),
-            ),
-          ),
-        );
-      }
-    }
     return Padding(
       padding: const EdgeInsets.only(top: 20),
       child: Column(
@@ -79,19 +58,34 @@ class GroupedSection extends StatelessWidget {
             padding: const EdgeInsets.symmetric(
               horizontal: AppSpace.groupInset,
             ),
-            child: DecoratedBox(
-              decoration: ShapeDecoration(
-                color: t.surface,
-                shape: appShape(AppRadii.md),
-              ),
-              child: AppClip(
-                radius: AppRadii.md,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  mainAxisSize: MainAxisSize.min,
-                  children: rows,
-                ),
-              ),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final single =
+                    children.length == 1 &&
+                    _fitsSingleRow(
+                      context,
+                      children.single,
+                      constraints.maxWidth,
+                    );
+                final radius = single ? AppRadii.full : AppRadii.md;
+                return DecoratedBox(
+                  decoration: ShapeDecoration(
+                    color: t.surface,
+                    shape: appShape(radius),
+                  ),
+                  child: AppClip(
+                    radius: radius,
+                    child: _GroupedSingleRow(
+                      single: single,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        mainAxisSize: MainAxisSize.min,
+                        children: children,
+                      ),
+                    ),
+                  ),
+                );
+              },
             ),
           ),
           if (footer != null)
@@ -111,6 +105,76 @@ class GroupedSection extends StatelessWidget {
       ),
     );
   }
+}
+
+// Only known one-line rows qualify. Custom children and subtitle rows stay cards.
+bool _fitsSingleRow(BuildContext context, Widget child, double width) {
+  TextStyle resolved(TextStyle style) {
+    final inherited = DefaultTextStyle.of(context).style.merge(style);
+    return MediaQuery.boldTextOf(context)
+        ? inherited.merge(const TextStyle(fontWeight: FontWeight.bold))
+        : inherited;
+  }
+
+  bool fits(String text, TextStyle style, double available) {
+    if (available <= 0) return false;
+    final painter = TextPainter(
+      text: TextSpan(text: text, style: resolved(style)),
+      textDirection: Directionality.of(context),
+      textScaler: MediaQuery.textScalerOf(context),
+      locale: Localizations.maybeLocaleOf(context),
+      maxLines: 1,
+    )..layout(maxWidth: available);
+    final result =
+        !painter.didExceedMaxLines &&
+        painter.height <= AppSizes.singleLineHeight;
+    painter.dispose();
+    return result;
+  }
+
+  if (child is GroupedDestructiveRow) {
+    return fits(child.label, AppType.callout, width);
+  }
+  if (child is! GroupedRow || child.subtitle != null || child.leading != null) {
+    return false;
+  }
+  final contentWidth = width - AppSpace.rowInset - 12;
+  final leadingWidth = child.icon == null ? 0 : IconTile.size + 12;
+  final trailingWidth =
+      (child.dot ? 8 + DotBadge.size : 0) +
+      ((child.chevron ?? child.onTap != null) ? 19 : 0);
+  if (child.value == null) {
+    return fits(
+      child.title,
+      AppType.callout,
+      contentWidth - leadingWidth - trailingWidth,
+    );
+  }
+  final title = TextPainter(
+    text: TextSpan(text: child.title, style: resolved(AppType.callout)),
+    textDirection: Directionality.of(context),
+    textScaler: MediaQuery.textScalerOf(context),
+    locale: Localizations.maybeLocaleOf(context),
+  )..layout(maxWidth: contentWidth * .6);
+  final titleWidth = title.width;
+  title.dispose();
+  return fits(child.title, AppType.callout, contentWidth * .6) &&
+      fits(
+        child.value!,
+        AppType.subhead,
+        contentWidth - leadingWidth - titleWidth - 12 - trailingWidth,
+      );
+}
+
+class _GroupedSingleRow extends InheritedWidget {
+  final bool single;
+  const _GroupedSingleRow({required this.single, required super.child});
+  static bool of(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<_GroupedSingleRow>()?.single ??
+      false;
+  @override
+  bool updateShouldNotify(_GroupedSingleRow oldWidget) =>
+      single != oldWidget.single;
 }
 
 /// 分组里的一行。没有 onTap 时是只读行:无箭头、无按压反馈。
@@ -150,6 +214,7 @@ class GroupedRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
+    final single = _GroupedSingleRow.of(context);
     final lead = icon ?? leading;
     final titleColumn = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -175,16 +240,28 @@ class GroupedRow extends StatelessWidget {
       ],
     );
     final chevronIcon = [
-      if (dot) ...[const SizedBox(width: 8), DotBadge(visible: dot)],
+      if (dot) const SizedBox(width: 8),
+      DotBadge(visible: dot),
       if (chevron ?? onTap != null) ...[
         const SizedBox(width: 6),
         Icon(AppIcons.forward, size: 13, color: t.text3),
       ],
     ];
     final content = ConstrainedBox(
-      constraints: const BoxConstraints(minHeight: 48),
+      constraints: BoxConstraints(
+        minHeight: single
+            ? AppSizes.singleLineHeight
+            : onTap != null && lead != null && (chevron ?? true)
+            ? AppRowTokens.actionHeight
+            : AppRowTokens.valueHeight,
+      ),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(AppSpace.rowInset, 10, 12, 10),
+        padding: EdgeInsets.fromLTRB(
+          AppSpace.rowInset,
+          single ? 0 : 10,
+          12,
+          single ? 0 : 10,
+        ),
         child: value == null
             ? Row(
                 children: [
@@ -243,7 +320,11 @@ class GroupedDestructiveRow extends StatelessWidget {
       onTap: onTap,
       semanticLabel: label,
       child: ConstrainedBox(
-        constraints: const BoxConstraints(minHeight: 50),
+        constraints: BoxConstraints(
+          minHeight: _GroupedSingleRow.of(context)
+              ? AppSizes.singleLineHeight
+              : 50,
+        ),
         child: Center(
           child: Text(
             label,

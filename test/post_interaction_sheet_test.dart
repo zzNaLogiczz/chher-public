@@ -42,6 +42,34 @@ class _Repository extends PostInteractionRepository {
   }
 
   @override
+  Future<PostSupplementForm> supplementForm({
+    required int tid,
+    required int pid,
+    Uri? pageUrl,
+  }) async {
+    await _waitForForm();
+    return PostSupplementForm(
+      tid: tid,
+      pid: pid,
+      action: Uri.parse('https://www.chiphell.com/forum.php'),
+      pageUrl: Uri.parse('https://www.chiphell.com/'),
+      formhash: 'fake',
+      sessionIdentity: 'actor',
+      maxLength: 200,
+    );
+  }
+
+  @override
+  Future<PostResult> submitSupplement({
+    required PostSupplementForm form,
+    required String message,
+  }) {
+    sends++;
+    return send?.call() ??
+        Future.value(const PostResult(PostResultKind.failed, '测试失败'));
+  }
+
+  @override
   Future<PostRateForm> rateForm({
     required int tid,
     required int pid,
@@ -214,6 +242,36 @@ void main() {
     );
   }
 
+  testWidgets(
+    'supplement submits through its own action and retains failed draft',
+    (tester) async {
+      final repo = _Repository();
+      final store = PostInteractionDraftStore();
+      await _open(
+        tester,
+        repo,
+        kind: PostInteractionKind.supplement,
+        store: store,
+      );
+      expect(find.text('补充'), findsOneWidget);
+      await tester.enterText(
+        find.byKey(const ValueKey('interaction-comment')),
+        '补充原文',
+      );
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('interaction-send')));
+      await tester.pumpAndSettle();
+      expect(repo.sends, 1);
+      expect(find.text('测试失败'), findsOneWidget);
+      expect(find.text('补充原文'), findsOneWidget);
+      repo.send = () async => const PostResult(PostResultKind.success, '已补充');
+      await tester.tap(find.byKey(const ValueKey('interaction-send')));
+      await tester.pumpAndSettle();
+      expect(repo.sends, 2);
+      expect(find.byType(PostInteractionSheet), findsNothing);
+    },
+  );
+
   for (final kind in PostInteractionKind.values) {
     for (final narrow in [false, true]) {
       testWidgets('real $kind route opens fully before and after async load '
@@ -248,9 +306,15 @@ void main() {
         expect(tester.getTopLeft(scaffold).dy, closeTo(initialTop, .01));
         _expectVisible(
           tester,
-          find.text(kind == PostInteractionKind.comment ? '点评' : '评分'),
+          find.text(
+            kind == PostInteractionKind.supplement
+                ? '补充'
+                : kind == PostInteractionKind.comment
+                ? '点评'
+                : '评分',
+          ),
         );
-        if (kind == PostInteractionKind.comment) {
+        if (kind != PostInteractionKind.rating) {
           _expectVisible(
             tester,
             find.byKey(const ValueKey('interaction-comment')),

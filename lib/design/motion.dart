@@ -2,6 +2,7 @@
 library;
 
 import 'package:flutter/physics.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 import 'package:motor/motor.dart';
 
@@ -14,11 +15,7 @@ abstract final class AppMotion {
   );
 
   /// 漆面入口按压,沿用共享按压核心与减少动态效果规则。
-  static const entryTap = CupertinoMotion(
-    duration: Duration(milliseconds: 220),
-    bounce: 0,
-    snapToEnd: true,
-  );
+  static const entryTap = tap;
 
   /// 分段滑块、底栏、展开箭头、选择器文字替换
   static const select = CupertinoMotion(
@@ -51,23 +48,19 @@ abstract final class AppMotion {
   /// 封面展开成文章的 hero 弹簧
   static const hero = SpringDescription(mass: 1, stiffness: 350, damping: 38);
 
-  /// 提醒定位：两次缓慢轻闪（2.4秒）、保持2秒，再用800ms恢复原色。
-  static const noticeHighlightDuration = Duration(milliseconds: 5200);
+  /// 通知定位仅淡出，不闪烁或延长停留。
+  static const noticeHighlightDuration = Duration(milliseconds: 1600);
 
-  static double noticeHighlight(double progress, {bool reduced = false}) {
-    final ms = progress * noticeHighlightDuration.inMilliseconds;
-    if (ms >= 4400) {
-      return 1 - Curves.easeOut.transform(((ms - 4400) / 800).clamp(0.0, 1.0));
-    }
-    if (reduced || ms >= 2400) return 1;
-    final phase = ms / 600;
-    final fraction = Curves.easeInOut.transform(phase - phase.floor());
-    return phase.floor().isEven ? 1 - fraction : fraction;
-  }
+  static double noticeHighlight(double progress, {bool reduced = false}) =>
+      1 - progress.clamp(0.0, 1.0);
 
-  static const galleryReduced = Duration(milliseconds: 160);
+  static final heroDuration = SpringCurve(hero).duration;
 
   static const fade = Duration(milliseconds: 180);
+  static const skeletonDelay = Duration(milliseconds: 300);
+  static const skeletonCycle = Duration(milliseconds: 1600);
+  static const skeletonMinOpacity = .55;
+  static const riffleStep = Duration(milliseconds: 35);
 
   /// 发送成功后对勾停留多久再收起(规格 §6.3)
   static const successHold = Duration(milliseconds: 1200);
@@ -79,6 +72,76 @@ abstract final class AppMotion {
   /// 系统开启「减少动态效果」时,所有弹簧退化为无动效
   static Motion of(BuildContext context, Motion motion) =>
       MediaQuery.disableAnimationsOf(context) ? const Motion.none() : motion;
+
+  /// Hand a released gesture to a named spring. Velocity uses the same units
+  /// as the controller per second (divide pointer velocity by travel distance
+  /// for a 0–1 controller). Interruptions retain the current spring velocity.
+  static TickerFuture settle(
+    AnimationController controller, {
+    required double target,
+    required CupertinoMotion motion,
+    double? velocity,
+    bool reduced = false,
+  }) {
+    final releaseVelocity = velocity ?? controller.velocity;
+    if (reduced) {
+      controller.value = target;
+      return TickerFuture.complete();
+    }
+    final simulation = SpringSimulation(
+      motion.description,
+      controller.value,
+      target,
+      releaseVelocity,
+      snapToEnd: true,
+    );
+    return target < controller.value
+        ? controller.animateBackWith(simulation)
+        : controller.animateWith(simulation);
+  }
+
+  /// Long jumps build only the final viewport before revealing the destination.
+  /// ScrollPosition owns the activity, so a new drag/scroll cancels it naturally.
+  static Future<void> scrollTo(
+    ScrollPosition position,
+    double target, {
+    bool reduced = false,
+  }) {
+    target = target.clamp(position.minScrollExtent, position.maxScrollExtent);
+    if (reduced) {
+      position.jumpTo(target);
+      return Future<void>.value();
+    }
+    final distance = target - position.pixels;
+    final viewport = position.viewportDimension;
+    if (viewport > 0 && distance.abs() > viewport * 1.5) {
+      position.jumpTo(target - distance.sign * viewport);
+    }
+    if ((target - position.pixels).abs() < .01) {
+      return Future<void>.value();
+    }
+    return position.animateTo(
+      target,
+      duration: revealDuration,
+      curve: revealCurve,
+    );
+  }
+
+  static Future<void> revealInScroll(
+    BuildContext context, {
+    double alignment = 0,
+  }) {
+    final object = context.findRenderObject();
+    final scrollable = Scrollable.maybeOf(context);
+    if (object == null || scrollable == null) return Future<void>.value();
+    final viewport = RenderAbstractViewport.maybeOf(object);
+    if (viewport == null) return Future<void>.value();
+    return scrollTo(
+      scrollable.position,
+      viewport.getOffsetToReveal(object, alignment).offset,
+      reduced: MediaQuery.disableAnimationsOf(context),
+    );
+  }
 
   /// 把弹簧折算成"时长 + 曲线",给只接受这两样参数的 API(例如弹层路由的开合)。
   /// 曲线就是弹簧本身的位移,所以过冲和收尾与直接用弹簧一致。

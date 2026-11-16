@@ -128,13 +128,44 @@ class StateView extends StatelessWidget {
 class ListFooter extends StatelessWidget {
   final bool loading;
   final bool exhausted;
+  final String? loadingLabel;
 
-  const ListFooter({super.key, required this.loading, this.exhausted = false});
+  const ListFooter({
+    super.key,
+    required this.loading,
+    this.exhausted = false,
+    this.loadingLabel,
+  });
 
   @override
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
     final reduced = MediaQuery.disableAnimationsOf(context);
+    if (loadingLabel != null) {
+      return SizedBox(
+        height: 56,
+        child: Center(
+          child: loading
+              ? Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const SizedBox.square(
+                      dimension: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      loadingLabel!,
+                      style: AppType.footnote.copyWith(color: t.text3),
+                    ),
+                  ],
+                )
+              : exhausted
+              ? Text('没有更多了', style: AppType.footnote.copyWith(color: t.text3))
+              : const SizedBox.shrink(),
+        ),
+      );
+    }
     final content = AnimatedSwitcher(
       duration: reduced ? Duration.zero : AppMotion.tapDuration,
       layoutBuilder: (current, previous) => Stack(

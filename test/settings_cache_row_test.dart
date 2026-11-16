@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:chh_app/data/image_disk_cache.dart';
 import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/pages/settings_page.dart';
+import 'package:chh_app/ui/sheet_scaffold.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -72,12 +73,12 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(row);
     await tester.pumpAndSettle();
-    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(find.byType(AppSheetSurface), findsOneWidget);
 
     await tester.tap(find.text('清除'));
     await settleIo(tester, '0 B');
 
-    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.byType(AppSheetSurface), findsNothing);
     expect(await diskBytes(tester), 0);
     expect(find.text('0 B'), findsOneWidget);
     expect(find.text('1.5 KB'), findsNothing);

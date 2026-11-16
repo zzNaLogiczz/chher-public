@@ -4,20 +4,50 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:motor/motor.dart';
 
 import '../design/icons.dart';
 import '../design/motion.dart';
 import '../design/tokens.dart';
+import '../design/thread_page_tokens.dart';
 import '../design/typography.dart';
 import 'chrome_button.dart';
 import 'press.dart';
+
+/// Shares the actual toolbar geometry without rebuilding the reading content.
+class ReadingBarAnchor extends InheritedWidget {
+  final ValueListenable<double> hiddenProgress;
+  final double bottomPadding;
+  const ReadingBarAnchor({
+    super.key,
+    required this.hiddenProgress,
+    required this.bottomPadding,
+    required super.child,
+  });
+
+  double get height =>
+      ThreadPageTokens.readingBarTopPadding +
+      ThreadPageTokens.readingBarSize +
+      ThreadPageTokens.readingBarBottomPadding +
+      bottomPadding;
+  double get surfaceTopInset => height - ThreadPageTokens.readingBarTopPadding;
+
+  static ReadingBarAnchor? maybeOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<ReadingBarAnchor>();
+
+  @override
+  bool updateShouldNotify(ReadingBarAnchor oldWidget) =>
+      hiddenProgress != oldWidget.hiddenProgress ||
+      bottomPadding != oldWidget.bottomPadding;
+}
 
 class ReadingBar extends StatelessWidget {
   static const actionKey = ValueKey('reading-bar-action');
   static const favoriteKey = ValueKey('reading-bar-favorite');
 
   final String placeholder;
+  final bool threadStyle;
   final VoidCallback onCompose;
   final int? count;
   final bool inComments;
@@ -25,11 +55,13 @@ class ReadingBar extends StatelessWidget {
   final VoidCallback onBackToTop;
   final bool? favorited;
   final bool favoriteBusy;
+  final int? favoriteCount;
   final VoidCallback? onToggleFavorite;
 
   const ReadingBar({
     super.key,
     required this.placeholder,
+    this.threadStyle = false,
     required this.onCompose,
     this.count,
     required this.inComments,
@@ -37,6 +69,7 @@ class ReadingBar extends StatelessWidget {
     required this.onBackToTop,
     this.favorited,
     this.favoriteBusy = false,
+    this.favoriteCount,
     this.onToggleFavorite,
   });
 
@@ -45,10 +78,15 @@ class ReadingBar extends StatelessWidget {
     final t = AppTokens.of(context);
     final reduced = MediaQuery.disableAnimationsOf(context);
     final bottom = MediaQuery.paddingOf(context).bottom;
+    final size = threadStyle ? ThreadPageTokens.readingBarSize : 44.0;
+    final fill = threadStyle ? t.surface : t.glass;
+    final shadows = threadStyle
+        ? t.shadowE2.where((s) => s.blurRadius > 0).toList()
+        : t.shadowE1;
     final surface = BoxDecoration(
-      color: t.glass,
+      color: fill,
       borderRadius: BorderRadius.circular(AppRadii.full),
-      boxShadow: t.shadowE1,
+      boxShadow: shadows,
     );
     return DecoratedBox(
       // 栏下垫一段页面底色渐变,滚动内容在这里自然淡出
@@ -57,11 +95,16 @@ class ReadingBar extends StatelessWidget {
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           stops: const [0, .4],
-          colors: [t.bg.withValues(alpha: 0), t.bg],
+          colors: [t.grouped.withValues(alpha: 0), t.grouped],
         ),
       ),
       child: Padding(
-        padding: EdgeInsets.fromLTRB(14, 22, 14, bottom + 10),
+        padding: EdgeInsets.fromLTRB(
+          14,
+          ThreadPageTokens.readingBarTopPadding,
+          14,
+          bottom + ThreadPageTokens.readingBarBottomPadding,
+        ),
         child: Row(
           children: [
             if (favorited != null) ...[
@@ -70,46 +113,65 @@ class ReadingBar extends StatelessWidget {
                 child: PressScale(
                   key: favoriteKey,
                   onTap: favoriteBusy ? null : onToggleFavorite,
-                  semanticLabel: favorited! ? '取消收藏' : '收藏',
+                  semanticLabel:
+                      '${favorited! ? '取消收藏' : '收藏'}'
+                      '${favoriteCount == null ? '' : '，$favoriteCount 人收藏'}',
                   child: DecoratedBox(
                     decoration: surface,
-                    child: SizedBox.square(
-                      dimension: 44,
-                      child: Center(
-                        child: SingleMotionBuilder(
-                          value: favorited! ? 1.0 : 0.0,
-                          motion: AppMotion.select,
-                          active: !reduced,
-                          builder: (_, v, _) {
-                            final p = v.clamp(0.0, 1.0);
-                            return Stack(
-                              alignment: Alignment.center,
-                              children: [
-                                Opacity(
-                                  opacity: 1 - p,
-                                  child: Transform.scale(
-                                    scale: 1 - .3 * p,
-                                    child: Icon(
-                                      AppIcons.bookmark,
-                                      size: 20,
-                                      color: t.text,
+                    child: SizedBox(
+                      width: favoriteCount == null ? size : null,
+                      height: size,
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: favoriteCount == null ? 0 : 14,
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            SingleMotionBuilder(
+                              value: favorited! ? 1.0 : 0.0,
+                              motion: AppMotion.pop,
+                              active: !reduced,
+                              builder: (_, v, _) {
+                                final p = v.clamp(0.0, 1.0);
+                                return Stack(
+                                  alignment: Alignment.center,
+                                  children: [
+                                    Opacity(
+                                      opacity: 1 - p,
+                                      child: Transform.scale(
+                                        scale: 1 - .3 * p,
+                                        child: Icon(
+                                          AppIcons.bookmark,
+                                          size: 20,
+                                          color: t.text,
+                                        ),
+                                      ),
                                     ),
-                                  ),
-                                ),
-                                Opacity(
-                                  opacity: p,
-                                  child: Transform.scale(
-                                    scale: .7 + .3 * p,
-                                    child: Icon(
-                                      AppIcons.bookmarkFilled,
-                                      size: 20,
-                                      color: t.accent,
+                                    Opacity(
+                                      opacity: p,
+                                      child: Transform.scale(
+                                        scale: .7 + .3 * p,
+                                        child: Icon(
+                                          AppIcons.bookmarkFilled,
+                                          size: 20,
+                                          color: t.accent,
+                                        ),
+                                      ),
                                     ),
-                                  ),
-                                ),
-                              ],
-                            );
-                          },
+                                  ],
+                                );
+                              },
+                            ),
+                            if (favoriteCount != null) ...[
+                              const SizedBox(width: 6),
+                              Text(
+                                '$favoriteCount',
+                                style: AppType.footnote.copyWith(color: t.text),
+                              ),
+                            ],
+                          ],
                         ),
                       ),
                     ),
@@ -122,8 +184,9 @@ class ReadingBar extends StatelessWidget {
               child: ComposeCapsule(
                 placeholder: placeholder,
                 onTap: onCompose,
-                color: t.glass,
-                shadows: t.shadowE1,
+                color: fill,
+                height: size,
+                shadows: shadows,
               ),
             ),
             const SizedBox(width: 10),
@@ -134,7 +197,7 @@ class ReadingBar extends StatelessWidget {
                 onTap: inComments ? onBackToTop : onShowComments,
                 semanticLabel: inComments ? '回到顶部' : '查看评论',
                 child: SizedBox.square(
-                  dimension: 44,
+                  dimension: size,
                   child: Stack(
                     clipBehavior: Clip.none,
                     children: [
@@ -210,6 +273,7 @@ class ComposeCapsule extends StatelessWidget {
   final VoidCallback? onTap;
   final Color? color;
   final List<BoxShadow>? shadows;
+  final double height;
 
   const ComposeCapsule({
     super.key,
@@ -217,6 +281,7 @@ class ComposeCapsule extends StatelessWidget {
     this.onTap,
     this.color,
     this.shadows,
+    this.height = 44,
   });
 
   @override
@@ -232,7 +297,7 @@ class ComposeCapsule extends StatelessWidget {
           boxShadow: shadows,
         ),
         child: SizedBox(
-          height: 44,
+          height: height,
           child: Row(
             children: [
               const SizedBox(width: 16),

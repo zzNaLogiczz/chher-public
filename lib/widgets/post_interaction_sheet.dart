@@ -8,6 +8,7 @@ import 'package:smooth_sheets/smooth_sheets.dart';
 import '../data/post_interaction_repository.dart';
 import '../data/post_interaction_drafts.dart';
 import '../design/motion.dart';
+import '../ui/sheet_scaffold.dart';
 import '../design/tokens.dart';
 import '../design/typography.dart';
 import '../models/models.dart';
@@ -93,6 +94,7 @@ class _PostInteractionSheetState extends State<PostInteractionSheet> {
     widget.kind.name,
   );
   PostCommentForm? _comment;
+  PostSupplementForm? _supplement;
   PostRateForm? _rating;
   bool _loading = true, _busy = false, _uncertain = false, _notify = false;
   bool _checking = false, _ready = false;
@@ -101,7 +103,20 @@ class _PostInteractionSheetState extends State<PostInteractionSheet> {
   PostResult? _failure;
   int _epoch = 0;
   bool get _isComment => widget.kind == PostInteractionKind.comment;
-  String get _title => _isComment ? '点评' : '评分';
+  bool get _isSupplement => widget.kind == PostInteractionKind.supplement;
+  bool get _textAction => _isComment || _isSupplement;
+  int? get _textMax =>
+      _isSupplement ? _supplement?.maxLength : _comment?.maxLength;
+  bool get _formReady => _isSupplement
+      ? _supplement != null
+      : _isComment
+      ? _comment != null
+      : _rating != null;
+  String get _title => _isSupplement
+      ? '补充'
+      : _isComment
+      ? '点评'
+      : '评分';
   bool get _sameActor =>
       _actor != null &&
       widget.sessionIdentity() == _actor &&
@@ -111,10 +126,10 @@ class _PostInteractionSheetState extends State<PostInteractionSheet> {
   int? get _scoreValue => int.tryParse(_score.text.trim());
   bool get _canSend {
     if (_loading || _busy || _uncertain || !_sameActor) return false;
-    if (_isComment) {
-      return _comment != null &&
+    if (_textAction) {
+      return _formReady &&
           _text.text.trim().isNotEmpty &&
-          _text.text.length <= _comment!.maxLength;
+          (_textMax == null || _text.text.length <= _textMax!);
     }
     final value = _scoreValue;
     return _evil != null &&
@@ -124,9 +139,9 @@ class _PostInteractionSheetState extends State<PostInteractionSheet> {
   }
 
   String? get _validation {
-    if (_isComment) {
-      return _comment != null && _text.text.length > _comment!.maxLength
-          ? '点评不能超过 ${_comment!.maxLength} 字'
+    if (_textAction) {
+      return _textMax != null && _text.text.length > _textMax!
+          ? '$_title不能超过 $_textMax 字'
           : null;
     }
     final e = _evil, v = _scoreValue;
@@ -170,6 +185,7 @@ class _PostInteractionSheetState extends State<PostInteractionSheet> {
       _busy = false;
       _loading = false;
       _comment = null;
+      _supplement = null;
       _rating = null;
       _failure = const PostResult(
         PostResultKind.loginRequired,
@@ -204,6 +220,7 @@ class _PostInteractionSheetState extends State<PostInteractionSheet> {
     setState(() {
       _loading = true;
       _comment = null;
+      _supplement = null;
       _rating = null;
     });
     try {
@@ -220,7 +237,13 @@ class _PostInteractionSheetState extends State<PostInteractionSheet> {
         _notify = saved?.notify ?? false;
         _uncertain = saved?.uncertain ?? false;
       }
-      if (_isComment) {
+      if (_isSupplement) {
+        _supplement = await widget.repository.supplementForm(
+          tid: widget.tid,
+          pid: widget.post.pid,
+          pageUrl: widget.pageUrl,
+        );
+      } else if (_isComment) {
         _comment = await widget.repository.commentForm(
           tid: widget.tid,
           pid: widget.post.pid,
@@ -292,7 +315,12 @@ class _PostInteractionSheetState extends State<PostInteractionSheet> {
     }
     PostResult result;
     try {
-      result = _isComment
+      result = _isSupplement
+          ? await widget.repository.submitSupplement(
+              form: _supplement!,
+              message: _text.text.trim(),
+            )
+          : _isComment
           ? await widget.repository.submitComment(
               form: _comment!,
               message: _text.text.trim(),
@@ -392,6 +420,7 @@ class _PostInteractionSheetState extends State<PostInteractionSheet> {
         ),
         child: Sheet(
           controller: _sheet,
+          physics: AppSheetPhysics.of(context, controller: _sheet),
           // Keep the form usable before and after its asynchronous load.
           initialOffset: const SheetOffset(1),
           snapGrid: const SheetSnapGrid.single(snap: SheetOffset(1)),
@@ -401,13 +430,9 @@ class _PostInteractionSheetState extends State<PostInteractionSheet> {
           padding: EdgeInsets.only(
             bottom: MediaQuery.viewInsetsOf(context).bottom,
           ),
-          decoration: MaterialSheetDecoration(
+          decoration: SheetDecorationBuilder(
             size: SheetSize.stretch,
-            color: t.surface,
-            clipBehavior: Clip.antiAlias,
-            borderRadius: const BorderRadius.vertical(
-              top: Radius.circular(AppRadii.xl),
-            ),
+            builder: (context, child) => AppSheetSurface(child: child),
           ),
           child: SheetContentScaffold(
             backgroundColor: t.surface,
@@ -438,8 +463,8 @@ class _PostInteractionSheetState extends State<PostInteractionSheet> {
                       if (_failure != null) _message(t, _failure!.message),
                       if (_storageWarning != null)
                         _message(t, _storageWarning!),
-                      if (_isComment && _comment != null) _commentEditor(t),
-                      if (!_isComment && _rating != null) _ratingEditor(t),
+                      if (_textAction && _formReady) _commentEditor(t),
+                      if (!_textAction && _rating != null) _ratingEditor(t),
                       if (_validation != null) _message(t, _validation!),
                       if (_uncertain) ...[
                         _message(t, '提交结果待核对，暂不能再次发送'),
@@ -453,9 +478,7 @@ class _PostInteractionSheetState extends State<PostInteractionSheet> {
                           variant: AppButtonVariant.quiet,
                           onPressed: _checking ? null : _acknowledgeNotPosted,
                         ),
-                      ] else if ((_isComment
-                              ? _comment == null
-                              : _rating == null) ||
+                      ] else if (!_formReady ||
                           _failure?.kind == PostResultKind.permissionDenied ||
                           _failure?.kind == PostResultKind.loginRequired)
                         AppButton(
@@ -549,20 +572,21 @@ class _PostInteractionSheetState extends State<PostInteractionSheet> {
           minLines: 5,
           maxLines: null,
           style: AppType.body.copyWith(color: t.text),
-          decoration: const InputDecoration(
-            hintText: '写下简短的点评',
+          decoration: InputDecoration(
+            hintText: _isSupplement ? '补充内容' : '写下简短的点评',
             border: InputBorder.none,
             filled: false,
           ),
         ),
       ),
-      Align(
-        alignment: Alignment.centerRight,
-        child: Text(
-          '${_text.text.length} / ${_comment!.maxLength}',
-          style: AppType.footnote.copyWith(color: t.text2),
+      if (_textMax != null)
+        Align(
+          alignment: Alignment.centerRight,
+          child: Text(
+            '${_text.text.length} / $_textMax',
+            style: AppType.footnote.copyWith(color: t.text2),
+          ),
         ),
-      ),
     ],
   );
   Widget _ratingEditor(AppTokens t) {

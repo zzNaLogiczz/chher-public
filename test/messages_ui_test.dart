@@ -11,9 +11,9 @@ import 'package:chh_app/network/chh_client.dart';
 import 'package:chh_app/pages/messages_page.dart';
 import 'package:chh_app/pages/pm_thread_page.dart';
 import 'package:chh_app/parser/header_parser.dart';
-import 'package:chh_app/ui/picker.dart';
+import 'package:chh_app/ui/message_filters.dart';
 import 'package:chh_app/ui/chat.dart';
-import 'package:chh_app/widgets/large_title_scaffold.dart';
+import 'package:chh_app/widgets/lacquer_tab_scaffold.dart';
 import 'package:chh_app/widgets/compact_scaffold.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -160,16 +160,16 @@ void main() {
     );
     await tester.tap(find.text('打开消息'));
     await tester.pumpAndSettle();
-    final scaffold = tester.widget<LargeTitleScaffold>(
-      find.byType(LargeTitleScaffold),
+    final scaffold = tester.widget<LacquerTabScaffold>(
+      find.byType(LacquerTabScaffold),
     );
     expect(scaffold.title, '消息');
-    expect(scaffold.showBack, isTrue);
+    expect(find.byTooltip('返回'), findsOneWidget);
     expect(repository.noticeReads, 1);
     expect(repository.pmReads, 0);
-    await tester.tap(find.text('私信'));
+    await tester.tap(find.text('私信').hitTestable().first);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('提醒'));
+    await tester.tap(find.text('提醒').hitTestable().first);
     await tester.pumpAndSettle();
     expect(repository.noticeReads, 1);
     expect(repository.pmReads, 1);
@@ -190,10 +190,10 @@ void main() {
     expect(repository.noticeReads, 1);
     // 私信列表在第一次切过去之前不加载
     expect(repository.pmReads, 0);
-    await tester.tap(find.text('私信'));
+    await tester.tap(find.text('私信').hitTestable().first);
     await tester.pumpAndSettle();
     expect(repository.pmReads, 1);
-    await tester.tap(find.text('提醒'));
+    await tester.tap(find.text('提醒').hitTestable().first);
     await tester.pump();
     // 切回来是原来的列表:不重新请求,也不再做整列表淡入
     expect(repository.noticeReads, 1);
@@ -206,7 +206,7 @@ void main() {
         )
         .where((o) => o.opacity < 1);
     expect(fading, isEmpty);
-    await tester.tap(find.text('私信'));
+    await tester.tap(find.text('私信').hitTestable().first);
     await tester.pumpAndSettle();
     expect(repository.pmReads, 1);
   });
@@ -294,7 +294,8 @@ void main() {
         const PostResult(PostResultKind.failed, '站点暂时无法发送'),
       );
       await tester.pumpAndSettle();
-      expect(find.text('站点暂时无法发送'), findsOneWidget);
+      expect(find.text('未送达，轻点重试'), findsOneWidget);
+      expect(find.text('请问电源的具体型号？'), findsNWidgets(2));
       final field = tester.widget<TextField>(
         find.byKey(const ValueKey('pm-input')),
       );
@@ -359,7 +360,13 @@ void main() {
       repository.pending = Completer<PostResult>();
       repository.refresh = Completer<List<PmMessage>>();
       await _sendText(tester, '谢谢分享');
-      expect(find.byType(ChatBubble), findsNothing);
+      await tester.pump(const Duration(milliseconds: 16));
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(find.byType(ChatBubble), findsOneWidget);
+      expect(
+        tester.widget<ChatBubble>(find.byType(ChatBubble)).pending,
+        isTrue,
+      );
       repository.pending!.complete(
         const PostResult(PostResultKind.success, '发送成功'),
       );
@@ -508,8 +515,10 @@ void main() {
         app(Scaffold(body: MessagesBody(repository: repository))),
       );
       await tester.pumpAndSettle();
-      expect(find.text('提醒 3'), findsOneWidget);
-      expect(find.text('私信 2'), findsOneWidget);
+      expect(find.text('提醒'), findsOneWidget);
+      expect(find.text('3'), findsOneWidget);
+      expect(find.text('私信'), findsOneWidget);
+      expect(find.text('2'), findsOneWidget);
       Future<void> pick(String current, String next) async {
         await tester.tap(find.text(current));
         await tester.pumpAndSettle();
@@ -518,15 +527,24 @@ void main() {
         await tester.pumpAndSettle();
       }
 
-      await pick('全部', '我的帖子');
+      await tester.tap(find.text('全部'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('我的帖子').last);
+      await tester.pumpAndSettle();
       expect(repository.lastView, NoticeView.mypost);
-      await pick('全部类型', '点评');
+      await tester.tap(find.text('点评').last);
+      await tester.pumpAndSettle();
       expect(repository.lastType, 'pcomment');
       await pick('点评', '全部类型');
       expect(repository.lastType, isNull);
-      await pick('我的帖子', '应用');
+      await tester.tap(find.text('我的帖子'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('应用').last);
+      await tester.pumpAndSettle();
       expect(repository.lastView, NoticeView.app);
-      await tester.tap(find.text('私信 2'));
+      await tester.tap(find.text('全部类型').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('私信'));
       await tester.pumpAndSettle();
       expect(repository.lastPm, PmFilter.privatePm);
       await pick('私人消息', '公共消息');
@@ -546,7 +564,7 @@ void main() {
       final row = find.byKey(const ValueKey('message-filter-row'));
       expect(row, findsOneWidget);
       expect(
-        find.descendant(of: row, matching: find.byType(PickerButton<int>)),
+        find.descendant(of: row, matching: find.byType(NoticeFilter)),
         findsOneWidget,
       );
       // 日期与选择按钮同一行
@@ -561,7 +579,9 @@ void main() {
       await tester.tap(find.text('系统').last);
       await tester.pump(const Duration(milliseconds: 200));
       await tester.pumpAndSettle();
-      expect(find.text('暂时没有提醒'), findsOneWidget);
+      await tester.tap(find.text('全部类型').last);
+      await tester.pumpAndSettle();
+      expect(find.text('没有系统提醒'), findsOneWidget);
       expect(
         find.descendant(
           of: find.byKey(const ValueKey('message-filter-row')),
@@ -584,7 +604,10 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('加载更多'));
       await tester.pumpAndSettle();
-      expect(find.text('坛友回复了你的装机帖'), findsOneWidget);
+      expect(
+        find.textContaining('回复了你的装机帖', findRichText: true),
+        findsOneWidget,
+      );
       expect(find.text('未能加载更多，轻点重试'), findsOneWidget);
       repository.failNext = false;
       await tester.tap(find.text('未能加载更多，轻点重试'));

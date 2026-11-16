@@ -96,7 +96,7 @@ internal class NotificationBridge(private val activity: Activity, engine: Flutte
             if (Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return false
             val manager = context.getSystemService(NotificationManager::class.java)
             if (!manager.areNotificationsEnabled()) return false
-            if (Build.VERSION.SDK_INT >= 26 && manager.getNotificationChannel(CHANNEL_ID)?.importance == NotificationManager.IMPORTANCE_NONE) return false
+            if (manager.getNotificationChannel(CHANNEL_ID)?.importance == NotificationManager.IMPORTANCE_NONE) return false
             return true
         }
 
@@ -115,7 +115,7 @@ internal class NotificationBridge(private val activity: Activity, engine: Flutte
             val changed = notices != oldNotices || messages != oldMessages
             val visible = manager.activeNotifications.any { it.id == NOTIFICATION_ID }
             if (increased || (changed && visible && (notices > 0 || messages > 0))) {
-                if (Build.VERSION.SDK_INT >= 26) manager.createNotificationChannel(
+                manager.createNotificationChannel(
                     NotificationChannel(CHANNEL_ID, "提醒与私信", NotificationManager.IMPORTANCE_DEFAULT)
                 )
                 val intent = Intent(context, MainActivity::class.java)
@@ -127,8 +127,7 @@ internal class NotificationBridge(private val activity: Activity, engine: Flutte
                     if (notices > 0) "$notices 条未读提醒" else null,
                     if (messages > 0) "$messages 条未读私信" else null,
                 ).joinToString("，")
-                @Suppress("DEPRECATION")
-                val builder = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(context, CHANNEL_ID) else Notification.Builder(context)
+                val builder = Notification.Builder(context, CHANNEL_ID)
                 manager.notify(NOTIFICATION_ID, builder
                     .setSmallIcon(R.drawable.ic_notification)
                     .setContentTitle("新消息")

@@ -40,8 +40,10 @@ void main() {
       ),
     );
     expect(find.text('用户'), findsOneWidget);
-    expect(find.text('本帖为密码帖，请输入密码'), findsOneWidget);
+    expect(find.text('这段内容需要密码'), findsOneWidget);
     expect(find.text('回复'), findsNothing);
+    expect(find.text('点评'), findsNothing);
+    expect(find.text('评分'), findsNothing);
     await tester.tap(find.text('输入密码'));
     expect(unlocks, 1);
     final avatar = tester.widget<PressScale>(
@@ -72,7 +74,7 @@ void main() {
         ),
       ),
     );
-    expect(find.text('作者被禁止或删除 内容自动屏蔽'), findsOneWidget);
+    expect(find.text('作者被禁止或删除，内容已自动屏蔽'), findsOneWidget);
     expect(find.text('输入密码'), findsNothing);
   });
 
@@ -183,6 +185,17 @@ void main() {
 
   for (final commentStyle in [false, true]) {
     testWidgets('${commentStyle ? '评论' : '整楼'}样式的主页入口不改变楼层高度', (tester) async {
+      final originalFetchers = List<ChhFetcher>.of(chhClient.fetchers);
+      chhClient.fetchers
+        ..clear()
+        ..add(_ProfileFetcher());
+      chhClient.clearCache();
+      addTearDown(() {
+        chhClient.fetchers
+          ..clear()
+          ..addAll(originalFetchers);
+        chhClient.clearCache();
+      });
       Post post(String? uid) => Post(
         pid: 4,
         floor: 4,
@@ -224,7 +237,8 @@ void main() {
         of: anonymous,
         matching: profileLink,
       );
-      expect(links, findsNWidgets(commentStyle ? 2 : 1));
+      expect(links, findsNWidgets(2));
+      expect(disabledLinks, findsNWidgets(2));
       for (final entry in links.evaluate()) {
         expect((entry.widget as PressScale).onTap, isNotNull);
         expect((entry.widget as PressScale).semanticLabel, '查看作者4的主页');
@@ -237,24 +251,31 @@ void main() {
       final badge = find.descendant(of: linked, matching: find.text('楼主'));
       final body = find.descendant(of: linked, matching: find.text('正文内容'));
       expect(find.ancestor(of: name, matching: links), findsOneWidget);
-      expect(
-        find.ancestor(of: time, matching: links),
-        commentStyle ? findsNothing : findsOneWidget,
-      );
-      expect(
-        find.ancestor(of: badge, matching: links),
-        commentStyle ? findsNothing : findsOneWidget,
-      );
+      expect(find.ancestor(of: time, matching: links), findsNothing);
+      expect(find.ancestor(of: badge, matching: links), findsNothing);
       expect(find.ancestor(of: body, matching: links), findsNothing);
+      final avatar = find.descendant(
+        of: linked,
+        matching: find.byKey(const ValueKey('post-avatar-4')),
+      );
+      expect(tester.getSize(avatar), const Size(32, 32));
+      expect(tester.getSize(links.last).height, tester.getSize(name).height);
       if (!commentStyle) {
-        final naturalHeight =
-            (tester.getSize(name).height + tester.getSize(time).height).clamp(
-              32.0,
-              double.infinity,
-            );
-        expect(tester.getSize(links).height, naturalHeight);
         final floor = find.descendant(of: linked, matching: find.text('#4'));
         expect(find.ancestor(of: floor, matching: links), findsNothing);
+      }
+      final height = tester.getSize(linked).height;
+      for (var i = 0; i < 2; i++) {
+        await tester.tap(links.at(i));
+        await tester.pumpAndSettle();
+        expect(tester.widget<UserDrawer>(find.byType(UserDrawer)).uid, '4');
+        await tester.tap(
+          find.byWidgetPredicate(
+            (widget) => widget is ChromeButton && widget.tooltip == '关闭',
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(tester.getSize(linked).height, height);
       }
     });
   }

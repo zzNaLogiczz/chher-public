@@ -1,4 +1,4 @@
-/// 横滑卡:上方图片 16:9,下方白底标题与来源(规格 §6.8)
+/// 社区精选瓷片：3:2 图片与单行标题。
 library;
 
 import 'package:flutter/material.dart';
@@ -9,8 +9,8 @@ import '../design/typography.dart';
 import 'press.dart';
 
 class ShelfCard extends StatelessWidget {
-  static const double width = 236;
-  static const _textPadding = EdgeInsets.fromLTRB(14, 10, 14, 12);
+  static const double width = HomeTokens.shelfWidth;
+  static const _textPadding = EdgeInsets.fromLTRB(10, 11, 10, 9);
 
   final Widget image;
   final String title;
@@ -28,13 +28,14 @@ class ShelfCard extends StatelessWidget {
   static double _lineHeight(TextStyle style, TextScaler scaler) =>
       scaler.scale(style.fontSize!) * style.height!;
 
-  /// 标题固定占两行的高度:一行标题的卡片不会比两行的矮
+  /// 固定一行，完整标题保留在语义标签中。
   static double _titleHeight(TextScaler scaler) =>
-      _lineHeight(AppType.callout, scaler) * 2;
+      scaler.scale(HomeTokens.shelfTitleSize) * 1.4;
 
-  /// 卡片总高:16:9 图 + 两行标题 + 一行来源,只随系统字号变化,不随标题字数变化
-  static double heightFor(TextScaler scaler, {bool withSource = true}) =>
-      width * 9 / 16 +
+  /// 卡片高度跟随系统字号，长标题不挤压图片。
+  static double heightFor(TextScaler scaler, {bool withSource = false}) =>
+      (width - HomeTokens.shelfPadding * 2) / HomeTokens.shelfImageRatio +
+      HomeTokens.shelfPadding * 2 +
       _textPadding.vertical +
       _titleHeight(scaler) +
       (withSource ? _lineHeight(AppType.footnote, scaler) : 0);
@@ -54,43 +55,54 @@ class ShelfCard extends StatelessWidget {
           child: DecoratedBox(
             decoration: ShapeDecoration(
               color: t.surface,
-              shape: appShape(AppRadii.md),
-              shadows: t.shadowE2,
+              shape: appShape(HomeTokens.shelfRadius),
+              shadows: HomeTokens.cardShadow(t),
             ),
             child: AppClip(
-              radius: AppRadii.md,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  AspectRatio(aspectRatio: 16 / 9, child: image),
-                  Padding(
-                    padding: _textPadding,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        SizedBox(
-                          height: _titleHeight(scaler),
-                          child: Text(
-                            title,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppType.callout.copyWith(
-                              color: t.text,
-                              fontWeight: FontWeight.w600,
+              radius: HomeTokens.shelfRadius,
+              child: Padding(
+                padding: const EdgeInsets.all(HomeTokens.shelfPadding),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    AppClip(
+                      radius: HomeTokens.shelfImageRadius,
+                      child: AspectRatio(
+                        aspectRatio: HomeTokens.shelfImageRatio,
+                        child: image,
+                      ),
+                    ),
+                    Padding(
+                      padding: _textPadding,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          SizedBox(
+                            height: _titleHeight(scaler),
+                            child: Text(
+                              title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppType.callout.copyWith(
+                                fontSize: HomeTokens.shelfTitleSize,
+                                height: 1.4,
+                                color: t.text,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           ),
-                        ),
-                        if (source != null)
-                          Text(
-                            source!,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppType.footnote.copyWith(color: t.text3),
-                          ),
-                      ],
+                          if (source != null)
+                            Text(
+                              source!,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppType.footnote.copyWith(color: t.text3),
+                            ),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),

@@ -8,11 +8,13 @@ import 'pages/interaction_review_page.dart';
 import 'pages/thread_review_page.dart';
 import 'di.dart';
 import 'core/frame_metrics.dart';
+import 'core/touch_sampling.dart';
 import 'data/editorial_cover_cache.dart';
 
 Future<void> main() async {
   HttpOverrides.global = ChhHttpOverrides();
   WidgetsFlutterBinding.ensureInitialized();
+  TouchSampling(frames: 2);
   FrameMetrics.install();
   await editorialCoverCache.load();
   setupDependencies();

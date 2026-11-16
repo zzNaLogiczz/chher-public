@@ -1,6 +1,7 @@
 /// 数据模型:解析器的输出、UI 层的输入
 library;
 
+import 'poll.dart';
 import '../core/link_target.dart';
 import 'post_interaction.dart';
 
@@ -147,7 +148,18 @@ class TextBlock extends ContentBlock {
 
 class ImageBlock extends ContentBlock {
   final String url;
-  const ImageBlock(this.url);
+  final double? width, height;
+  const ImageBlock(this.url, {this.width, this.height});
+
+  double? get aspectRatio =>
+      width != null &&
+          height != null &&
+          width!.isFinite &&
+          height!.isFinite &&
+          width! > 0 &&
+          height! > 0
+      ? width! / height!
+      : null;
 }
 
 /// 站内帖子或文章链接,显示成卡片;标题与时间由卡片自己读取
@@ -231,6 +243,8 @@ class Post {
   final bool floorIsKnown;
   final String author;
   final String? authorUid;
+  final int? authorGroupId;
+  final String? authorGroupName;
   final String? avatarUrl;
   final String timeRaw;
   final DateTime? time;
@@ -255,6 +269,8 @@ class Post {
     this.floorIsKnown = true,
     required this.author,
     this.authorUid,
+    this.authorGroupId,
+    this.authorGroupName,
     this.avatarUrl,
     required this.timeRaw,
     this.time,
@@ -276,6 +292,8 @@ class Post {
     floorIsKnown: floorIsKnown,
     author: author,
     authorUid: authorUid,
+    authorGroupId: authorGroupId,
+    authorGroupName: authorGroupName,
     avatarUrl: avatarUrl,
     timeRaw: timeRaw,
     time: time,
@@ -290,6 +308,7 @@ class Post {
 
 class ThreadDetail {
   final int tid;
+  final ThreadPoll? poll;
   final String? cookiePrefix;
 
   /// 详情页自己的回复表单或面包屑给出的所属版块。
@@ -300,15 +319,22 @@ class ThreadDetail {
   final String? forumName;
   final String title;
   final List<Post> posts;
+  final int? viewCount;
+  final int? replyCount;
+  final int? favoriteCount;
   final PageInfo page;
 
   const ThreadDetail({
     required this.tid,
+    this.poll,
     this.cookiePrefix,
     this.fid,
     this.forumName,
     required this.title,
     required this.posts,
+    this.viewCount,
+    this.replyCount,
+    this.favoriteCount,
     required this.page,
   });
 }
@@ -484,6 +510,14 @@ class Notice {
 
   /// 事件描述纯文本,不保证含完整回复正文
   final String summary;
+
+  /// 源站标题与动作分离；缺少标题时不补造。
+  final String? title;
+  final String? action;
+  final String? score;
+
+  /// 只有源站明确将事件整段加粗时才标为新提醒。
+  final bool unread;
   final String? targetUrl;
   final int? tid;
   final int? pid;
@@ -493,6 +527,10 @@ class Notice {
     required this.category,
     required this.occurredAtText,
     required this.summary,
+    this.title,
+    this.action,
+    this.score,
+    this.unread = false,
     this.actor,
     this.actorUid,
     this.avatarUrl,
@@ -515,6 +553,10 @@ class PmConversation {
 
   /// 清理掉操作区后的预览文本
   final String preview;
+  final bool isOutgoing;
+
+  /// 未取得可靠未读标记时保留 false，不把首次看到视为未读。
+  final bool unread;
   final String timeRaw;
 
   /// 站点给出的详情地址,照用不自拼
@@ -526,6 +568,8 @@ class PmConversation {
     required this.preview,
     required this.timeRaw,
     required this.viewUrl,
+    this.isOutgoing = false,
+    this.unread = false,
     this.peerUid,
     this.avatarUrl,
   });
@@ -830,6 +874,12 @@ class PostNote {
   const PostNote(this.kind, this.text);
 }
 
+/// Discuz cutstr markers, distinct from the UI's single-line ellipsis.
+bool isRatingReasonTruncated(String? reason) {
+  final text = reason?.trimRight() ?? '';
+  return text.endsWith('...') || text.endsWith('…');
+}
+
 /// 一条评分记录
 class RatingEntry {
   final String user;
@@ -839,6 +889,8 @@ class RatingEntry {
   /// 站点原样给出的分值文本,如「+ 100」。不自行解析正负与单位。
   final String score;
   final String? reason;
+  final String? credit;
+  final String? timeRaw;
 
   const RatingEntry({
     required this.user,
@@ -846,6 +898,8 @@ class RatingEntry {
     this.uid,
     this.reason,
     this.avatarUrl,
+    this.credit,
+    this.timeRaw,
   });
 }
 
@@ -862,7 +916,17 @@ class PostRating {
   final List<String> summary;
   final List<RatingEntry> entries;
 
-  const PostRating({required this.summary, required this.entries});
+  final int? tid;
+  final int? pid;
+  final Uri? detailsUrl;
+
+  const PostRating({
+    required this.summary,
+    required this.entries,
+    this.tid,
+    this.pid,
+    this.detailsUrl,
+  });
 
   List<RatingSummaryItem> get items => summary.map((text) {
     // 仅拆分明确的整数汇总;未知格式保留原文,避免误读部分数值。

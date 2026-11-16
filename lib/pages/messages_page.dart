@@ -8,6 +8,7 @@ import '../ui/picker.dart';
 import '../design/typography.dart';
 import '../ui/sheet_scaffold.dart';
 import '../ui/plain_rows.dart';
+import '../ui/feedback.dart';
 
 import '../core/chh_urls.dart';
 import '../data/message_repository.dart';
@@ -16,9 +17,14 @@ import '../design/tokens.dart';
 import '../models/models.dart';
 import '../widgets/avatar_image.dart';
 import '../widgets/state_view.dart';
-import '../widgets/expressive_controls.dart';
-import '../widgets/large_title_scaffold.dart';
-import '../widgets/lac_scaffold.dart';
+import '../design/icons.dart';
+import '../widgets/lacquer_tab_scaffold.dart';
+import '../ui/nav_bar.dart';
+import '../ui/chrome_button.dart';
+import '../ui/message_filters.dart';
+import '../ui/message_pager.dart';
+import '../design/motion.dart';
+import '../design/notice_tokens.dart';
 import 'pm_thread_page.dart';
 import 'thread_detail_page.dart';
 
@@ -27,7 +33,7 @@ ThreadDetailPage? noticeThreadTarget(Notice notice) => notice.tid == null
     ? null
     : ThreadDetailPage(
         tid: notice.tid!,
-        title: notice.summary,
+        title: notice.title ?? notice.summary,
         gotoUrl: notice.targetUrl,
         focusPid: notice.pid,
         focusOpeningFeedback: const {
@@ -40,10 +46,8 @@ class MessagesPage extends StatelessWidget {
   final MessageRepository? repository;
   const MessagesPage({super.key, this.repository});
   @override
-  Widget build(BuildContext context) => LargeTitleScaffold(
-    title: '消息',
-    body: MessagesBody(repository: repository),
-  );
+  Widget build(BuildContext context) =>
+      MessagesBody(repository: repository, showTitle: true);
 }
 
 /// 底栏"消息"用:漆面骨架(分段住进漆面,列表在纸面上)
@@ -72,233 +76,179 @@ class MessagesBody extends StatefulWidget {
 }
 
 class _MessagesBodyState extends State<MessagesBody> {
+  final _readNotices = <String>{};
   int _section = 0;
-
-  /// 已经打开过的分段;没打开过的不创建列表,避免进页面就多请求一次
-  final _visited = <int>{0};
   int _view = 0;
   int _pm = 0;
   String? _type;
-  static const _views = [
-    NoticeView.all,
-    NoticeView.mypost,
-    NoticeView.interactive,
-    NoticeView.system,
-    NoticeView.app,
-  ];
-  static const _labels = ['全部', '我的帖子', '互动', '系统', '应用'];
+  final _position = ValueNotifier<double>(0);
   MessageRepository get _repository => widget.repository ?? messageRepo;
 
-  List<({String label, String? value})> get _types =>
-      _views[_view] == NoticeView.mypost
-      ? [
-          (label: '全部类型', value: null),
-          (label: '回复', value: 'post'),
-          (label: '评分', value: 'rate'),
-          (label: '点评', value: 'pcomment'),
-          (label: '提到我', value: 'at'),
-          (label: '活动', value: 'activity'),
-          (label: '悬赏', value: 'reward'),
-          (label: '商品', value: 'goods'),
-        ]
-      : _views[_view] == NoticeView.interactive
-      ? [
-          (label: '全部类型', value: null),
-          (label: '打招呼', value: 'poke'),
-          (label: '好友', value: 'friend'),
-          (label: '留言', value: 'wall'),
-          (label: '评论', value: 'comment'),
-          (label: '互动', value: 'click'),
-          (label: '分享', value: 'sharenotice'),
-        ]
-      : [(label: '全部类型', value: null)];
-
   @override
-  Widget build(BuildContext context) {
-    final t = AppTokens.of(context);
-    // 朱砂红的分段住漆面(奶白轨道);薄雾白分段在纸面,用默认色
-    final onLac = t.style == AppearanceStyle.cinnabar;
-    final segmented = AnimatedBuilder(
-      animation: chhSession,
-      builder: (context, _) {
-        final counts = [chhSession.badges.notices, chhSession.badges.messages];
-        String label(int i) {
-          final name = i == 0 ? '提醒' : '私信';
-          final n = counts[i];
-          return n > 0 ? '$name ${n > 99 ? '99+' : n}' : name;
-        }
-
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpace.screen,
-            4,
-            AppSpace.screen,
-            6,
-          ),
-          child: AppSegmented<int>(
-            // 漆面 mast 上:轨道奶白玻璃、未选中淡朱,纸面深灰字在红底不可读
-            onLac: onLac,
-            fallbackTitle: '消息',
-            options: [
-              PickerOption(value: 0, label: label(0)),
-              PickerOption(value: 1, label: label(1)),
-            ],
-            value: _section,
-            onChanged: (i) => setState(() {
-              _section = i;
-              _visited.add(i);
-            }),
-          ),
-        );
-      },
-    );
-    // 每段包独立的 PrimaryScrollController:当前段继承 NestedScrollView 的
-    // 内层控制器参与漆面收起,隐藏段用 none 阻断继承(框架建私有 fallback
-    // 保住滚动位置)。不能给 ListView 显式传/换 controller——Scrollable 在
-    // controller swap 时会把现有 position 原样 attach 到新 controller,
-    // 普通 position 挂上 NestedScrollView 内层控制器会炸类型断言
-    // (release 下断言剥离,后续 as 强转抛错,整帧中断 = 真机灰屏)。
-    Widget segment(int i) => i == 0
-        ? _MessageFeed<Notice>(
-            key: ValueKey('notice-$_view-$_type'),
-            empty: '暂时没有提醒',
-            identity: (n) => n.id,
-            date: (n) => n.occurredAtText,
-            load: (page, {bool refresh = false}) => _repository.notices(
-              view: _views[_view],
-              type: _type,
-              page: page,
-              refresh: refresh,
-            ),
-            next: (previous) => _repository.noticesNext(previous),
-            itemBuilder: (n) => _NoticeRow(notice: n),
-            filter: _noticeFilter(),
-          )
-        : _visited.contains(1)
-        ? _MessageFeed<PmConversation>(
-            key: ValueKey('pm-$_pm'),
-            empty: _pm == 0 ? '还没有私人消息' : '暂时没有公共消息',
-            identity: (c) => c.id,
-            date: (c) => c.timeRaw,
-            load: (page, {bool refresh = false}) => _repository.conversations(
-              filter: _pm == 0 ? PmFilter.privatePm : PmFilter.announcePm,
-              page: page,
-              refresh: refresh,
-            ),
-            itemBuilder: (c) =>
-                _ConversationRow(conversation: c, repository: _repository),
-            filter: PickerButton<int>(
-              sheetTitle: '私信类型',
-              options: const [
-                PickerOption(value: 0, label: '私人消息'),
-                PickerOption(value: 1, label: '公共消息'),
-              ],
-              value: _pm,
-              onChanged: (i) => setState(() => _pm = i),
-            ),
-          )
-        : const SizedBox.shrink();
-    Widget stack(ScrollController? inner) => IndexedStack(
-      index: _section,
-      children: [
-        for (var i = 0; i < 2; i++)
-          TickerMode(
-            enabled: _section == i,
-            child: _section == i && inner != null
-                // 当前段:继承 NestedScrollView 内层控制器,参与漆面收起
-                ? PrimaryScrollController(controller: inner, child: segment(i))
-                // 隐藏段(或无内层控制器):阻断继承(none),框架私有
-                // fallback 保住滚动位置
-                : PrimaryScrollController.none(child: segment(i)),
-          ),
-      ],
-    );
-    if (widget.tab) {
-      if (!onLac) {
-        // 薄雾白:分段在纸面 header 上,随内容一起滚走(1.0.7 行为);
-        // 列表同样经 PrimaryScrollController 继承内层控制器,见 stack() 说明
-        return LargeTitleScaffold(
-          title: '消息',
-          showBack: false,
-          header: segmented,
-          body: Builder(
-            builder: (context) =>
-                stack(PrimaryScrollController.maybeOf(context)),
-          ),
-        );
-      }
-      // 朱砂红:分段住进漆面,随页面一起上收(用户定稿:不置顶)。
-      // 当前分段的列表经 PrimaryScrollController 继承 NestedScrollView
-      // 内层控制器参与漆面收起,见 stack() 里的说明
-      return LacScaffold(
-        title: '消息',
-        mast: segmented,
-        body: Builder(
-          builder: (context) => stack(PrimaryScrollController.maybeOf(context)),
-        ),
-      );
-    }
-    if (widget.showTitle) {
-      return LargeTitleScaffold(
-        title: '消息',
-        showBack: true,
-        header: segmented,
-        body: Builder(
-          builder: (context) => stack(PrimaryScrollController.maybeOf(context)),
-        ),
-      );
-    }
-    return Column(
-      children: [
-        segmented,
-        Expanded(child: stack(null)),
-      ],
-    );
+  void dispose() {
+    _position.dispose();
+    super.dispose();
   }
 
-  /// 提醒的分类与子类型:放在第一个日期行右侧,而不是横向铺开
-  Widget _noticeFilter() => Row(
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      if (_types.length > 1) ...[
-        PickerButton<String?>(
-          sheetTitle: '提醒子类型',
-          options: [
-            for (final type in _types)
-              PickerOption(value: type.value, label: type.label),
-          ],
-          value: _type,
-          onChanged: (value) => setState(() => _type = value),
-        ),
-        const SizedBox(width: 12),
-      ],
-      PickerButton<int>(
-        sheetTitle: '提醒类型',
-        options: [
-          for (var i = 0; i < _labels.length; i++)
-            PickerOption(value: i, label: _labels[i]),
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: chhSession,
+    builder: (context, _) {
+      final onLac = AppTokens.of(context).style == AppearanceStyle.cinnabar;
+      Widget segmented({bool compact = false}) => AppSegmented<int>(
+        options: const [
+          PickerOption(value: 0, label: '提醒'),
+          PickerOption(value: 1, label: '私信'),
         ],
-        value: _view,
-        onChanged: (i) => setState(() {
-          _view = i;
-          _type = null;
-        }),
-      ),
-    ],
+        value: _section,
+        onChanged: (i) => setState(() => _section = i),
+        compact: compact,
+        onLac: onLac,
+        position: _position,
+        messageStyle: true,
+        badgeCounts: [chhSession.badges.notices, chhSession.badges.messages],
+      );
+      final header = Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          LargeTitleHeader(
+            title: '消息',
+            onLac: onLac,
+            compact: widget.tab && !onLac,
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpace.groupInset,
+              TabChromeTokens.mistySegmentGap,
+              AppSpace.groupInset,
+              0,
+            ),
+            child: segmented(),
+          ),
+        ],
+      );
+      Widget page(int i) => i == 0
+          ? _MessageFeed<Notice>(
+              key: ValueKey((
+                'notices-feed',
+                chhSession.authenticationRevision,
+                chhSession.loggedIn,
+              )),
+              revision: (_view, _type),
+              empty: _type == null && _view == 0
+                  ? '没有提醒'
+                  : '没有${_type == null ? noticeViewLabels[_view] : noticeTypes(_view).firstWhere((e) => e.value == _type).label}提醒',
+              identity: (n) => n.id,
+              date: (n) => n.occurredAtText,
+              load: (page, {bool refresh = false}) => _repository.notices(
+                view: noticeViews[_view],
+                type: _type,
+                page: page,
+                refresh: refresh,
+              ),
+              next: (previous) => _repository.noticesNext(previous),
+              itemBuilder: (n) => _NoticeRow(
+                key: ValueKey(n.id),
+                notice: n,
+                read: _readNotices.contains(n.id),
+                onRead: () => _readNotices.add(n.id),
+              ),
+              filter: NoticeFilter(
+                view: _view,
+                type: _type,
+                onChanged: (v, t) => setState(() {
+                  _view = v;
+                  _type = t;
+                }),
+              ),
+              header: header,
+              compact: segmented(compact: true),
+              chrome: widget.tab || widget.showTitle,
+              showBack: widget.showTitle,
+              compactMisty: widget.tab,
+            )
+          : _MessageFeed<PmConversation>(
+              key: ValueKey((
+                'pm-feed',
+                chhSession.authenticationRevision,
+                chhSession.loggedIn,
+              )),
+              revision: _pm,
+              updateCount: chhSession.badges.messages,
+              groupByDate: false,
+              empty: _pm == 0 ? '还没有私人消息' : '暂时没有公共消息',
+              identity: (c) => c.id,
+              date: (c) => c.timeRaw,
+              load: (page, {bool refresh = false}) => _repository.conversations(
+                filter: _pm == 0 ? PmFilter.privatePm : PmFilter.announcePm,
+                page: page,
+                refresh: refresh,
+              ),
+              itemBuilder: (c) => _ConversationRow(
+                key: ValueKey(c.id),
+                conversation: c,
+                repository: _repository,
+              ),
+              filter: PmFilterLabel(
+                value: _pm,
+                onChanged: (i) => setState(() => _pm = i),
+              ),
+              header: header,
+              compact: segmented(compact: true),
+              chrome: widget.tab || widget.showTitle,
+              showBack: widget.showTitle,
+              compactMisty: widget.tab,
+            );
+      final pager = MessagePager(
+        value: _section,
+        position: _position,
+        onChanged: (i) => setState(() => _section = i),
+        itemBuilder: (context, i) => page(i),
+      );
+      return widget.tab || widget.showTitle
+          ? pager
+          : Column(
+              children: [
+                Padding(padding: const EdgeInsets.all(16), child: segmented()),
+                Expanded(child: pager),
+              ],
+            );
+    },
   );
 }
 
 class _NoticeRow extends StatelessWidget {
   final Notice notice;
-  const _NoticeRow({required this.notice});
+  final bool read;
+  final VoidCallback onRead;
+  const _NoticeRow({
+    super.key,
+    required this.notice,
+    required this.read,
+    required this.onRead,
+  });
   @override
   Widget build(BuildContext context) {
     return NoticeRow(
-      avatar: AvatarImage(url: notice.avatarUrl, size: 44),
-      name: notice.actor ?? '系统提醒',
+      avatar: AvatarImage(
+        url: notice.avatarUrl,
+        name: notice.actor ?? '',
+        size: 40,
+      ),
+      name: notice.actor ?? '系统',
       time: _clock(notice.occurredAtText),
-      text: notice.summary,
-      onTap: () => _open(context),
+      text:
+          notice.action ??
+          notice.summary.replaceFirst(notice.actor ?? '', '').trim(),
+      title: notice.title,
+      scoreText: notice.score,
+      category: notice.category,
+      system: notice.actor == null,
+      unread: notice.unread && !read,
+      onTap: () {
+        onRead();
+        _open(context);
+      },
     );
   }
 
@@ -334,14 +284,22 @@ class _ConversationRow extends StatelessWidget {
   final PmConversation conversation;
   final MessageRepository repository;
   const _ConversationRow({
+    super.key,
     required this.conversation,
     required this.repository,
   });
   @override
   Widget build(BuildContext context) => NoticeRow(
-    avatar: AvatarImage(url: conversation.avatarUrl, size: 44),
+    avatar: AvatarImage(
+      url: conversation.avatarUrl,
+      name: conversation.peer,
+      size: 48,
+    ),
     name: conversation.peer,
-    time: _clock(conversation.timeRaw),
+    time: messagePreviewTime(conversation.timeRaw),
+    conversation: true,
+    isOutgoing: conversation.isOutgoing,
+    unread: conversation.unread,
     text: conversation.preview,
     onTap: () => Navigator.of(context).push(
       MaterialPageRoute(
@@ -364,20 +322,23 @@ String _day(String raw) {
   return '${date.year == now.year ? '' : '${date.year}年'}${date.month}月${date.day}日';
 }
 
+String messagePreviewTime(String raw, {DateTime? now}) {
+  now ??= DateTime.now();
+  if (raw.contains('昨天')) return '昨天';
+  if (raw.contains('今天')) return _clock(raw);
+  final date = ChhUrls.parseTime(raw);
+  if (date == null) return raw;
+  final day = DateUtils.dateOnly(date), today = DateUtils.dateOnly(now);
+  if (day == today) return _clock(raw);
+  if (day == today.subtract(const Duration(days: 1))) return '昨天';
+  return '${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+}
+
 String _clock(String raw) =>
     RegExp(r'\d{1,2}:\d{2}').firstMatch(raw)?.group(0) ?? raw;
 
-/// Local pagination provides an actionable retry instead of swallowing failures.
+/// Serial pagination keeps source next URLs and leaves existing rows on failure.
 class _MessageFeed<T> extends StatefulWidget {
-  final Future<Paged<T>> Function(int page, {bool refresh}) load;
-  final Future<Paged<T>> Function(Paged<T> previous)? next;
-  final Widget Function(T item) itemBuilder;
-  final String Function(T item) identity;
-  final String Function(T item) date;
-  final String empty;
-
-  /// 类型选择:放在第一个日期行右侧;无内容、加载或失败时单独占一行
-  final Widget? filter;
   const _MessageFeed({
     super.key,
     required this.load,
@@ -386,42 +347,157 @@ class _MessageFeed<T> extends StatefulWidget {
     required this.identity,
     required this.date,
     required this.empty,
-    this.filter,
+    required this.filter,
+    required this.header,
+    required this.compact,
+    required this.revision,
+    required this.chrome,
+    this.showBack = false,
+    this.compactMisty = false,
+    this.groupByDate = true,
+    this.updateCount = 0,
   });
+  final Future<Paged<T>> Function(int page, {bool refresh}) load;
+  final Future<Paged<T>> Function(Paged<T>)? next;
+  final Widget Function(T) itemBuilder;
+  final String Function(T) identity;
+  final String Function(T) date;
+  final String empty;
+  final Widget filter, header, compact;
+  final Object revision;
+  final bool chrome, showBack, groupByDate;
+  final bool compactMisty;
+  final int updateCount;
   @override
   State<_MessageFeed<T>> createState() => _MessageFeedState<T>();
 }
 
-class _MessageFeedState<T> extends State<_MessageFeed<T>> {
+class _MessageFeedState<T> extends State<_MessageFeed<T>>
+    with SingleTickerProviderStateMixin {
+  late final _arrival = AnimationController(
+    vsync: this,
+    duration: AppMotion.fade,
+    value: 1,
+  );
   final _items = <T>[];
-  Paged<T>? _last;
-  bool _busy = false;
-  bool _started = false;
-  bool _hasNext = false;
+  final _scroll = ScrollController();
+  final _inserted = <String>{};
+  Paged<T>? _last, _pending;
+  bool _busy = false, _started = false, _hasNext = false, _failedMore = false;
+  bool _refreshQueued = false;
   Object? _error;
+  int _generation = 0;
+  bool get _atTop =>
+      !_scroll.hasClients ||
+      (_scroll.offset <= .5 && !_scroll.position.isScrollingNotifier.value);
 
   @override
   void initState() {
     super.initState();
+    _arrival;
+    _scroll.addListener(_onScroll);
     _fetch(refresh: true);
   }
 
-  /// 无限加载走 ScrollNotification:不持有滚动控制器(一级页形态下列表
-  /// 的控制器归 NestedScrollView 的内层所有,见 stack() 里的说明)
-  bool _onScroll(ScrollNotification notification) {
-    if (_busy ||
-        _hasNext ||
-        _error != null ||
-        notification.metrics.axis != Axis.vertical ||
-        notification.metrics.extentAfter >= 260) {
-      return false;
+  @override
+  void didUpdateWidget(covariant _MessageFeed<T> oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.revision != widget.revision) {
+      _generation++;
+      _refreshQueued = false;
+      _busy = false;
+      _pending = null;
+      if (!widget.groupByDate) {
+        _items.clear();
+        _last = null;
+        _started = false;
+        _hasNext = false;
+        if (_scroll.hasClients) _scroll.jumpTo(0);
+      }
+      _fetch(refresh: true);
+    } else if (widget.updateCount > oldWidget.updateCount) {
+      _fetch(refresh: true, deferWhileReading: true);
     }
-    _fetch(more: true);
-    return false;
   }
 
-  Future<void> _fetch({bool more = false, bool refresh = false}) async {
-    if (_busy) return;
+  @override
+  void dispose() {
+    _scroll.dispose();
+    _arrival.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (_pending != null && _atTop) {
+      final result = _pending!;
+      _pending = null;
+      setState(() => _apply(result, false));
+    }
+    if (_scroll.hasClients &&
+        _scroll.position.extentAfter < 260 &&
+        _hasNext &&
+        !_busy &&
+        _error == null) {
+      _fetch(more: true);
+    }
+  }
+
+  void _apply(Paged<T> result, bool more) {
+    final previous = _last;
+    final oldIds = _items.map(widget.identity).toSet();
+    _inserted.clear();
+    if (!more) {
+      _pending = null;
+      if (!widget.groupByDate && _started && _atTop) {
+        _inserted.addAll(
+          result.items
+              .map(widget.identity)
+              .where((id) => !oldIds.contains(id))
+              .take(24),
+        );
+      }
+      _items.clear();
+    }
+    final ids = _items.map(widget.identity).toSet();
+    final fresh = result.items
+        .where((e) => ids.add(widget.identity(e)))
+        .toList();
+    _items.addAll(fresh);
+    if (!widget.groupByDate) {
+      // Stable fallback when the source supplied no parseable date.
+      final order = {
+        for (var i = 0; i < _items.length; i++) widget.identity(_items[i]): i,
+      };
+      _items.sort((a, b) {
+        final at = ChhUrls.parseTime(widget.date(a)),
+            bt = ChhUrls.parseTime(widget.date(b));
+        if (at == null && bt != null) return 1;
+        if (at != null && bt == null) return -1;
+        final byTime = at != null && bt != null ? bt.compareTo(at) : 0;
+        return byTime != 0
+            ? byTime
+            : order[widget.identity(a)]!.compareTo(order[widget.identity(b)]!);
+      });
+    }
+    _hasNext =
+        result.page.hasNext &&
+        (!more ||
+            (fresh.isNotEmpty &&
+                result.page.current > (previous?.page.current ?? 0)));
+    _last = result;
+  }
+
+  Future<void> _fetch({
+    bool more = false,
+    bool refresh = false,
+    bool deferWhileReading = false,
+  }) async {
+    if (_busy) {
+      if (deferWhileReading) _refreshQueued = true;
+      return;
+    }
+    if (more && !_hasNext) return;
+    final generation = _generation;
     setState(() {
       _busy = true;
       _error = null;
@@ -438,237 +514,393 @@ class _MessageFeedState<T> extends State<_MessageFeed<T>> {
               more ? (previous?.page.current ?? 0) + 1 : 1,
               refresh: refresh,
             );
-      if (!mounted) return;
+      if (!mounted || generation != _generation) return;
       setState(() {
-        if (!more) _items.clear();
-        final ids = _items.map(widget.identity).toSet();
-        _items.addAll(result.items.where((e) => ids.add(widget.identity(e))));
-        _hasNext =
-            result.page.hasNext &&
-            (!more || result.page.current > (previous?.page.current ?? 0));
-        _last = result;
+        if (deferWhileReading &&
+            !widget.groupByDate &&
+            !more &&
+            _started &&
+            !_atTop) {
+          _pending = result;
+        } else {
+          _apply(result, more);
+          if (!more && !deferWhileReading) {
+            _arrival.duration = MediaQuery.disableAnimationsOf(context)
+                ? AppMotion.reducedFade
+                : AppMotion.fade;
+            _arrival.forward(from: 0);
+          }
+        }
       });
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _error = e;
-          if (e is PageMessage &&
-              (e.kind == PageMessageKind.loginRequired ||
-                  e.kind == PageMessageKind.permissionDenied)) {
-            _items.clear();
-            _last = null;
-            _hasNext = false;
-          }
-        });
-      }
+      if (!mounted || generation != _generation) return;
+      setState(() {
+        _error = e;
+        _failedMore = more;
+        if (e is PageMessage &&
+            (e.kind == PageMessageKind.loginRequired ||
+                e.kind == PageMessageKind.permissionDenied)) {
+          _items.clear();
+          _last = null;
+          _hasNext = false;
+          _pending = null;
+        }
+      });
     } finally {
-      if (mounted) {
+      if (mounted && generation == _generation) {
         setState(() {
           _busy = false;
           _started = true;
         });
+        if (_refreshQueued) {
+          _refreshQueued = false;
+          await _fetch(refresh: true, deferWhileReading: true);
+        }
       }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final t = AppTokens.of(context);
-    if (!_started) return _withFilterRow(const _MessageSkeleton());
-    final error = _error;
-    if (_items.isEmpty && error != null) {
-      if (error is PageMessage) {
-        final login = error.kind == PageMessageKind.loginRequired;
-        return _withFilterRow(
-          StateView(
-            icon: login ? AppIcons.lock : AppIcons.info,
-            message: login ? '登录后查看消息' : error.text,
-            actionLabel: login ? '登录' : '重试',
-            onAction: login
-                ? () async {
-                    await Navigator.of(context).pushNamed('/login');
-                    if (mounted) await _fetch(refresh: true);
-                  }
-                : () => _fetch(refresh: true),
-          ),
-        );
-      }
-      return _withFilterRow(
-        StateView.error(error, onRetry: () => _fetch(refresh: true)),
-      );
-    }
-    return ExpressivePageReveal(
-      active: true,
-      animateOnMount: true,
-      child: NotificationListener<ScrollNotification>(
-        onNotification: _onScroll,
-        child: RefreshIndicator(
-          onRefresh: () => _fetch(refresh: true),
-          child: ListView.builder(
-            physics: const AlwaysScrollableScrollPhysics(
-              parent: BouncingScrollPhysics(),
+    final slivers = _slivers(context);
+    final body = widget.chrome
+        ? LacquerTabScaffold(
+            mistyCompact: widget.compactMisty,
+            // The label owns the gap so its 44dp filter target can extend into
+            // the whitespace while the visible date stays 20dp below the tabs.
+            mistyContentGap:
+                _items.isEmpty &&
+                    _error is PageMessage &&
+                    (_error as PageMessage).kind ==
+                        PageMessageKind.loginRequired
+                ? TabChromeTokens.mistyContentGap
+                : 0,
+            contentOnPaper: true,
+            title: '消息',
+            controller: _scroll,
+            header: widget.header,
+            compactTitle: Center(child: widget.compact),
+            actions: widget.showBack
+                ? [
+                    ChromeButton(
+                      icon: AppIcons.back,
+                      tooltip: '返回',
+                      onLac:
+                          AppTokens.of(context).style ==
+                          AppearanceStyle.cinnabar,
+                      onPressed: () => Navigator.of(context).maybePop(),
+                    ),
+                  ]
+                : const [],
+            onRefresh: () => _fetch(refresh: true),
+            slivers: slivers,
+          )
+        : RefreshIndicator(
+            onRefresh: () => _fetch(refresh: true),
+            child: CustomScrollView(
+              controller: _scroll,
+              physics: const AlwaysScrollableScrollPhysics(),
+              slivers: slivers,
             ),
-            padding: const EdgeInsets.only(top: 4, bottom: 120),
-            itemCount: _items.isEmpty ? 1 : _items.length + 1,
-            itemBuilder: (context, index) {
-              if (_items.isEmpty) {
-                return Column(
-                  children: [
-                    if (widget.filter != null) _filterRow(null),
-                    SizedBox(
-                      height: 300,
-                      child: StateView.empty(message: widget.empty),
+          );
+    return NotificationListener<ScrollEndNotification>(
+      onNotification: (_) {
+        if (_pending != null) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) _onScroll();
+          });
+        }
+        return false;
+      },
+      child: body,
+    );
+  }
+
+  List<Widget> _slivers(BuildContext context) {
+    final error = _error;
+    final login =
+        error is PageMessage && error.kind == PageMessageKind.loginRequired;
+    if (!_started) {
+      return [
+        SliverToBoxAdapter(child: SkeletonPulse(child: _MessageSkeleton())),
+      ];
+    }
+    if (_items.isEmpty) {
+      Widget child;
+      if (error is PageMessage) {
+        child = StateView(
+          icon: login ? AppIcons.lock : AppIcons.info,
+          message: login ? '登录后查看消息' : error.text,
+          actionLabel: login ? '登录' : '重试',
+          onAction: () async {
+            if (login) await Navigator.of(context).pushNamed('/login');
+            if (mounted) await _fetch(refresh: true);
+          },
+        );
+      } else if (error != null) {
+        child = StateView.error(error, onRetry: () => _fetch(refresh: true));
+      } else {
+        child = StateView(icon: AppIcons.notification, message: widget.empty);
+      }
+      return [
+        if (!login) SliverToBoxAdapter(child: _label(null, first: true)),
+        _card(
+          SliverToBoxAdapter(
+            child:
+                widget.compactMisty &&
+                    AppTokens.of(context).style == AppearanceStyle.misty
+                ? ConstrainedBox(
+                    constraints: const BoxConstraints(
+                      minHeight: MessageListTokens.stateMinHeight,
                     ),
-                  ],
-                );
-              }
-              if (index == _items.length) {
-                if (error != null) {
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    child: Center(
-                      child: AppButton(
-                        label: '未能加载更多，轻点重试',
-                        variant: AppButtonVariant.plain,
-                        icon: AppIcons.refresh,
-                        onPressed: () => _fetch(more: true),
-                      ),
-                    ),
-                  );
-                }
-                return Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 22),
-                  child: Center(
-                    child: _busy
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 1.5),
-                          )
-                        : _hasNext
-                        ? AppButton(
-                            label: '加载更多',
-                            variant: AppButtonVariant.plain,
-                            onPressed: () => _fetch(more: true),
-                          )
-                        : Text(
-                            '已显示全部消息',
-                            style: TextStyle(
-                              fontSize: AppType.sizeFootnote,
-                              color: t.text3,
-                            ),
-                          ),
+                    child: child,
+                  )
+                : SizedBox(
+                    height: MessageListTokens.stateMinHeight,
+                    child: child,
                   ),
-                );
-              }
-              final day = _day(widget.date(_items[index]));
-              final newDay =
-                  index == 0 || day != _day(widget.date(_items[index - 1]));
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  if (newDay && index == 0 && widget.filter != null)
-                    _filterRow(day)
-                  else if (newDay)
-                    Padding(
-                      padding: EdgeInsets.fromLTRB(
-                        AppSpace.screen,
-                        index == 0 ? 10 : 22,
-                        AppSpace.screen,
-                        2,
-                      ),
-                      child: Text(
-                        day,
-                        style: TextStyle(
-                          fontSize: AppType.sizeFootnote,
-                          color: t.text2,
-                          fontWeight: FontWeight.w600,
+          ),
+        ),
+      ];
+    }
+    final groups = <({String? day, List<T> rows})>[];
+    for (final item in _items) {
+      final day = widget.groupByDate ? _day(widget.date(item)) : null;
+      if (groups.isEmpty || groups.last.day != day) {
+        groups.add((day: day, rows: <T>[]));
+      }
+      groups.last.rows.add(item);
+    }
+    return [
+      for (final (index, group) in groups.indexed) ...[
+        SliverToBoxAdapter(child: _label(group.day, first: index == 0)),
+        _card(
+          SliverList.builder(
+            itemCount: group.rows.length,
+            findChildIndexCallback: (key) {
+              if (key is! ValueKey<String>) return null;
+              final index = group.rows.indexWhere(
+                (row) => widget.identity(row) == key.value,
+              );
+              return index < 0 ? null : index;
+            },
+            itemBuilder: (_, i) {
+              final item = group.rows[i], id = widget.identity(group.rows[i]);
+              return _NewMessageRow(
+                key: ValueKey(id),
+                reveal: _inserted.remove(id),
+                child: Stack(
+                  children: [
+                    widget.itemBuilder(item),
+                    Positioned.fill(
+                      child: IgnorePointer(
+                        child: AnimatedBuilder(
+                          animation: _arrival,
+                          builder: (_, _) => ColoredBox(
+                            color: AppTokens.of(
+                              context,
+                            ).surface.withValues(alpha: 1 - _arrival.value),
+                          ),
                         ),
                       ),
                     ),
-                  widget.itemBuilder(_items[index]),
-                ],
+                  ],
+                ),
               );
             },
           ),
         ),
+      ],
+      SliverToBoxAdapter(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 22),
+          child: Center(
+            child: error != null
+                ? AppButton(
+                    label: _failedMore ? '未能加载更多，轻点重试' : '未能刷新，轻点重试',
+                    variant: AppButtonVariant.plain,
+                    icon: AppIcons.refresh,
+                    onPressed: () =>
+                        _fetch(more: _failedMore, refresh: !_failedMore),
+                  )
+                : _busy
+                ? const SizedBox.square(
+                    dimension: 18,
+                    child: CircularProgressIndicator(strokeWidth: 1.5),
+                  )
+                : _hasNext
+                ? AppButton(
+                    label: '加载更多',
+                    variant: AppButtonVariant.plain,
+                    onPressed: () => _fetch(more: true),
+                  )
+                : Text(
+                    '已显示全部消息',
+                    style: AppType.footnote.copyWith(
+                      color: AppTokens.of(context).text3,
+                    ),
+                  ),
+          ),
+        ),
       ),
-    );
+      const SliverToBoxAdapter(child: SizedBox(height: 120)),
+    ];
   }
 
-  /// 第一个日期行:左侧日期,右侧类型选择
-  Widget _filterRow(String? day) {
-    final t = AppTokens.of(context);
-    return Padding(
-      key: const ValueKey('message-filter-row'),
-      padding: const EdgeInsets.fromLTRB(AppSpace.screen, 0, 12, 0),
-      child: Row(
-        children: [
-          if (day != null)
-            Text(
+  Widget _card(Widget sliver) => SliverPadding(
+    padding: const EdgeInsets.symmetric(horizontal: MessageListTokens.inset),
+    sliver: DecoratedSliver(
+      decoration: BoxDecoration(
+        color: AppTokens.of(context).surface,
+        borderRadius: BorderRadius.circular(MessageListTokens.cardRadius),
+        boxShadow: MessageListTokens.cardShadow(AppTokens.of(context)),
+      ),
+      sliver: SliverPadding(
+        padding: const EdgeInsets.all(MessageListTokens.cardPadding),
+        sliver: sliver,
+      ),
+    ),
+  );
+
+  Widget _label(String? day, {required bool first}) => Padding(
+    key: first ? const ValueKey('message-filter-row') : null,
+    padding:
+        first &&
+            widget.compactMisty &&
+            AppTokens.of(context).style == AppearanceStyle.misty
+        ? MessageListTokens.labelPadding.copyWith(
+            top:
+                TabChromeTokens.mistyContentGap -
+                ((MessageListTokens.labelHeight -
+                            MediaQuery.textScalerOf(
+                                  context,
+                                ).scale(AppType.sizeFootnote) *
+                                AppType.footnote.height!)
+                        .clamp(0.0, MessageListTokens.labelHeight) /
+                    2),
+          )
+        : MessageListTokens.labelPadding,
+    child: Row(
+      children: [
+        if (day != null)
+          Expanded(
+            child: Text(
               day,
-              style: TextStyle(
-                fontSize: AppType.sizeFootnote,
-                color: t.text2,
+              style: AppType.footnote.copyWith(
+                color: AppTokens.of(context).text3,
                 fontWeight: FontWeight.w600,
               ),
             ),
-          const Spacer(),
-          widget.filter!,
-        ],
-      ),
-    );
+          ),
+        if (first) widget.filter,
+      ],
+    ),
+  );
+}
+
+class _NewMessageRow extends StatefulWidget {
+  const _NewMessageRow({super.key, required this.reveal, required this.child});
+  final bool reveal;
+  final Widget child;
+  @override
+  State<_NewMessageRow> createState() => _NewMessageRowState();
+}
+
+class _NewMessageRowState extends State<_NewMessageRow>
+    with SingleTickerProviderStateMixin {
+  late final _progress = AnimationController.unbounded(vsync: this, value: 1);
+  @override
+  void initState() {
+    super.initState();
+    if (widget.reveal) _progress.value = 0;
   }
 
-  Widget _withFilterRow(Widget child) => widget.filter == null
-      ? child
-      : Column(
-          children: [
-            _filterRow(null),
-            Expanded(child: child),
-          ],
-        );
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_progress.value == 0) {
+      AppMotion.settle(
+        _progress,
+        target: 1,
+        motion: AppMotion.reveal,
+        reduced: MediaQuery.disableAnimationsOf(context),
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _progress.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: _progress,
+    child: widget.child,
+    builder: (_, child) => ClipRect(
+      child: Align(
+        alignment: Alignment.topCenter,
+        heightFactor: _progress.value.clamp(0.0, 1.0),
+        child: child,
+      ),
+    ),
+  );
 }
 
 class _MessageSkeleton extends StatelessWidget {
-  const _MessageSkeleton();
   @override
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
-    return ListView(
-      padding: const EdgeInsets.all(24),
-      children: List.generate(
-        4,
-        (index) => Padding(
-          padding: const EdgeInsets.only(bottom: 32),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                width: 46,
-                height: 46,
-                decoration: BoxDecoration(
-                  color: t.fill,
-                  borderRadius: BorderRadius.circular(AppRadii.md),
+    return Container(
+      key: const ValueKey('message-skeleton-card'),
+      margin: EdgeInsets.fromLTRB(
+        MessageListTokens.inset,
+        MessageListTokens.labelPadding.vertical + MessageListTokens.labelHeight,
+        MessageListTokens.inset,
+        0,
+      ),
+      padding: const EdgeInsets.all(MessageListTokens.cardPadding),
+      decoration: BoxDecoration(
+        color: t.surface,
+        borderRadius: BorderRadius.circular(MessageListTokens.cardRadius),
+      ),
+      child: Column(
+        children: List.generate(
+          3,
+          (i) => Padding(
+            padding: NoticeTokens.rowPadding,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  key: ValueKey('message-skeleton-avatar-$i'),
+                  width: NoticeTokens.avatar,
+                  height: NoticeTokens.avatar,
+                  decoration: BoxDecoration(
+                    color: t.fill,
+                    shape: BoxShape.circle,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(width: 110, height: 13, color: t.fill),
-                    const SizedBox(height: 13),
-                    Container(height: 13, color: t.fill),
-                    const SizedBox(height: 9),
-                    FractionallySizedBox(
-                      widthFactor: .65,
-                      child: Container(height: 13, color: t.fill),
-                    ),
-                  ],
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(height: 14, width: 150, color: t.fill),
+                      const SizedBox(height: 10),
+                      Container(
+                        height: 48,
+                        decoration: BoxDecoration(
+                          color: t.fill,
+                          borderRadius: BorderRadius.circular(AppRadii.sm),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

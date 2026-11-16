@@ -21,6 +21,7 @@ import 'package:html/parser.dart' as html_parser;
 import '../core/chh_urls.dart';
 import '../models/models.dart';
 import 'content_walker.dart';
+import 'poll_parser.dart';
 import 'dom_utils.dart';
 import 'post_action_parser.dart';
 
@@ -77,7 +78,16 @@ ThreadDetail parseThread(
     final floor = floorIsKnown ? parsedFloor : posts.length + 1;
 
     final message = table.querySelector('td[id^="postmessage_"]');
+    final groupLink = table
+        .querySelectorAll('.favatar > p > em > a[href*="ac=usergroup"]')
+        .where((link) => _belongsToPost(link, table, exclude: message))
+        .firstOrNull;
+    final groupUri = Uri.tryParse(groupLink?.attributes['href'] ?? '');
+    final groupId = int.tryParse(groupUri?.queryParameters['gid'] ?? '');
+    final groupName = groupLink?.text.trim();
     final locked = message == null ? table.querySelector('.pct .locked') : null;
+    final notes = <PostNote>[];
+    final content = _postContent(table, message, locked, tid, notes);
 
     posts.add(
       Post(
@@ -86,10 +96,14 @@ ThreadDetail parseThread(
         floorIsKnown: floorIsKnown,
         author: author,
         authorUid: authorUid,
+        authorGroupId: groupId != null && groupId > 0 ? groupId : null,
+        authorGroupName: groupName == null || groupName.isEmpty
+            ? null
+            : groupName,
         avatarUrl: avatarUrl,
         timeRaw: timeRaw,
         time: ChhUrls.parseTime(timeRaw),
-        content: _postContent(table, message, locked, tid),
+        content: content,
         lock: locked == null
             ? null
             : PostLock(
@@ -97,9 +111,9 @@ ThreadDetail parseThread(
                 needsPassword:
                     locked.querySelector('input[id^="postpw_"]') != null,
               ),
-        notes: _notesIn(message),
+        notes: notes,
         // 评分与点评挂在楼层容器上,不在正文单元格里
-        rating: _ratingOf(doc, pid),
+        rating: _ratingOf(doc, tid, pid),
         comments: _commentsOf(doc, pid),
         actions: parsePostActionCapabilities(table, tid: tid, pid: pid),
       ),
@@ -108,6 +122,7 @@ ThreadDetail parseThread(
 
   return ThreadDetail(
     tid: tid,
+    poll: fallbackPage == 1 ? parseThreadPollDocument(doc, tid: tid) : null,
     cookiePrefix: RegExp(
       r"cookiepre\s*=\s*'([^']*)'",
     ).firstMatch(html)?.group(1),
@@ -115,8 +130,70 @@ ThreadDetail parseThread(
     forumName: _forumName(doc),
     title: title,
     posts: posts,
+    viewCount: _threadCount(doc, '查看'),
+    replyCount: _threadCount(doc, '回复'),
+    favoriteCount: _favoriteCount(doc, tid),
     page: parsePager(doc, fallbackPage: fallbackPage),
   );
+}
+
+int? _favoriteCount(dom.Document doc, int tid) {
+  for (final action in doc.querySelectorAll('a#k_favorite')) {
+    var inContent = false;
+    for (var node = action.parent; node != null; node = node.parent) {
+      if (node.id.startsWith('postmessage_') ||
+          node.classes.contains('sign') ||
+          node.classes.contains('quote')) {
+        inContent = true;
+        break;
+      }
+    }
+    if (inContent) continue;
+    final uri = Uri.tryParse(
+      ChhUrls.absolutize(action.attributes['href'] ?? ''),
+    );
+    final q = uri?.queryParameters;
+    if (uri?.host != 'www.chiphell.com' && uri?.host != 'chiphell.com') {
+      continue;
+    }
+    if (uri?.path != '/home.php' ||
+        q?['mod'] != 'spacecp' ||
+        q?['ac'] != 'favorite' ||
+        q?['type'] != 'thread' ||
+        q?['id'] != '$tid') {
+      continue;
+    }
+    final raw = action.querySelector('#favoritenumber')?.text.trim();
+    if (raw == null) continue;
+    if (raw.isEmpty) return 0;
+    if (RegExp(r'^(?:[0-9]+|[0-9]{1,3}(?:,[0-9]{3})+)$').hasMatch(raw)) {
+      return int.tryParse(raw.replaceAll(',', ''));
+    }
+  }
+  return null;
+}
+
+/// Only the thread header may provide totals; post text and rating counts cannot.
+int? _threadCount(dom.Document doc, String label) {
+  for (final header in doc.querySelectorAll(
+    '#postlist .hm, #postlist td.pls.ptn.pbn',
+  )) {
+    var insidePost = false;
+    for (var node = header; node.parent != null; node = node.parent!) {
+      if (node.id.startsWith('postmessage_') ||
+          (node.localName == 'table' &&
+              RegExp(r'^pid\d+$').hasMatch(node.id))) {
+        insidePost = true;
+        break;
+      }
+    }
+    if (insidePost) continue;
+    final match = RegExp(
+      '$label\\s*[:：]\\s*([0-9]+(?:,[0-9]{3})*)(?![0-9,.万千wWkK])',
+    ).firstMatch(header.text);
+    if (match != null) return int.tryParse(match[1]!.replaceAll(',', ''));
+  }
+  return null;
 }
 
 List<ContentBlock> _postContent(
@@ -124,11 +201,12 @@ List<ContentBlock> _postContent(
   dom.Element? message,
   dom.Element? locked,
   int tid,
+  List<PostNote> notes,
 ) {
   // 正文先按原顺序解析；整楼锁定时不从正文外补回图片。
   final blocks = message == null
       ? <ContentBlock>[]
-      : parseContentBlocks(message, threadId: tid);
+      : parseContentBlocks(message, threadId: tid, notes: notes);
   if (locked != null) return blocks;
   final seenUrls = blocks.whereType<ImageBlock>().map((b) => b.url).toSet();
   final seenIds = <int>{};
@@ -248,25 +326,8 @@ String? _forumName(dom.Document doc) {
   return null;
 }
 
-/// 说明块:同一个 i.pstatus 承载编辑说明与补充内容,按文案区分
-List<PostNote> _notesIn(dom.Element? message) {
-  if (message == null) return const [];
-  final out = <PostNote>[];
-  for (final el in message.querySelectorAll('.pstatus')) {
-    final text = el.text.replaceAll(RegExp(r'[\s\u00a0]+'), ' ').trim();
-    if (text.isEmpty) continue;
-    out.add(
-      PostNote(
-        text.startsWith('补充内容') ? PostNoteKind.supplement : PostNoteKind.edited,
-        text,
-      ),
-    );
-  }
-  return out;
-}
-
 /// 评分:表头是汇总项,tbody.ratl_l 每行一条明细
-PostRating? _ratingOf(dom.Document doc, int pid) {
+PostRating? _ratingOf(dom.Document doc, int tid, int pid) {
   final box = doc.querySelector('#ratelog_$pid');
   if (box == null) return null;
 
@@ -312,7 +373,27 @@ PostRating? _ratingOf(dom.Document doc, int pid) {
     );
   }
 
-  final rating = PostRating(summary: summary, entries: entries);
+  Uri? detailsUrl;
+  final scope = doc.getElementById('post_$pid') ?? box.parent ?? box;
+  for (final link in [
+    ...box.querySelectorAll('a[href]'),
+    ...scope.querySelectorAll('a[href]'),
+  ]) {
+    final href = Uri.tryParse(link.attributes['href'] ?? '');
+    if (href == null) continue;
+    final uri = Uri.parse('${ChhUrls.base}/').resolveUri(href);
+    if (ChhUrls.isViewRatings(uri, tid: tid, pid: pid)) {
+      detailsUrl = uri;
+      break;
+    }
+  }
+  final rating = PostRating(
+    summary: summary,
+    entries: entries,
+    tid: tid,
+    pid: pid,
+    detailsUrl: detailsUrl ?? ChhUrls.viewRatings(tid, pid),
+  );
   return rating.isEmpty ? null : rating;
 }
 

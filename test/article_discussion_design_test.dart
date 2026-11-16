@@ -22,7 +22,7 @@ Widget _app(Widget child, {bool large = false}) => MaterialApp(
 );
 
 const _quote = QuoteBlock([
-  TextBlock('这段引用比较长，用来确认初始展示的是两行摘要，而完整正文只在明确展开后出现。'),
+  TextBlock('合成第一行\n合成第二行\n合成第三行\n合成第四行\n合成第五行'),
   TextBlock('展开后的独立尾段'),
 ], source: '被引用的评论');
 
@@ -43,6 +43,62 @@ const _discussion = ArticleDiscussion(
 );
 
 void main() {
+  testWidgets('standalone comments keep modes and count in the top bar', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _app(
+        ArticleDiscussionPage(
+          aid: _discussion.aid,
+          title: _discussion.title,
+          loadPage: (_, _) async => _discussion,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final bar = tester.getRect(find.byType(CommentModeBar));
+    final count = tester.getRect(find.text('14'));
+    expect(bar.center.dy, closeTo(count.center.dy, 1));
+    expect(bar.left, greaterThan(count.right));
+    expect(bar.height, 44);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'sheet trailing modes retain icon targets with large long counts',
+    (tester) async {
+      tester.view.physicalSize = const Size(320, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildAppTheme(Brightness.light),
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: TextScaler.linear(2)),
+            child: child!,
+          ),
+          home: Scaffold(
+            body: SheetHeader(
+              title: '评论',
+              count: 123456789,
+              trailingMinWidth:
+                  CommentModeTokens.inset * 2 +
+                  CommentModeTokens.iconSegment * 3,
+              trailing: CommentModeBar(
+                mode: CommentViewMode.threaded,
+                onChanged: (_) {},
+              ),
+            ),
+          ),
+        ),
+      );
+      expect(find.byKey(const ValueKey('comment-mode-2')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets(
     'quoted context expands on demand and collapses to its original height',
     (tester) async {
@@ -60,14 +116,14 @@ void main() {
       );
       final collapsed = tester.getSize(find.byType(DiscussionQuote)).height;
       expect(find.text('展开后的独立尾段'), findsNothing);
-      await tester.tap(find.text('展开引用'));
+      await tester.tap(find.text('展开'));
       await tester.pumpAndSettle();
-      expect(find.text('展开后的独立尾段'), findsOneWidget);
+      expect(find.textContaining('展开后的独立尾段'), findsOneWidget);
       expect(
         tester.getSize(find.byType(DiscussionQuote)).height,
         greaterThan(collapsed),
       );
-      await tester.tap(find.text('收起引用'));
+      await tester.tap(find.text('收起'));
       await tester.pumpAndSettle();
       expect(
         tester.getSize(find.byType(DiscussionQuote)).height,
@@ -93,9 +149,9 @@ void main() {
       ),
     );
     final collapsed = tester.getSize(find.byType(DiscussionQuote)).height;
-    await tester.tap(find.text('展开引用'));
+    await tester.tap(find.text('展开'));
     await tester.pump(const Duration(milliseconds: 32));
-    await tester.tap(find.text('收起引用'));
+    await tester.tap(find.text('收起'));
     await tester.pumpAndSettle();
     expect(
       tester.getSize(find.byType(DiscussionQuote)).height,
@@ -231,17 +287,22 @@ void main() {
       expect(find.byKey(const ValueKey('discussion-context')), findsNothing);
       expect(find.text(_discussion.title), findsOneWidget);
       expect(find.text('文章评论'), findsNothing);
+      expect(tester.widget<SheetHeader>(find.byType(SheetHeader)).title, '评论');
       expect(
         find.descendant(
           of: find.byType(SheetHeader),
-          matching: find.text('评论'),
+          matching: find.byType(CommentModeBar),
         ),
         findsOneWidget,
       );
+      final modes = tester.getRect(find.byType(CommentModeBar));
+      final close = tester.getRect(find.byTooltip('关闭讨论'));
+      expect(modes.center.dy, closeTo(close.center.dy, 1));
+      expect(modes.right, lessThanOrEqualTo(close.left));
       expect(find.text('30'), findsOneWidget);
       // 查看方式与帖子同一个控件;认不出作者时只有两段
       expect(find.byType(CommentModeBar), findsOneWidget);
-      expect(find.text('原楼层'), findsOneWidget);
+      expect(find.byKey(const ValueKey('comment-mode-1')), findsOneWidget);
       expect(find.text('只看作者'), findsNothing);
       // 底部是 fill 底的"写评论…"输入胶囊
       final action = find.byKey(const ValueKey('discussion-write-action'));
@@ -255,7 +316,9 @@ void main() {
           )
           .map((b) => b.decoration)
           .whereType<BoxDecoration>()
-          .firstWhere((d) => d.borderRadius == BorderRadius.circular(AppRadii.full));
+          .firstWhere(
+            (d) => d.borderRadius == BorderRadius.circular(AppRadii.full),
+          );
       expect(capsule.color, AppTokens.light.fill);
       // 评论与帖子评论同样式:圆形头像、浅色"回复"文字
       final tile = find.byType(ArticleCommentTile).first;

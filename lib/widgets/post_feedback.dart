@@ -1,11 +1,19 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+
+import '../data/rating_repository.dart';
+import '../di.dart' show ratingRepo;
+import '../pages/source_page_drawer.dart';
+import 'package:motor/motor.dart';
 import '../ui/hit_slop.dart';
 
 import '../design/feedback.dart';
 import '../design/icons.dart';
 import '../design/motion.dart';
 import '../design/tokens.dart';
+import '../design/thread_tokens.dart';
 import '../models/models.dart';
+import '../ui/chat.dart' show chatTimestamp;
 import '../ui/press.dart';
 import 'avatar_image.dart';
 
@@ -48,11 +56,21 @@ String _summaryText(RatingSummaryItem item) =>
 class OpeningFeedback extends StatelessWidget {
   final PostRating? rating;
   final List<PostComment> comments;
-  const OpeningFeedback({super.key, this.rating, this.comments = const []});
+  final RatingRepository? repository;
+  const OpeningFeedback({
+    super.key,
+    this.rating,
+    this.comments = const [],
+    this.repository,
+  });
 
   @override
-  Widget build(BuildContext context) =>
-      _FeedbackCards(rating: rating, comments: comments, opening: true);
+  Widget build(BuildContext context) => _FeedbackCards(
+    rating: rating,
+    comments: comments,
+    opening: true,
+    repository: repository,
+  );
 }
 
 class FloorFeedback extends StatelessWidget {
@@ -66,6 +84,7 @@ class FloorFeedback extends StatelessWidget {
 }
 
 class _FeedbackCards extends StatelessWidget {
+  final RatingRepository? repository;
   final PostRating? rating;
   final List<PostComment> comments;
   final bool opening;
@@ -73,6 +92,7 @@ class _FeedbackCards extends StatelessWidget {
     required this.rating,
     required this.comments,
     required this.opening,
+    this.repository,
   });
 
   @override
@@ -97,7 +117,12 @@ class _FeedbackCards extends StatelessWidget {
             if (strip)
               _RatingStrip(rating: rating!)
             else
-              _RatingCard(rating: rating!, opening: opening),
+              _RatingCard(
+                key: const PageStorageKey('rating-card'),
+                rating: rating!,
+                opening: opening,
+                repository: repository,
+              ),
           if (hasRating && comments.isNotEmpty)
             const SizedBox(height: FeedbackMetrics.cardGap),
           if (comments.isNotEmpty)
@@ -111,13 +136,40 @@ class _FeedbackCards extends StatelessWidget {
 class _RatingCard extends StatefulWidget {
   final PostRating rating;
   final bool opening;
-  const _RatingCard({required this.rating, required this.opening});
+  final RatingRepository? repository;
+  const _RatingCard({
+    super.key,
+    required this.rating,
+    required this.opening,
+    this.repository,
+  });
   @override
   State<_RatingCard> createState() => _RatingCardState();
 }
 
 class _RatingCardState extends State<_RatingCard> {
   bool _expanded = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _expanded =
+        PageStorage.maybeOf(context)?.readState(context) as bool? ?? false;
+  }
+
+  void _toggle() {
+    setState(() => _expanded = !_expanded);
+    PageStorage.maybeOf(context)?.writeState(context, _expanded);
+  }
+
+  Widget _row(RatingEntry entry, int index) => _RatingRow(
+    key: PageStorageKey((index, entry.user, entry.score, entry.reason)),
+    entry: entry,
+    rating: widget.rating,
+    repository: widget.repository,
+    opening: widget.opening,
+  );
+
   @override
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
@@ -133,12 +185,13 @@ class _RatingCardState extends State<_RatingCard> {
       decoration: BoxDecoration(
         color: PostFeedbackHighlight.backgroundOf(
           context,
-          opening ? t.greenFill : t.greenSoft,
-          emphasis: t.green.withValues(alpha: .10),
+          opening ? t.surface : t.greenSoft,
+          emphasis: opening ? t.accentFill : t.green.withValues(alpha: .10),
         ),
         borderRadius: BorderRadius.circular(
           opening ? FeedbackMetrics.cardRadius : FeedbackMetrics.floorRadius,
         ),
+        boxShadow: opening ? t.shadowE1 : null,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -153,7 +206,6 @@ class _RatingCardState extends State<_RatingCard> {
             child: _RatingHeader(rating: widget.rating, opening: opening),
           ),
           if (entries.isNotEmpty) ...[
-            _Rule(color: t.greenLine),
             Padding(
               padding: EdgeInsets.symmetric(
                 horizontal: inset,
@@ -161,14 +213,14 @@ class _RatingCardState extends State<_RatingCard> {
               ),
               child: Column(
                 children: [
-                  for (final entry in entries.take(fold))
-                    _RatingRow(entry: entry, opening: opening),
+                  for (var i = 0; i < entries.length && i < fold; i++)
+                    _row(entries[i], i),
                   _Reveal(
                     open: _expanded,
                     child: Column(
                       children: [
-                        for (final entry in entries.skip(fold))
-                          _RatingRow(entry: entry, opening: opening),
+                        for (var i = fold; i < entries.length; i++)
+                          _row(entries[i], i),
                       ],
                     ),
                   ),
@@ -179,10 +231,11 @@ class _RatingCardState extends State<_RatingCard> {
           if (entries.length > fold)
             _ExpandButton(
               expanded: _expanded,
-              label: '展开全部 ${entries.length} 条评分',
-              color: t.green,
-              ruleColor: t.greenLine,
-              onTap: () => setState(() => _expanded = !_expanded),
+              label: opening
+                  ? '其余 ${entries.length - fold} 人'
+                  : '展开全部 ${entries.length} 条评分',
+              color: ThreadTokens.score(t),
+              onTap: _toggle,
             ),
         ],
       ),
@@ -218,7 +271,7 @@ class _RatingHeader extends StatelessWidget {
                 fontSize: opening
                     ? FeedbackMetrics.summaryLabelSize
                     : FeedbackMetrics.floorSummaryLabelSize,
-                color: t.green,
+                color: ThreadTokens.score(t),
               ),
             ),
         if (participants != null)
@@ -239,7 +292,7 @@ class _RatingHeader extends StatelessWidget {
           border: opening
               ? FeedbackMetrics.avatarBorder
               : FeedbackMetrics.compactAvatarBorder,
-          background: opening ? t.greenFill : t.greenSoft,
+          background: opening ? t.surface : t.greenSoft,
           showRemaining: true,
         ),
       ],
@@ -269,7 +322,11 @@ class _SummaryNumber extends StatelessWidget {
                   ? FeedbackMetrics.summarySize
                   : FeedbackMetrics.floorSummarySize,
               fontWeight: FontWeight.w600,
-              color: _negative(value) ? t.red : t.green,
+              color: label == '人评分'
+                  ? ThreadTokens.participants(t)
+                  : _negative(value)
+                  ? t.red
+                  : ThreadTokens.score(t),
               fontFeatures: FeedbackMetrics.tabular,
             ),
           ),
@@ -279,7 +336,7 @@ class _SummaryNumber extends StatelessWidget {
               fontSize: opening
                   ? FeedbackMetrics.summaryLabelSize
                   : FeedbackMetrics.floorSummaryLabelSize,
-              color: t.green,
+              color: label == '人评分' ? ThreadTokens.participants(t) : t.text2,
             ),
           ),
         ],
@@ -288,87 +345,376 @@ class _SummaryNumber extends StatelessWidget {
   }
 }
 
-class _RatingRow extends StatelessWidget {
+class _RatingRow extends StatefulWidget {
   final RatingEntry entry;
   final bool opening;
-  const _RatingRow({required this.entry, this.opening = false});
+  final PostRating rating;
+  final RatingRepository? repository;
+  const _RatingRow({
+    super.key,
+    required this.entry,
+    required this.rating,
+    this.repository,
+    this.opening = false,
+  });
+
+  @override
+  State<_RatingRow> createState() => _RatingRowState();
+}
+
+class _RatingRowState extends State<_RatingRow> {
+  bool _expanded = false;
+  Object? _measurementKey;
+  bool _truncated = false;
+  bool _loading = false;
+  bool _failed = false;
+  String? _fullReason;
+  bool _fadeArrival = false;
+  int _requestGeneration = 0;
+  RatingRepository get _repo => widget.repository ?? ratingRepo;
+
+  void _restoreDetails() {
+    if (!isRatingReasonTruncated(widget.entry.reason)) return;
+    _fullReason = _repo.cached(widget.rating)?.reasonFor(widget.entry);
+    _failed =
+        _repo.hasAttempted(widget.rating) &&
+        !_repo.isLoading(widget.rating) &&
+        _fullReason == null;
+    // Reattach only to an already-started read after lazy scroll disposal.
+    if (_expanded && _repo.isLoading(widget.rating) && !_loading) {
+      _loadDetails();
+    }
+  }
+
+  Future<void> _loadDetails() async {
+    if (_loading || _fullReason != null || _failed) return;
+    final cached = _repo.cached(widget.rating);
+    if (cached != null ||
+        (_repo.hasAttempted(widget.rating) &&
+            !_repo.isLoading(widget.rating))) {
+      _fullReason = cached?.reasonFor(widget.entry);
+      _failed = _fullReason == null;
+      return;
+    }
+    _loading = true;
+    final generation = _requestGeneration;
+    final result = await _repo.load(widget.rating);
+    if (!mounted || generation != _requestGeneration) return;
+    setState(() {
+      _loading = false;
+      _fullReason = result?.reasonFor(widget.entry);
+      _failed = _fullReason == null;
+      _fadeArrival = _expanded && _fullReason != null;
+    });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (widget.key is PageStorageKey) {
+      _expanded =
+          PageStorage.maybeOf(context)?.readState(context) as bool? ?? false;
+    }
+    _restoreDetails();
+  }
+
+  @override
+  void didUpdateWidget(covariant _RatingRow oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if ((
+          oldWidget.rating.tid,
+          oldWidget.rating.pid,
+          oldWidget.entry.user,
+          oldWidget.entry.score,
+          oldWidget.entry.reason,
+          oldWidget.repository,
+        ) !=
+        (
+          widget.rating.tid,
+          widget.rating.pid,
+          widget.entry.user,
+          widget.entry.score,
+          widget.entry.reason,
+          widget.repository,
+        )) {
+      _requestGeneration++;
+      _loading = false;
+      _failed = false;
+      _fullReason = null;
+      _fadeArrival = false;
+      _restoreDetails();
+    }
+  }
+
+  bool _isTruncated(String reason, TextStyle style, double width) {
+    final effectiveStyle = DefaultTextStyle.of(context).style
+        .merge(style)
+        .merge(
+          TextStyle(
+            fontWeight: MediaQuery.boldTextOf(context) ? FontWeight.bold : null,
+            height: MediaQuery.maybeLineHeightScaleFactorOverrideOf(context),
+            letterSpacing: MediaQuery.maybeLetterSpacingOverrideOf(context),
+            wordSpacing: MediaQuery.maybeWordSpacingOverrideOf(context),
+          ),
+        );
+    final scaler = MediaQuery.textScalerOf(context);
+    final direction = Directionality.of(context);
+    final locale = Localizations.maybeLocaleOf(context);
+    final key = (reason, effectiveStyle, width, scaler, direction, locale);
+    if (_measurementKey != key) {
+      final painter = TextPainter(
+        text: TextSpan(text: reason, style: effectiveStyle),
+        textDirection: direction,
+        textScaler: scaler,
+        locale: locale,
+        maxLines: 1,
+        ellipsis: '…',
+      )..layout(maxWidth: width);
+      _truncated = reason.isNotEmpty && painter.didExceedMaxLines;
+      painter.dispose();
+      _measurementKey = key;
+    }
+    return _truncated;
+  }
+
+  void _toggle() {
+    setState(() {
+      _expanded = !_expanded;
+      _fadeArrival = false;
+      if (_expanded && isRatingReasonTruncated(widget.entry.reason)) {
+        _loadDetails();
+      }
+    });
+    if (widget.key is PageStorageKey) {
+      PageStorage.maybeOf(context)?.writeState(context, _expanded);
+    }
+  }
+
+  Widget _reasonBody(AppTokens t, String original) {
+    final serverTruncated = isRatingReasonTruncated(original);
+    final uri = _repo.detailsUrl(widget.rating);
+    return _RatingReasonResize(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Stack(
+            children: [
+              Padding(
+                // The indicator owns a fixed gutter, never another text line.
+                padding: EdgeInsets.only(
+                  right: serverTruncated
+                      ? FeedbackMetrics.reasonLoadingGutter
+                      : 0,
+                ),
+                child: ExcludeSemantics(
+                  child: TweenAnimationBuilder<double>(
+                    key: ValueKey(_fullReason),
+                    tween: Tween(begin: _fadeArrival ? 0 : 1, end: 1),
+                    duration: MediaQuery.disableAnimationsOf(context)
+                        ? AppMotion.reducedFade
+                        : AppMotion.fade,
+                    builder: (context, opacity, _) => Text(
+                      _fullReason ?? original,
+                      style: TextStyle(
+                        fontSize: FeedbackMetrics.reasonSize,
+                        height: FeedbackMetrics.reasonHeight,
+                        color: t.text2.withValues(alpha: opacity),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              if (_loading)
+                Positioned(
+                  right: 0,
+                  bottom: 0,
+                  child: SizedBox.square(
+                    dimension: FeedbackMetrics.reasonLoadingSize,
+                    child: CircularProgressIndicator(
+                      strokeWidth: FeedbackMetrics.reasonLoadingStroke,
+                      color: t.text3,
+                      value: MediaQuery.disableAnimationsOf(context)
+                          ? 0.75
+                          : null,
+                      semanticsLabel: '正在读取完整附言',
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          if (_failed && uri != null)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: PressHighlight(
+                onTap: () => showSourcePage(context, uri),
+                color: t.pressed,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(
+                    minHeight: FeedbackMetrics.touchTarget,
+                  ),
+                  child: Align(
+                    widthFactor: 1,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      '在网页中查看',
+                      style: TextStyle(
+                        fontSize: FeedbackMetrics.labelSize,
+                        color: t.text3,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
-    final reason = entry.reason?.trim();
+    final entry = widget.entry;
+    final opening = widget.opening;
+    final reason = entry.reason?.trim() ?? '';
     final size = opening
         ? FeedbackMetrics.rowSize
         : FeedbackMetrics.capsuleSize;
-    return Padding(
-      padding: EdgeInsets.symmetric(
-        vertical: opening
-            ? FeedbackMetrics.rowPadding
-            : FeedbackMetrics.compactRowPadding,
-      ),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final userWidth =
-              (constraints.maxWidth * FeedbackMetrics.userFraction).clamp(
-                0.0,
-                opening
-                    ? FeedbackMetrics.userWidth
-                    : FeedbackMetrics.compactUserWidth,
-              );
-          return Row(
+    final avatarSize = opening
+        ? FeedbackMetrics.rowAvatar
+        : FeedbackMetrics.smallAvatar;
+    final scoreWidth = opening
+        ? FeedbackMetrics.scoreWidth
+        : FeedbackMetrics.compactScoreWidth;
+    final reasonStyle = TextStyle(fontSize: size, color: t.text2);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final userWidth = (constraints.maxWidth * FeedbackMetrics.userFraction)
+            .clamp(
+              0.0,
+              opening
+                  ? FeedbackMetrics.userWidth
+                  : FeedbackMetrics.compactUserWidth,
+            );
+        final reasonWidth =
+            (constraints.maxWidth -
+                    avatarSize -
+                    userWidth -
+                    scoreWidth -
+                    FeedbackMetrics.gap * 3)
+                .clamp(0.0, double.infinity);
+        final truncated =
+            isRatingReasonTruncated(reason) ||
+            _isTruncated(reason, reasonStyle, reasonWidth);
+        final open = truncated && _expanded;
+        final body = Padding(
+          padding: EdgeInsets.symmetric(
+            vertical: opening
+                ? FeedbackMetrics.rowPadding
+                : FeedbackMetrics.compactRowPadding,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              _Avatar(
-                url: entry.avatarUrl,
-                size: opening
-                    ? FeedbackMetrics.rowAvatar
-                    : FeedbackMetrics.smallAvatar,
-              ),
-              const SizedBox(width: FeedbackMetrics.gap),
-              SizedBox(
-                width: userWidth,
-                child: Text(
-                  entry.user,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: size,
-                    fontWeight: FontWeight.w600,
-                    color: t.text,
-                  ),
+              ExcludeSemantics(
+                excluding: _failed,
+                child: Row(
+                  children: [
+                    _Avatar(
+                      url: entry.avatarUrl,
+                      name: entry.user,
+                      size: avatarSize,
+                    ),
+                    const SizedBox(width: FeedbackMetrics.gap),
+                    SizedBox(
+                      width: userWidth,
+                      child: Text(
+                        entry.user,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: size,
+                          fontWeight: FontWeight.w600,
+                          color: t.text,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: FeedbackMetrics.gap),
+                    SizedBox(
+                      width: scoreWidth,
+                      child: Text(
+                        entry.score,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: size,
+                          fontWeight: FontWeight.w700,
+                          fontFeatures: FeedbackMetrics.tabular,
+                          color: _negative(entry.score)
+                              ? t.red
+                              : ThreadTokens.score(t),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: FeedbackMetrics.gap),
+                    Expanded(
+                      child: TweenAnimationBuilder<double>(
+                        tween: Tween(begin: open ? 0 : 1, end: open ? 0 : 1),
+                        duration: MediaQuery.disableAnimationsOf(context)
+                            ? AppMotion.reducedFade
+                            : AppMotion.fade,
+                        builder: (context, opacity, _) => Text(
+                          reason,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: reasonStyle.copyWith(
+                            color: t.text2.withValues(alpha: opacity),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(width: FeedbackMetrics.gap),
-              SizedBox(
-                width: opening
-                    ? FeedbackMetrics.scoreWidth
-                    : FeedbackMetrics.compactScoreWidth,
-                child: Text(
-                  entry.score,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: size,
-                    fontWeight: FontWeight.w700,
-                    fontFeatures: FeedbackMetrics.tabular,
-                    color: _negative(entry.score) ? t.red : t.green,
-                  ),
-                ),
-              ),
-              const SizedBox(width: FeedbackMetrics.gap),
-              Expanded(
-                child: Text(
-                  reason == null || reason.isEmpty ? '—' : reason,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: size,
-                    color: reason == null || reason.isEmpty ? t.text3 : t.text2,
+              _Reveal(
+                open: open,
+                child: SizedBox(
+                  width: double.infinity,
+                  child: Padding(
+                    padding: EdgeInsets.only(
+                      left: avatarSize + FeedbackMetrics.gap,
+                      top: FeedbackMetrics.reasonTop,
+                    ),
+                    child: _reasonBody(t, reason),
                   ),
                 ),
               ),
             ],
-          );
-        },
-      ),
+          ),
+        );
+        if (!truncated) return body;
+        return Semantics(
+          container: true,
+          button: true,
+          expanded: open,
+          label: '${entry.user} ${entry.score} ${_fullReason ?? reason}',
+          hint: open ? '收起附言' : '展开附言',
+          value: _loading ? '正在读取完整附言' : null,
+          liveRegion: _loading,
+          onTap: _toggle,
+          explicitChildNodes: _failed,
+          child: PressHighlight(
+            onTap: _toggle,
+            color: t.pressed,
+            borderRadius: BorderRadius.circular(
+              opening
+                  ? FeedbackMetrics.ratingRowRadius
+                  : FeedbackMetrics.compactRatingRowRadius,
+            ),
+            child: ExcludeSemantics(excluding: !_failed, child: body),
+          ),
+        );
+      },
     );
   }
 }
@@ -390,7 +736,7 @@ class _RatingStrip extends StatelessWidget {
           t.greenSoft,
           emphasis: t.green.withValues(alpha: .10),
         ),
-        borderRadius: BorderRadius.circular(FeedbackMetrics.panelRadius),
+        borderRadius: BorderRadius.circular(AppRadii.full),
       ),
       child: LayoutBuilder(
         builder: (context, constraints) => Row(
@@ -400,6 +746,7 @@ class _RatingStrip extends StatelessWidget {
                 children: [
                   _Avatar(
                     url: entry.avatarUrl,
+                    name: entry.user,
                     size: FeedbackMetrics.floorAvatar,
                   ),
                   const SizedBox(width: FeedbackMetrics.gap),
@@ -424,7 +771,9 @@ class _RatingStrip extends StatelessWidget {
                       style: TextStyle(
                         fontSize: FeedbackMetrics.rowSize,
                         fontWeight: FontWeight.w700,
-                        color: _negative(entry.score) ? t.red : t.green,
+                        color: _negative(entry.score)
+                            ? t.red
+                            : ThreadTokens.score(t),
                         fontFeatures: FeedbackMetrics.tabular,
                       ),
                     ),
@@ -479,7 +828,6 @@ class _CommentsCardState extends State<_CommentsCard> {
       ),
       decoration: BoxDecoration(
         color: PostFeedbackHighlight.backgroundOf(context, Colors.transparent),
-        border: Border.all(color: t.separator, width: AppSpace.hairline),
         borderRadius: BorderRadius.circular(
           widget.opening
               ? FeedbackMetrics.cardRadius
@@ -517,7 +865,6 @@ class _CommentsCardState extends State<_CommentsCard> {
               expanded: _expanded,
               label: '展开全部 ${widget.comments.length} 条点评',
               color: t.accent,
-              ruleColor: t.separator,
               onTap: () => setState(() => _expanded = !_expanded),
             ),
         ],
@@ -537,35 +884,48 @@ class _CommentRow extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _Avatar(url: comment.avatarUrl, size: FeedbackMetrics.smallAvatar),
+          _Avatar(
+            name: comment.author,
+            url: comment.avatarUrl,
+            size: FeedbackMetrics.smallAvatar,
+          ),
           const SizedBox(width: FeedbackMetrics.gap),
           Expanded(
-            child: Text.rich(
-              TextSpan(
-                style: TextStyle(
-                  fontSize: FeedbackMetrics.commentSize,
-                  height: FeedbackMetrics.lineHeight,
-                  color: t.text2,
-                ),
-                children: [
-                  TextSpan(
-                    text: comment.author,
-                    style: TextStyle(
-                      fontWeight: FontWeight.w600,
-                      color: t.text,
-                    ),
-                  ),
-                  TextSpan(text: ' ${comment.text}'),
-                  if (comment.timeRaw?.isNotEmpty == true)
-                    TextSpan(
-                      text: ' ${comment.timeRaw}',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Wrap(
+                  spacing: FeedbackMetrics.gap,
+                  runSpacing: FeedbackMetrics.tinyGap,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Text(
+                      comment.author,
                       style: TextStyle(
-                        fontSize: FeedbackMetrics.labelSize,
-                        color: t.text3,
+                        fontSize: FeedbackMetrics.commentSize,
+                        fontWeight: FontWeight.w600,
+                        color: t.text2,
                       ),
                     ),
-                ],
-              ),
+                    if (comment.timeRaw?.isNotEmpty == true)
+                      Text(
+                        chatTimestamp(comment.timeRaw!),
+                        style: TextStyle(
+                          fontSize: FeedbackMetrics.labelSize,
+                          color: t.text3,
+                        ),
+                      ),
+                  ],
+                ),
+                Text(
+                  comment.text,
+                  style: TextStyle(
+                    fontSize: FeedbackMetrics.commentSize,
+                    height: FeedbackMetrics.lineHeight,
+                    color: t.text,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -604,8 +964,8 @@ class _CommentFeedbackState extends State<CommentFeedback> {
     final first = scores.where((item) => item.value != null).firstOrNull;
     final summary = first != null
         ? _summaryText(first)
-        : scores.map(_summaryText).join(' · ');
-    return '${summary.isEmpty ? '评分' : summary}${rating.participants == null ? '' : ' · ${rating.participants}人'}';
+        : scores.map(_summaryText).join('　');
+    return '${summary.isEmpty ? '评分' : summary}${rating.participants == null ? '' : '　${rating.participants}人'}';
   }
 
   @override
@@ -638,7 +998,7 @@ class _CommentFeedbackState extends State<CommentFeedback> {
                                   '',
                       )
                       ? t.red
-                      : t.green,
+                      : ThreadTokens.score(t),
                   background: _ratingOpen ? t.greenFill : t.greenSoft,
                   open: _ratingOpen,
                   onTap: _expandable(rating)
@@ -695,14 +1055,14 @@ class _CommentFeedbackState extends State<CommentFeedback> {
                                 fontWeight: FontWeight.w700,
                                 color: _negative(item.value ?? '')
                                     ? t.red
-                                    : t.green,
+                                    : ThreadTokens.score(t),
                                 fontFeatures: FeedbackMetrics.tabular,
                               ),
                             ),
                         ],
                       ),
                     for (final entry in rating.entries)
-                      _RatingRow(entry: entry),
+                      _RatingRow(entry: entry, rating: rating),
                   ],
                 ),
               ),
@@ -769,8 +1129,25 @@ class _Capsule extends StatelessWidget {
               leading,
               const SizedBox(width: FeedbackMetrics.smallGap),
               Flexible(
-                child: Text(
-                  label,
+                child: Text.rich(
+                  TextSpan(
+                    children: [
+                      TextSpan(
+                        text: label.contains('　')
+                            ? label.substring(0, label.lastIndexOf('　'))
+                            : label,
+                      ),
+                      if (label.contains('　'))
+                        TextSpan(
+                          text: label.substring(label.lastIndexOf('　')),
+                          style: TextStyle(
+                            color: ThreadTokens.participants(
+                              AppTokens.of(context),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
@@ -817,11 +1194,12 @@ class _Panel extends StatelessWidget {
 
 class _Avatar extends StatelessWidget {
   final String? url;
+  final String name;
   final double size;
-  const _Avatar({required this.url, required this.size});
+  const _Avatar({required this.url, required this.name, required this.size});
   @override
   Widget build(BuildContext context) => ExcludeSemantics(
-    child: AvatarImage(url: url, size: size),
+    child: AvatarImage(name: name, url: url, size: size),
   );
 }
 
@@ -868,6 +1246,7 @@ class _AvatarStack extends StatelessWidget {
                       ),
                       child: _Avatar(
                         url: entries[i].avatarUrl,
+                        name: entries[i].user,
                         size: size - border * 2,
                       ),
                     ),
@@ -896,19 +1275,16 @@ class _ExpandButton extends StatelessWidget {
   final bool expanded;
   final String label;
   final Color color;
-  final Color ruleColor;
   final VoidCallback onTap;
   const _ExpandButton({
     required this.expanded,
     required this.label,
     required this.color,
-    required this.ruleColor,
     required this.onTap,
   });
   @override
   Widget build(BuildContext context) => Column(
     children: [
-      _Rule(color: ruleColor),
       Semantics(
         expanded: expanded,
         child: PressScale(
@@ -955,54 +1331,177 @@ class _Arrow extends StatelessWidget {
       color: color,
     );
     if (MediaQuery.disableAnimationsOf(context)) {
-      return RotatedBox(
-        quarterTurns: open ? FeedbackMetrics.halfTurnQuarters : 0,
-        child: icon,
-      );
+      return RotatedBox(quarterTurns: open ? 2 : 0, child: icon);
     }
-    return AnimatedRotation(
-      turns: open ? FeedbackMetrics.halfTurn : 0,
-      duration: AppMotion.revealDuration,
-      curve: AppMotion.revealCurve,
+    return SingleMotionBuilder(
+      motion: AppMotion.select,
+      value: open ? FeedbackMetrics.halfTurn : 0.0,
+      builder: (context, value, child) =>
+          Transform.rotate(angle: value * 6.283185307179586, child: child),
       child: icon,
     );
   }
 }
 
-/// Collapsed rows are unmounted; every newly revealed group fades in together.
-class _Reveal extends StatelessWidget {
+/// Lay out only the added panel once; the spring changes its visible height.
+class _Reveal extends StatefulWidget {
   final bool open;
   final Widget child;
   const _Reveal({required this.open, required this.child});
   @override
-  Widget build(BuildContext context) {
+  State<_Reveal> createState() => _RevealState();
+}
+
+class _RevealState extends State<_Reveal> with SingleTickerProviderStateMixin {
+  late final _controller = AnimationController(
+    vsync: this,
+    value: widget.open ? 1 : 0,
+  );
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
     if (MediaQuery.disableAnimationsOf(context)) {
-      return open ? child : const SizedBox.shrink();
+      _controller.value = widget.open ? 1 : 0;
     }
-    return AnimatedSize(
-      duration: AppMotion.revealDuration,
-      curve: AppMotion.revealCurve,
-      alignment: Alignment.topCenter,
-      child: open
-          ? TweenAnimationBuilder<double>(
-              tween: Tween(begin: 0, end: 1),
-              duration: AppMotion.revealDuration,
-              curve: AppMotion.revealCurve,
-              builder: (_, opacity, child) =>
-                  Opacity(opacity: opacity, child: child),
+  }
+
+  @override
+  void didUpdateWidget(covariant _Reveal oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.open != oldWidget.open) {
+      AppMotion.settle(
+        _controller,
+        target: widget.open ? 1 : 0,
+        motion: AppMotion.reveal,
+        reduced: MediaQuery.disableAnimationsOf(context),
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: _controller,
+    child: RepaintBoundary(child: widget.child),
+    builder: (context, child) => _controller.value == 0 && !widget.open
+        ? const SizedBox.shrink()
+        : ClipRect(
+            child: Align(
+              alignment: Alignment.topCenter,
+              heightFactor: _controller.value.clamp(0.0, 1.0),
               child: child,
-            )
-          : const SizedBox.shrink(),
-    );
+            ),
+          ),
+  );
+}
+
+/// Only this reason changes height when its full text arrives. The paragraph
+/// keeps unconstrained height, so spring ticks reuse its completed layout.
+class _RatingReasonResize extends StatefulWidget {
+  final Widget child;
+  const _RatingReasonResize({required this.child});
+  @override
+  State<_RatingReasonResize> createState() => _RatingReasonResizeState();
+}
+
+class _RatingReasonResizeState extends State<_RatingReasonResize>
+    with SingleTickerProviderStateMixin {
+  late final _height = AnimationController.unbounded(vsync: this);
+  @override
+  void dispose() {
+    _height.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => _ReasonSizeBox(
+    height: _height,
+    reduced: MediaQuery.disableAnimationsOf(context),
+    child: RepaintBoundary(child: widget.child),
+  );
+}
+
+class _ReasonSizeBox extends SingleChildRenderObjectWidget {
+  final AnimationController height;
+  final bool reduced;
+  const _ReasonSizeBox({
+    required this.height,
+    required this.reduced,
+    required super.child,
+  });
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderReasonSize(height, reduced);
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    _RenderReasonSize renderObject,
+  ) {
+    renderObject.reduced = reduced;
+    renderObject.markNeedsLayout();
   }
 }
 
-class _Rule extends StatelessWidget {
-  final Color color;
-  const _Rule({required this.color});
+class _RenderReasonSize extends RenderProxyBox {
+  final AnimationController height;
+  bool reduced;
+  double? _target;
+  double? _width;
+  bool _layingOut = false;
+  void _tick() {
+    if (!_layingOut) markNeedsLayout();
+  }
+
+  _RenderReasonSize(this.height, this.reduced);
   @override
-  Widget build(BuildContext context) => SizedBox(
-    height: AppSpace.hairline,
-    child: ColoredBox(color: color),
-  );
+  void attach(PipelineOwner owner) {
+    super.attach(owner);
+    height.addListener(_tick);
+  }
+
+  @override
+  void detach() {
+    height.removeListener(_tick);
+    super.detach();
+  }
+
+  @override
+  void performLayout() {
+    _layingOut = true;
+    child!.layout(
+      constraints.copyWith(minHeight: 0, maxHeight: double.infinity),
+      parentUsesSize: true,
+    );
+    final target = child!.size.height;
+    if (_target == null || _width != constraints.maxWidth || reduced) {
+      if (height.value != target || height.isAnimating) height.value = target;
+    } else if (_target != target) {
+      AppMotion.settle(height, target: target, motion: AppMotion.reveal);
+    }
+    _target = target;
+    _width = constraints.maxWidth;
+    size = constraints.constrain(
+      Size(child!.size.width, height.value.clamp(0, double.infinity)),
+    );
+    _layingOut = false;
+  }
+
+  @override
+  Rect? describeApproximatePaintClip(RenderObject child) => Offset.zero & size;
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    context.pushClipRect(
+      needsCompositing,
+      offset,
+      Offset.zero & size,
+      (context, offset) => super.paint(context, offset),
+      clipBehavior: Clip.hardEdge,
+    );
+  }
 }

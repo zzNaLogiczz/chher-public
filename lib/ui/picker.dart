@@ -1,7 +1,6 @@
 /// 选项多时的选择:"当前值 ⌄"按钮 + 底部两列方块面板(规格 §6.5)
 library;
 
-import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -46,45 +45,75 @@ Future<({T value})?> showPickerSheet<T>(
   required String title,
   required List<PickerOption<T>> options,
   required T value,
+  int columns = 2,
+  bool immediateSelection = false,
 }) => showAppSheet<({T value})>(
   context,
-  builder: (_) => _PickerSheet<T>(title: title, options: options, value: value),
+  builder: (_) => _PickerSheet<T>(
+    title: title,
+    options: options,
+    value: value,
+    columns: columns,
+    immediateSelection: immediateSelection,
+  ),
 );
 
 class _PickerSheet<T> extends StatefulWidget {
   final String title;
   final List<PickerOption<T>> options;
   final T value;
+  final int columns;
+  final bool immediateSelection;
   const _PickerSheet({
     required this.title,
     required this.options,
     required this.value,
+    required this.columns,
+    required this.immediateSelection,
   });
 
   @override
   State<_PickerSheet<T>> createState() => _PickerSheetState<T>();
 }
 
-class _PickerSheetState<T> extends State<_PickerSheet<T>> {
+class _PickerSheetState<T> extends State<_PickerSheet<T>>
+    with SingleTickerProviderStateMixin {
   /// 选中后先让新状态被看见,再收起面板
   static const _closeDelay = Duration(milliseconds: 200);
 
   late T _selected = widget.value;
-  Timer? _closing;
+  late final AnimationController _closing;
+  bool _chosen = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _closing = AnimationController(vsync: this, duration: _closeDelay)
+      ..addStatusListener((status) {
+        if (status == AnimationStatus.completed &&
+            mounted &&
+            ModalRoute.of(context)?.isCurrent == true) {
+          Navigator.of(context).pop((value: _selected));
+        }
+      });
+  }
 
   void _choose(PickerOption<T> option) {
     // 面板关闭前的再次点击一律忽略
-    if (_closing != null) return;
+    if (_chosen) return;
+    _chosen = true;
     if (option.value != _selected) HapticFeedback.selectionClick();
     setState(() => _selected = option.value);
-    _closing = Timer(_closeDelay, () {
-      if (mounted) Navigator.of(context).pop((value: option.value));
-    });
+    if (widget.immediateSelection || MediaQuery.disableAnimationsOf(context)) {
+      Navigator.of(context).pop((value: option.value));
+    } else {
+      _closing.forward();
+    }
   }
 
   @override
   void dispose() {
-    _closing?.cancel();
+    _closing.dispose();
     super.dispose();
   }
 
@@ -95,30 +124,48 @@ class _PickerSheetState<T> extends State<_PickerSheet<T>> {
       title: widget.title,
       body: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            for (final (n, row) in _rows().indexed) ...[
-              if (n > 0) const SizedBox(height: _gap),
-              // 同一行的方块等高:一侧多一行说明时另一侧不会缩短
-              IntrinsicHeight(
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    for (final (k, i) in row.indexed) ...[
-                      if (k > 0) const SizedBox(width: _gap),
-                      Expanded(child: _tile(t, i, widget.options[i])),
+        child: LayoutBuilder(
+          builder: (context, constraints) => Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (final (n, row) in _rows().indexed) ...[
+                if (n > 0) const SizedBox(height: _gap),
+                // 同一行的方块等高:一侧多一行说明时另一侧不会缩短
+                IntrinsicHeight(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (final (k, i) in row.indexed) ...[
+                        if (k > 0) const SizedBox(width: _gap),
+                        Expanded(
+                          child: _tile(
+                            t,
+                            i,
+                            widget.options[i],
+                            singleLine: _singleLine(
+                              context,
+                              row,
+                              constraints.maxWidth,
+                            ),
+                          ),
+                        ),
+                      ],
+                      // 末行只剩一个时留出另一半,保持两列宽度一致
+                      for (
+                        var empty = row.length;
+                        empty < widget.columns &&
+                            !widget.options[row.first].wide;
+                        empty++
+                      ) ...[
+                        const SizedBox(width: _gap),
+                        const Expanded(child: SizedBox.shrink()),
+                      ],
                     ],
-                    // 末行只剩一个时留出另一半,保持两列宽度一致
-                    if (row.length == 1 && !widget.options[row.first].wide) ...[
-                      const SizedBox(width: _gap),
-                      const Expanded(child: SizedBox.shrink()),
-                    ],
-                  ],
+                  ),
                 ),
-              ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );
@@ -134,7 +181,7 @@ class _PickerSheetState<T> extends State<_PickerSheet<T>> {
       if (widget.options[i].wide) {
         rows.add([i]);
         open = null;
-      } else if (open == null || open.length == 2) {
+      } else if (open == null || open.length == widget.columns) {
         rows.add(open = [i]);
       } else {
         open.add(i);
@@ -143,7 +190,41 @@ class _PickerSheetState<T> extends State<_PickerSheet<T>> {
     return rows;
   }
 
-  Widget _tile(AppTokens t, int index, PickerOption<T> option) {
+  bool _singleLine(BuildContext context, List<int> row, double width) {
+    final columns = widget.options[row.first].wide ? 1 : widget.columns;
+    final horizontal = widget.columns == 3 ? 8.0 : 14.0;
+    final textWidth = (width - _gap * (columns - 1)) / columns - horizontal * 2;
+    for (final index in row) {
+      final option = widget.options[index];
+      if (option.detail != null) return false;
+      var style = DefaultTextStyle.of(
+        context,
+      ).style.merge(AppType.subhead.copyWith(fontWeight: FontWeight.w600));
+      if (MediaQuery.boldTextOf(context)) {
+        style = style.merge(const TextStyle(fontWeight: FontWeight.bold));
+      }
+      final painter = TextPainter(
+        text: TextSpan(text: option.label, style: style),
+        maxLines: 1,
+        textDirection: Directionality.of(context),
+        textScaler: MediaQuery.textScalerOf(context),
+        locale: Localizations.maybeLocaleOf(context),
+      )..layout(maxWidth: math.max(0, textWidth));
+      final fits =
+          !painter.didExceedMaxLines &&
+          painter.height <= AppSizes.singleLineHeight;
+      painter.dispose();
+      if (!fits) return false;
+    }
+    return true;
+  }
+
+  Widget _tile(
+    AppTokens t,
+    int index,
+    PickerOption<T> option, {
+    required bool singleLine,
+  }) {
     final selected = option.value == _selected;
     return MergeSemantics(
       key: ValueKey('picker-option-$index'),
@@ -155,30 +236,45 @@ class _PickerSheetState<T> extends State<_PickerSheet<T>> {
           child: DecoratedBox(
             decoration: ShapeDecoration(
               color: selected ? t.accentFill : t.fill,
-              shape: appShape(AppRadii.md).copyWith(
-                side: selected
-                    ? BorderSide(color: t.accent, width: 1.5)
-                    : BorderSide.none,
-              ),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    option.label,
-                    style: AppType.subhead.copyWith(
-                      fontWeight: FontWeight.w600,
-                      color: selected ? t.accent : t.text,
-                    ),
+              shape: appShape(singleLine ? AppRadii.full : AppRadii.md)
+                  .copyWith(
+                    side: selected && !widget.immediateSelection
+                        ? BorderSide(color: t.accent, width: 1.5)
+                        : BorderSide.none,
                   ),
-                  if (option.detail != null)
+            ),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(
+                minHeight: AppSizes.singleLineHeight,
+              ),
+              child: Padding(
+                padding: EdgeInsets.symmetric(
+                  horizontal: widget.columns == 3 ? 8 : 14,
+                  vertical: singleLine ? 0 : 12,
+                ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: widget.columns == 3
+                      ? CrossAxisAlignment.center
+                      : CrossAxisAlignment.start,
+                  children: [
                     Text(
-                      option.detail!,
-                      style: AppType.footnote.copyWith(color: t.text3),
+                      option.label,
+                      textAlign: widget.columns == 3
+                          ? TextAlign.center
+                          : TextAlign.start,
+                      style: AppType.subhead.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: selected ? t.accent : t.text,
+                      ),
                     ),
-                ],
+                    if (option.detail != null)
+                      Text(
+                        option.detail!,
+                        style: AppType.footnote.copyWith(color: t.text3),
+                      ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -200,6 +296,8 @@ class PickerButton<T> extends StatefulWidget {
 
   /// 压在漆面顶栏上:文字与箭头改奶白,无底
   final bool onLac;
+  final int sheetColumns;
+  final TextStyle? labelStyle;
 
   const PickerButton({
     super.key,
@@ -209,6 +307,8 @@ class PickerButton<T> extends StatefulWidget {
     required this.onChanged,
     this.placeholder,
     this.onLac = false,
+    this.sheetColumns = 2,
+    this.labelStyle,
   });
 
   @override
@@ -264,6 +364,8 @@ class _PickerButtonState<T> extends State<PickerButton<T>>
       title: widget.sheetTitle,
       options: widget.options,
       value: widget.value,
+      columns: widget.sheetColumns,
+      immediateSelection: widget.sheetColumns == 1,
     );
     _open = false;
     if (!mounted) return;
@@ -283,9 +385,9 @@ class _PickerButtonState<T> extends State<PickerButton<T>>
   @override
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
-    final style = AppType.subhead.copyWith(
+    final style = (widget.labelStyle ?? AppType.subhead).copyWith(
       fontWeight: FontWeight.w600,
-      color: widget.onLac ? t.onLac : t.accent,
+      color: widget.onLac ? t.onLac : (widget.labelStyle?.color ?? t.accent),
     );
     final current = _labelOf(widget.value);
     return PressScale(
@@ -338,7 +440,9 @@ class _PickerButtonState<T> extends State<PickerButton<T>>
               child: Icon(
                 AppIcons.down,
                 size: 15,
-                color: widget.onLac ? t.onLac : t.accent,
+                color: widget.onLac
+                    ? t.onLac
+                    : (widget.labelStyle?.color ?? t.accent),
               ),
             ),
           ],

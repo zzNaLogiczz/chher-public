@@ -2,13 +2,12 @@
 library;
 
 import 'dart:ui' show lerpDouble;
-import '../design/motion.dart';
 import '../ui/app_button.dart';
 import '../design/typography.dart';
 import 'package:flutter/material.dart';
 import '../ui/plain_rows.dart';
 import '../ui/search_field.dart';
-import 'package:motor/motor.dart';
+import 'expressive_controls.dart';
 import 'package:solar_icons/solar_icons.dart';
 
 import '../design/tokens.dart';
@@ -37,30 +36,13 @@ class SearchSessionHistory extends ChangeNotifier {
   }
 }
 
-/// 搜索状态切换用 reveal 弹簧;减少动态效果时直接到位
-Motion _motion(BuildContext context) => AppMotion.of(context, AppMotion.reveal);
-
-/// Animate whole search states once. Pagination leaves this keyed subtree intact.
+/// New search results share the bounded, paint-only content arrival.
 class SearchStateReveal extends StatelessWidget {
   final Widget child;
   const SearchStateReveal({super.key, required this.child});
   @override
-  Widget build(BuildContext context) => SingleMotionBuilder(
-    motion: _motion(context),
-    from: 0,
-    value: 1,
-    child: child,
-    builder: (context, value, child) => Opacity(
-      opacity: value.clamp(0.0, 1.0),
-      child: Transform.translate(
-        offset: Offset(
-          0,
-          MediaQuery.disableAnimationsOf(context) ? 0 : (1 - value) * 7,
-        ),
-        child: child,
-      ),
-    ),
-  );
+  Widget build(BuildContext context) =>
+      ExpressivePageReveal(active: true, animateOnMount: true, child: child);
 }
 
 /// Only the static surface flies; the real EditableText waits on the destination.
@@ -258,9 +240,7 @@ class SearchLoadingPanel extends StatelessWidget {
             margin: const EdgeInsets.only(bottom: 12),
             decoration: ShapeDecoration(
               color: t.surface,
-              shape: appShape(
-                AppRadii.lg,
-              ).copyWith(side: BorderSide(color: t.separator, width: .5)),
+              shape: appShape(AppRadii.lg),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,

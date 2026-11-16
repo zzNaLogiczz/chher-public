@@ -1,5 +1,6 @@
 import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/design/tokens.dart';
+import 'package:chh_app/design/forum_tokens.dart';
 import 'package:chh_app/design/icons.dart';
 import 'package:chh_app/models/models.dart';
 import 'package:chh_app/ui/plain_rows.dart';
@@ -42,6 +43,33 @@ final pinnedAndNormal = [
 ];
 
 void main() {
+  testWidgets('notice unread dot shrinks away without removing row actions', (
+    tester,
+  ) async {
+    var taps = 0;
+    Widget row(bool unread) => app(
+      NoticeRow(
+        avatar: const SizedBox.square(dimension: 44),
+        name: 'Alice',
+        time: '10:00',
+        text: 'hello',
+        unread: unread,
+        onTap: () => taps++,
+      ),
+    );
+    await tester.pumpWidget(row(true));
+    await tester.pumpAndSettle();
+    expect(find.byKey(NoticeRow.unreadDotKey), findsOneWidget);
+    await tester.pumpWidget(row(false));
+    expect(find.byKey(NoticeRow.unreadDotKey), findsOneWidget);
+    await tester.pumpAndSettle();
+    expect(find.byKey(NoticeRow.unreadDotKey), findsNothing);
+    await tester.tap(find.textContaining('Alice', findRichText: true));
+    await tester.pumpAndSettle();
+    expect(taps, 1);
+    expect(tester.binding.transientCallbackCount, 0);
+  });
+
   testWidgets('thread row has aligned title and a fixed reply column', (
     tester,
   ) async {
@@ -211,7 +239,10 @@ void main() {
       expect(find.text('论坛发帖须知'), findsOneWidget);
       expect(find.text('4 条'), findsOneWidget);
       expect(built, 0);
-      expect(tester.getSize(find.byType(PinnedGroupRow)).height, 52);
+      expect(
+        tester.getSize(find.byType(PinnedGroupRow)).height,
+        AppSizes.singleLineHeight + 2 * ForumTokens.groupInset,
+      );
     },
   );
 

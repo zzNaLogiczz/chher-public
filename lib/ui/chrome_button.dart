@@ -2,10 +2,11 @@
 library;
 
 import 'package:flutter/material.dart';
-import 'package:motor/motor.dart';
 
 import '../design/motion.dart';
+import '../design/forum_tokens.dart';
 import '../design/tokens.dart';
+import '../design/typography.dart';
 import 'press.dart';
 
 const double _visual = 38;
@@ -103,11 +104,13 @@ class ChromeGroupItem {
 
   /// 开关类操作的开启态,图标改用强调色
   final bool selected;
+  final bool dot;
   const ChromeGroupItem({
     required this.icon,
     required this.tooltip,
     this.onPressed,
     this.selected = false,
+    this.dot = false,
   });
 }
 
@@ -173,18 +176,39 @@ class ChromeGroup extends StatelessWidget {
                       borderRadius: radius,
                       child: SizedBox.square(
                         dimension: _hit,
-                        child: Icon(
-                          item.icon,
-                          size: _iconSize,
-                          color: onLac
-                              ? t.onLac
-                              : onImage
-                              ? Colors.white
-                              : item.onPressed == null
-                              ? t.text3
-                              : item.selected
-                              ? t.accent
-                              : t.text,
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            Icon(
+                              item.icon,
+                              size: _iconSize,
+                              color: onLac
+                                  ? t.onLac
+                                  : onImage
+                                  ? Colors.white
+                                  : item.onPressed == null
+                                  ? t.text3
+                                  : item.selected
+                                  ? t.accent
+                                  : t.text,
+                            ),
+                            Positioned(
+                              top: 7,
+                              right: 7,
+                              child: BadgeAppearance(
+                                visible: item.dot,
+                                child: DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    color: t.accent,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const SizedBox.square(
+                                    dimension: ForumTokens.activityDot,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ),
@@ -200,37 +224,74 @@ class ChromeGroup extends StatelessWidget {
 
 enum BadgeTone { alert, neutral }
 
-/// 不带数字的提示红点:直径 8,出现与消失用 [AppMotion.pop]
-class DotBadge extends StatefulWidget {
+/// 不带数字的提示红点,出现用 pop,清零用 tap 缩小淡出。
+class DotBadge extends StatelessWidget {
   static const surfaceKey = ValueKey('dot-badge-surface');
   static const double size = 8;
-
   final bool visible;
-
   const DotBadge({super.key, required this.visible});
 
   @override
-  State<DotBadge> createState() => _DotBadgeState();
+  Widget build(BuildContext context) => BadgeAppearance(
+    visible: visible,
+    child: DecoratedBox(
+      key: surfaceKey,
+      decoration: ShapeDecoration(
+        color: AppTokens.of(context).red,
+        shape: const CircleBorder(),
+      ),
+      child: const SizedBox.square(dimension: size),
+    ),
+  );
 }
 
-class _DotBadgeState extends State<DotBadge>
-    with SingleTickerProviderStateMixin {
-  late final _scale = SingleMotionController(
-    motion: AppMotion.pop,
-    vsync: this,
-    initialValue: widget.visible ? 1 : 0,
-  );
+/// Shared appearance for counters and source-backed unread indicators.
+class BadgeAppearance extends StatefulWidget {
+  final bool visible;
+  final Widget child;
+  const BadgeAppearance({
+    super.key,
+    required this.visible,
+    required this.child,
+  });
 
   @override
-  void didUpdateWidget(covariant DotBadge oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.visible == oldWidget.visible) return;
+  State<BadgeAppearance> createState() => _BadgeAppearanceState();
+}
+
+class _BadgeAppearanceState extends State<BadgeAppearance>
+    with SingleTickerProviderStateMixin {
+  late final _scale = AnimationController.unbounded(
+    vsync: this,
+    value: widget.visible ? .6 : 0,
+  );
+  bool _started = false;
+
+  void _change() {
+    if (widget.visible && _scale.value == 0) _scale.value = .6;
     final target = widget.visible ? 1.0 : 0.0;
-    if (MediaQuery.disableAnimationsOf(context)) {
-      _scale.value = target;
-    } else {
-      _scale.animateTo(target);
+    if (_scale.value == target && !_scale.isAnimating) return;
+    AppMotion.settle(
+      _scale,
+      target: target,
+      motion: widget.visible ? AppMotion.pop : AppMotion.tap,
+      reduced: MediaQuery.disableAnimationsOf(context),
+    );
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_started || MediaQuery.disableAnimationsOf(context)) {
+      _started = true;
+      _change();
     }
+  }
+
+  @override
+  void didUpdateWidget(covariant BadgeAppearance oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.visible != widget.visible) _change();
   }
 
   @override
@@ -240,40 +301,33 @@ class _DotBadgeState extends State<DotBadge>
   }
 
   @override
-  Widget build(BuildContext context) {
-    final t = AppTokens.of(context);
-    return AnimatedBuilder(
-      animation: _scale,
-      builder: (context, _) {
-        final scale = _scale.value.clamp(0.0, 2.0);
-        if (scale == 0) return const SizedBox.square(dimension: DotBadge.size);
-        return Transform.scale(
-          scale: scale,
-          child: DecoratedBox(
-            key: DotBadge.surfaceKey,
-            decoration: ShapeDecoration(
-              color: t.red,
-              shape: const CircleBorder(),
-            ),
-            child: const SizedBox.square(dimension: DotBadge.size),
-          ),
-        );
-      },
-    );
-  }
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: _scale,
+    child: widget.child,
+    builder: (context, child) {
+      final scale = _scale.value.clamp(0.0, 2.0);
+      if (scale == 0) return const SizedBox.shrink();
+      return Opacity(
+        opacity: widget.visible ? 1 : scale.clamp(0.0, 1.0),
+        child: Transform.scale(scale: scale, child: child),
+      );
+    },
+  );
 }
 
-/// 计数角标:高 16 的胶囊;出现、消失、数字变化都用 [AppMotion.pop]。
+/// 数字变化上下滚动一格,保持真实计数,不显示过渡中的虚构数字。
 class CountBadge extends StatefulWidget {
   static const surfaceKey = ValueKey('count-badge-surface');
-
   final int count;
   final BadgeTone tone;
-
+  final Color? color;
+  final Color? textColor;
   const CountBadge({
     super.key,
     required this.count,
     this.tone = BadgeTone.alert,
+    this.color,
+    this.textColor,
   });
 
   @override
@@ -282,39 +336,36 @@ class CountBadge extends StatefulWidget {
 
 class _CountBadgeState extends State<CountBadge>
     with SingleTickerProviderStateMixin {
-  late final _scale = SingleMotionController(
-    motion: AppMotion.pop,
-    vsync: this,
-    initialValue: widget.count > 0 ? 1 : 0,
-  );
-
-  /// 收起动画期间仍显示最后一个正数,不闪出 0
+  late final _roll = AnimationController.unbounded(vsync: this, value: 1);
   late int _shown = widget.count;
+  int? _previous;
 
   @override
   void didUpdateWidget(covariant CountBadge oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.count == oldWidget.count) return;
-    final reduced = MediaQuery.disableAnimationsOf(context);
-    if (widget.count > 0) {
-      _shown = widget.count;
-      if (reduced) {
-        _scale.value = 1;
-      } else {
-        // 已显示时数字变化:从略小处弹回,新出现:从 0 弹出
-        if (oldWidget.count > 0) _scale.value = .8;
-        _scale.animateTo(1);
-      }
-    } else if (reduced) {
-      _scale.value = 0;
-    } else {
-      _scale.animateTo(0);
-    }
+    if (widget.count == oldWidget.count || widget.count <= 0) return;
+    _previous = oldWidget.count > 0 ? _shown : null;
+    _shown = widget.count;
+    final velocity = _roll.velocity;
+    _roll.value = _previous == null ? 1 : 0;
+    AppMotion.settle(
+      _roll,
+      target: 1,
+      motion: AppMotion.select,
+      velocity: velocity,
+      reduced: MediaQuery.disableAnimationsOf(context),
+    );
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (MediaQuery.disableAnimationsOf(context)) _roll.value = 1;
   }
 
   @override
   void dispose() {
-    _scale.dispose();
+    _roll.dispose();
     super.dispose();
   }
 
@@ -322,40 +373,54 @@ class _CountBadgeState extends State<CountBadge>
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
     final alert = widget.tone == BadgeTone.alert;
-    return AnimatedBuilder(
-      animation: _scale,
-      builder: (context, _) {
-        final scale = _scale.value.clamp(0.0, 2.0);
-        if (scale == 0 || _shown <= 0) return const SizedBox.shrink();
-        return Transform.scale(
-          scale: scale,
-          child: DecoratedBox(
-            key: CountBadge.surfaceKey,
-            decoration: BoxDecoration(
-              color: alert ? t.red : t.text,
-              borderRadius: BorderRadius.circular(AppRadii.full),
-            ),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: Center(
-                  widthFactor: 1,
-                  child: Text(
-                    '$_shown',
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      height: 1.2,
-                      color: alert ? Colors.white : t.bg,
-                    ),
-                  ),
-                ),
+    final style = AppType.caption.copyWith(
+      fontWeight: FontWeight.w700,
+      height: 1.2,
+      color: widget.textColor ?? (alert ? t.onAccent : t.bg),
+    );
+    Widget number(int value) => Text('$value', style: style);
+    return BadgeAppearance(
+      visible: widget.count > 0,
+      child: DecoratedBox(
+        key: CountBadge.surfaceKey,
+        decoration: BoxDecoration(
+          color: widget.color ?? (alert ? t.red : t.text),
+          borderRadius: BorderRadius.circular(AppRadii.full),
+        ),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: ClipRect(
+              child: AnimatedBuilder(
+                animation: _roll,
+                builder: (context, _) {
+                  final previous = _previous;
+                  if (previous == null || _roll.value == 1) {
+                    return number(_shown);
+                  }
+                  final direction = _shown >= previous ? 1.0 : -1.0;
+                  return Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      ExcludeSemantics(
+                        child: FractionalTranslation(
+                          translation: Offset(0, -direction * _roll.value),
+                          child: number(previous),
+                        ),
+                      ),
+                      FractionalTranslation(
+                        translation: Offset(0, direction * (1 - _roll.value)),
+                        child: number(_shown),
+                      ),
+                    ],
+                  );
+                },
               ),
             ),
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 }

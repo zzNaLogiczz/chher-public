@@ -1,16 +1,13 @@
 import 'package:chh_app/data/space_repository.dart';
 import 'package:chh_app/design/icons.dart';
-import 'package:chh_app/design/shapes.dart';
 import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/design/tokens.dart';
-import 'package:chh_app/design/typography.dart';
 import 'package:chh_app/models/models.dart';
 import 'package:chh_app/pages/credit_log_page.dart';
 import 'package:chh_app/pages/forum_index_view.dart';
 import 'package:chh_app/pages/log_page.dart';
 import 'package:chh_app/pages/user_page.dart';
 import 'package:chh_app/ui/grouped.dart';
-import 'package:chh_app/ui/plain_rows.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -50,7 +47,7 @@ class _SignedCredits extends FixtureSpace {
 void main() {
   for (final style in AppearanceStyle.values) {
     testWidgets(
-      'forum index uses flat headline rows with trailing counts and no icons or cards ($style)',
+      'forum index uses decorative icons and real theme counts ($style)',
       (tester) async {
         await tester.pumpWidget(
           MaterialApp(
@@ -69,12 +66,12 @@ void main() {
         );
         await tester.pumpAndSettle();
         expect(find.byType(GroupedRow), findsNothing);
-        final row = find.widgetWithText(PlainRow, '勋章申请区');
+        final row = find.byKey(const ValueKey('forum-row-1'));
         expect(row, findsOneWidget);
         final count = tester.widget<Text>(
           find.byKey(const ValueKey('forum-count-1')),
         );
-        expect(count.data, '2');
+        expect(count.textSpan!.toPlainText(), '2 主题');
         expect(count.semanticsLabel, '2 个主题');
         expect(find.text('2 个主题'), findsNothing);
         expect(
@@ -83,34 +80,22 @@ void main() {
         );
         expect(
           find.descendant(of: row, matching: find.byType(Icon)),
+          findsOneWidget,
+        );
+        expect(
+          tester.widget<Icon>(
+            find.descendant(of: row, matching: find.byIcon(AppIcons.medal)),
+          ).size,
+          ForumDirectoryTokens.markerIconSize,
+        );
+        expect(
+          find.descendant(of: row, matching: find.text('勋')),
           findsNothing,
         );
-        final rowContent = tester.widget<Row>(
-          find.descendant(of: row, matching: find.byType(Row)),
-        );
-        expect(rowContent.children.first, isA<Expanded>());
-        expect((rowContent.children.first as Expanded).child, isA<Text>());
-        expect(
-          (rowContent.children.first as Expanded).child,
-          tester.widget<Text>(find.text('勋章申请区')),
-        );
-        expect(rowContent.children.last, count);
-        expect(
-          find.descendant(
-            of: find.byType(ForumIndexView),
-            matching: find.byType(AppClip),
-          ),
-          findsNothing,
-        );
+        expect(find.byType(DecoratedSliver), findsOneWidget);
         final name = tester.widget<Text>(find.text('勋章申请区'));
-        expect(name.style!.fontSize, AppType.sizeBody);
+        expect(name.style!.fontSize, ForumDirectoryTokens.name.fontSize);
         expect(name.style!.fontWeight, FontWeight.w600);
-        expect(
-          (tester.getTopLeft(find.text('互动区')).dx -
-                  tester.getTopLeft(find.text('勋章申请区')).dx)
-              .abs(),
-          lessThan(0.5),
-        );
         expect(find.text('1'), findsNothing);
         expect(find.text('勋章和活动的会场'), findsOneWidget);
       },
@@ -142,7 +127,7 @@ void main() {
       expect(surfaces, findsOneWidget);
       expect(tester.getTopLeft(online).dy, tester.getTopLeft(credits).dy);
       final columns = find.descendant(
-        of: cards,
+        of: find.ancestor(of: online, matching: find.byType(Row)).first,
         matching: find.byType(Expanded),
       );
       expect(columns, findsNWidgets(3));
@@ -151,7 +136,7 @@ void main() {
       }
       expect(
         find.descendant(of: cards, matching: find.byType(VerticalDivider)),
-        findsNWidgets(2),
+        findsNothing,
       );
       expect(find.text('差 600 积分'), findsOneWidget);
       expect(
@@ -184,10 +169,7 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
-        expect(
-          find.byKey(UserPage.statsKey),
-          count == 0 ? findsNothing : findsOneWidget,
-        );
+        expect(find.byKey(UserPage.statsKey), findsOneWidget);
         expect(
           find.text('在线时长'),
           onlineHours == null ? findsNothing : findsOneWidget,
@@ -201,7 +183,17 @@ void main() {
           final cards = find.byKey(UserPage.statsKey);
           expect(tester.getSize(cards).width, 800 - AppSpace.groupInset * 2);
           final columns = find.descendant(
-            of: cards,
+            of: find
+                .descendant(
+                  of: cards,
+                  matching: find.byWidgetPredicate(
+                    (widget) =>
+                        widget is Row &&
+                        widget.children.length == count &&
+                        widget.children.every((child) => child is Expanded),
+                  ),
+                )
+                .first,
             matching: find.byType(Expanded),
           );
           expect(columns, findsNWidgets(count));
@@ -213,7 +205,7 @@ void main() {
           }
           expect(
             find.descendant(of: cards, matching: find.byType(VerticalDivider)),
-            findsNWidgets(count - 1),
+            findsNothing,
           );
         }
       },

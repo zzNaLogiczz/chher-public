@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:motor/motor.dart';
 
 import '../design/motion.dart';
+import '../design/thread_page_tokens.dart';
 import '../design/tokens.dart';
 import '../design/typography.dart';
 
@@ -34,6 +35,8 @@ class NavOverlay extends StatefulWidget {
 
   /// 滚动超过这个距离(大标题离开)后显示居中小标题
   final double collapseAt;
+  final ValueListenable<bool>? titleVisible;
+  final ValueListenable<double>? readingProgress;
   final Color background;
 
   /// 小标题左右的最小留白;控件更宽时按实际宽度避让。
@@ -52,6 +55,8 @@ class NavOverlay extends StatefulWidget {
     required this.inlineTitle,
     required this.scrollOffset,
     required this.collapseAt,
+    this.titleVisible,
+    this.readingProgress,
     required this.background,
     this.titleInset = 72,
     this.fadeBelowBar = true,
@@ -75,6 +80,7 @@ class _NavOverlayState extends State<NavOverlay>
   void initState() {
     super.initState();
     widget.scrollOffset.addListener(_sync);
+    widget.titleVisible?.addListener(_sync);
   }
 
   @override
@@ -84,12 +90,20 @@ class _NavOverlayState extends State<NavOverlay>
       oldWidget.scrollOffset.removeListener(_sync);
       widget.scrollOffset.addListener(_sync);
     }
+    if (oldWidget.titleVisible != widget.titleVisible) {
+      oldWidget.titleVisible?.removeListener(_sync);
+      widget.titleVisible?.addListener(_sync);
+    }
     _sync();
   }
 
   // 小标题按阈值切换,用弹簧显隐,不随滚动比例渐变
   void _sync() {
-    final next = widget.scrollOffset.value >= widget.collapseAt ? 1.0 : 0.0;
+    final next =
+        (widget.titleVisible?.value ??
+            (widget.scrollOffset.value >= widget.collapseAt))
+        ? 1.0
+        : 0.0;
     if (next == _target) return;
     _target = next;
     if (MediaQuery.disableAnimationsOf(context)) {
@@ -102,6 +116,7 @@ class _NavOverlayState extends State<NavOverlay>
   @override
   void dispose() {
     widget.scrollOffset.removeListener(_sync);
+    widget.titleVisible?.removeListener(_sync);
     _title.dispose();
     super.dispose();
   }
@@ -162,6 +177,31 @@ class _NavOverlayState extends State<NavOverlay>
               ),
             ),
           ),
+          if (widget.readingProgress != null)
+            Positioned(
+              top: solid - ThreadPageTokens.progressHeight,
+              left: 0,
+              right: 0,
+              child: AnimatedBuilder(
+                animation: _title,
+                builder: (context, _) => ValueListenableBuilder<double>(
+                  valueListenable: widget.readingProgress!,
+                  builder: (context, progress, _) => Transform.scale(
+                    key: const ValueKey('thread-reading-progress'),
+                    alignment: Alignment.centerLeft,
+                    scaleX: progress.clamp(0.0, 1.0),
+                    child: ColoredBox(
+                      color: AppTokens.of(
+                        context,
+                      ).accent.withValues(alpha: _title.value.clamp(0.0, 1.0)),
+                      child: const SizedBox(
+                        height: ThreadPageTokens.progressHeight,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
           Positioned(
             top: top,
             left: 0,
@@ -234,6 +274,7 @@ class LargeTitleHeader extends StatelessWidget {
 
   /// 压在漆面顶栏上:眉题淡朱、标题奶白
   final bool onLac;
+  final bool compact;
 
   const LargeTitleHeader({
     super.key,
@@ -241,6 +282,7 @@ class LargeTitleHeader extends StatelessWidget {
     this.eyebrow,
     this.accessory,
     this.onLac = false,
+    this.compact = false,
   });
 
   @override
@@ -248,28 +290,33 @@ class LargeTitleHeader extends StatelessWidget {
     final t = AppTokens.of(context);
     return Padding(
       padding: EdgeInsets.fromLTRB(
-        AppSpace.screen,
+        compact ? AppSpace.groupInset : AppSpace.screen,
         0,
-        accessory == null ? AppSpace.screen : 10,
-        4,
+        accessory == null
+            ? (compact ? AppSpace.groupInset : AppSpace.screen)
+            : 10,
+        compact ? 0 : 4,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          // 眉题行恒占一行(无眉题渲染空文本):四个一级页大标题从
-          // 同一高度开始,折叠点与纸面岛才对得齐
-          Text(
-            eyebrow ?? '',
-            style: AppType.footnote.copyWith(
-              color: onLac ? t.onLac2 : t.text3,
-              fontWeight: FontWeight.w600,
+          // 漆面保留眉题占位；紧凑薄暮只为真实眉题排版。
+          if (!compact || eyebrow != null)
+            Text(
+              eyebrow ?? '',
+              style: AppType.footnote.copyWith(
+                color: onLac ? t.onLac2 : t.text3,
+                fontWeight: FontWeight.w600,
+              ),
             ),
-          ),
-          // 标题行最小高 44:单行标题(四个一级页)行高一致,accessory
-          // 圆钮/胶囊不撑出差异;二级页长标题换行时行自然长高不裁字
+          if (compact && eyebrow != null)
+            const SizedBox(height: TabChromeTokens.mistyEyebrowGap),
+          // 紧凑薄暮按文字自然撑高，其他页面保留原有标题行高度。
           ConstrainedBox(
-            constraints: BoxConstraints(minHeight: AppSpace.titleRow),
+            constraints: BoxConstraints(
+              minHeight: compact ? 0 : AppSpace.titleRow,
+            ),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
@@ -278,9 +325,11 @@ class LargeTitleHeader extends StatelessWidget {
                     title,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: AppType.largeTitle.copyWith(
-                      color: onLac ? t.onLac : t.text,
-                    ),
+                    style:
+                        (compact
+                                ? TabChromeTokens.mistyTitle
+                                : AppType.largeTitle)
+                            .copyWith(color: onLac ? t.onLac : t.text),
                   ),
                 ),
                 ?accessory,

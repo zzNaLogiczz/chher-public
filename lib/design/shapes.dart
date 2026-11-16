@@ -6,9 +6,14 @@ import 'package:flutter/widgets.dart';
 
 const bool kContinuousCorners = true;
 
-OutlinedBorder appShape(double radius) => kContinuousCorners
-    ? RoundedSuperellipseBorder(borderRadius: BorderRadius.circular(radius))
-    : RoundedRectangleBorder(borderRadius: BorderRadius.circular(radius));
+OutlinedBorder appShape(double radius, {BorderRadius? borderRadius}) =>
+    kContinuousCorners
+    ? RoundedSuperellipseBorder(
+        borderRadius: borderRadius ?? BorderRadius.circular(radius),
+      )
+    : RoundedRectangleBorder(
+        borderRadius: borderRadius ?? BorderRadius.circular(radius),
+      );
 
 /// 按 [appShape] 的曲率裁剪子树
 class AppClip extends StatelessWidget {

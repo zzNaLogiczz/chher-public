@@ -7,6 +7,8 @@ import 'package:flutter/material.dart';
 
 import '../data/space_repository.dart';
 import '../data/user_group_levels.dart';
+import '../widgets/level_badge.dart';
+import '../design/level_tokens.dart';
 import '../design/motion.dart';
 import '../design/shapes.dart';
 import '../design/tokens.dart';
@@ -184,9 +186,10 @@ class _UserProfileBodyState extends State<UserProfileBody> {
 
   @override
   Widget build(BuildContext context) => FutureBuilder<UserProfile>(
+    key: ValueKey((widget.uid, widget.repository, widget.groupLevels)),
     future: _future,
     builder: (context, snap) {
-      if (snap.connectionState != ConnectionState.done) {
+      if (!snap.hasData && snap.connectionState != ConnectionState.done) {
         return StateView.loading();
       }
       final err = snap.error;
@@ -233,9 +236,20 @@ class _UserProfileBodyState extends State<UserProfileBody> {
                   UserBlockIndex.normalizeUid(chhSession.badges.uid))
                 ListenableBuilder(
                   listenable: userBlockIndex,
-                  builder: (context, _) => GroupedSection(
-                    children: [
-                      PressHighlight(
+                  builder: (context, _) => Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                      AppSpace.groupInset,
+                      20,
+                      AppSpace.groupInset,
+                      0,
+                    ),
+                    child: DecoratedBox(
+                      decoration: ShapeDecoration(
+                        color: AppTokens.of(context).surface,
+                        shape: appShape(AppRadii.full),
+                      ),
+                      child: PressHighlight(
+                        borderRadius: BorderRadius.circular(AppRadii.full),
                         semanticLabel: userBlockIndex.isBlocked(profile.uid)
                             ? '解除黑名单'
                             : '加入黑名单',
@@ -245,37 +259,39 @@ class _UserProfileBodyState extends State<UserProfileBody> {
                           name: profile.name,
                           avatarUrl: profile.avatarUrl,
                         ),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 14,
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(
+                            minHeight: AppSizes.singleLineHeight,
                           ),
-                          child: Text(
-                            userBlockIndex.isBlocked(profile.uid)
-                                ? '解除黑名单'
-                                : '加入黑名单',
-                            style: AppType.callout.copyWith(
-                              color: userBlockIndex.isBlocked(profile.uid)
-                                  ? AppTokens.of(context).accent
-                                  : AppTokens.of(context).red,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: AppSpace.rowInset,
+                            ),
+                            child: Align(
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                userBlockIndex.isBlocked(profile.uid)
+                                    ? '解除黑名单'
+                                    : '加入黑名单',
+                                style: AppType.callout.copyWith(
+                                  color: userBlockIndex.isBlocked(profile.uid)
+                                      ? AppTokens.of(context).accent
+                                      : AppTokens.of(context).red,
+                                ),
+                              ),
                             ),
                           ),
                         ),
                       ),
-                    ],
+                    ),
                   ),
                 ),
-              if (profile.onlineHours != null ||
-                  profile.credits != null ||
-                  profile.evil != null) ...[
-                const SizedBox(height: 20),
-                _inset(_Statistics(profile: profile)),
-              ],
-              const SizedBox(height: 12),
+              const SizedBox(height: 20),
               _inset(
-                _ThreadsCard(
+                _Statistics(
+                  key: UserPage.statsKey,
                   profile: profile,
-                  onTap: () => Navigator.of(context).push(
+                  onThreadsTap: () => Navigator.of(context).push(
                     MaterialPageRoute(
                       builder: (_) => MyThreadsPage(
                         uid: profile.uid,
@@ -343,6 +359,7 @@ class _IdentityCard extends StatelessWidget {
           child: Padding(
             padding: const EdgeInsets.all(3),
             child: AccountAvatar(
+              name: profile.name,
               url: profile.avatarUrl,
               size: 88,
               refreshable: true,
@@ -394,31 +411,10 @@ class _IdentityCard extends StatelessWidget {
               style: AppType.footnote.copyWith(color: t.text3),
             ),
             if (group != null && group.trim().isNotEmpty) ...[
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  color: t.accentFill,
-                  borderRadius: BorderRadius.circular(AppRadii.xs),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 2,
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(AppIcons.crownStar, size: 13, color: t.accent),
-                      const SizedBox(width: 4),
-                      Flexible(
-                        child: Text(
-                          group,
-                          style: AppType.caption.copyWith(color: t.accent),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+              if (LevelDefinition.lookup(profile.groupId) != null)
+                LevelBadge(gid: profile.groupId)
+              else
+                Text(group, style: AppType.footnote.copyWith(color: t.text2)),
               if (remaining != null) ...[
                 _LevelProgress(remaining: remaining, progress: progress),
                 Text(
@@ -480,32 +476,17 @@ class _LevelProgress extends StatelessWidget {
   }
 }
 
-class _ProfileCard extends StatelessWidget {
-  final Widget child;
-  final EdgeInsetsGeometry padding;
-  const _ProfileCard({
+class _Statistics extends StatelessWidget {
+  final UserProfile profile;
+  final VoidCallback onThreadsTap;
+  const _Statistics({
     super.key,
-    required this.child,
-    this.padding = const EdgeInsets.all(14),
+    required this.profile,
+    required this.onThreadsTap,
   });
 
   @override
-  Widget build(BuildContext context) => DecoratedBox(
-    decoration: ShapeDecoration(
-      color: AppTokens.of(context).surface,
-      shape: appShape(AppRadii.md),
-    ),
-    child: Padding(padding: padding, child: child),
-  );
-}
-
-class _Statistics extends StatelessWidget {
-  final UserProfile profile;
-  const _Statistics({required this.profile});
-
-  @override
   Widget build(BuildContext context) {
-    final t = AppTokens.of(context);
     final columns = [
       if (profile.onlineHours != null)
         _Statistic(value: profile.onlineHours!, label: '在线时长', suffix: '小时'),
@@ -513,22 +494,34 @@ class _Statistics extends StatelessWidget {
         _Statistic(value: profile.credits!, label: '积分'),
       if (profile.evil != null) _Statistic(value: profile.evil!, label: '邪恶指数'),
     ];
-    return _ProfileCard(
-      key: UserPage.statsKey,
-      padding: const EdgeInsets.fromLTRB(14, 16, 14, 14),
-      child: IntrinsicHeight(
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+    return DecoratedBox(
+      decoration: ShapeDecoration(
+        color: AppTokens.of(context).surface,
+        shape: appShape(UserProfileTokens.cardRadius),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(UserProfileTokens.cardInset),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            for (var i = 0; i < columns.length; i++) ...[
-              if (i > 0)
-                VerticalDivider(
-                  width: AppSpace.hairline,
-                  thickness: AppSpace.hairline,
-                  color: t.separator,
+            if (columns.isNotEmpty)
+              ConstrainedBox(
+                constraints: const BoxConstraints(
+                  minHeight: UserProfileTokens.statisticsHeight,
                 ),
-              Expanded(child: columns[i]),
-            ],
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  child: Center(
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        for (final column in columns) Expanded(child: column),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            _ThreadsRow(profile: profile, onTap: onThreadsTap),
           ],
         ),
       ),
@@ -580,10 +573,10 @@ class _Statistic extends StatelessWidget {
   }
 }
 
-class _ThreadsCard extends StatelessWidget {
+class _ThreadsRow extends StatelessWidget {
   final UserProfile profile;
   final VoidCallback onTap;
-  const _ThreadsCard({required this.profile, required this.onTap});
+  const _ThreadsRow({required this.profile, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -592,13 +585,17 @@ class _ThreadsCard extends StatelessWidget {
       if (profile.threads != null) '主题 ${profile.threads}',
       if (profile.replies != null) '回帖 ${profile.replies}',
     ].join('，');
-    return PressScale(
+    return PressHighlight(
       key: UserPage.threadsKey,
       onTap: onTap,
       semanticLabel: '主题与回复',
-      child: _ProfileCard(
+      borderRadius: BorderRadius.circular(UserProfileTokens.rowRadius),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14),
         child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: 36),
+          constraints: const BoxConstraints(
+            minHeight: UserProfileTokens.threadsHeight,
+          ),
           child: Row(
             children: [
               Expanded(

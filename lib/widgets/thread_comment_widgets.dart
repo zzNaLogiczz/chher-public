@@ -4,10 +4,11 @@ library;
 
 import 'package:flutter/material.dart';
 import '../ui/press.dart';
+import '../ui/sheet_scaffold.dart' show HeaderTrailingRow;
 import 'package:solar_icons/solar_icons.dart';
 
 import '../design/tokens.dart';
-import '../design/shapes.dart';
+import '../design/thread_interaction_tokens.dart';
 import '../design/typography.dart';
 import '../models/models.dart';
 import 'comment_mode_bar.dart';
@@ -17,64 +18,75 @@ export 'comment_mode_bar.dart' show CommentViewMode;
 /// 帖子沿用评论区共用的查看方式
 typedef ThreadViewMode = CommentViewMode;
 
-/// 评论区标题:第一行"评论 N",第二行全宽三段分段(评论 / 原楼层 / 只看楼主)。
-/// 两行各自固定,计数变长也不会把分段挤到别的行。
+/// 评论区标题与查看方式保持同一行。
 class ThreadCommentHeading extends StatelessWidget {
   /// The caller supplies reply count only; the opening post is excluded.
   final int loadedCount;
   final bool complete;
+  final int? totalCount;
   final ThreadViewMode mode;
   final ValueChanged<ThreadViewMode> onModeChanged;
 
   /// 正在读取新查看方式的内容:计数换成等待指示
   final bool busy;
+  final bool showAuthor;
 
   const ThreadCommentHeading({
     super.key,
     required this.loadedCount,
     required this.complete,
+    this.totalCount,
     required this.mode,
     required this.onModeChanged,
     this.busy = false,
+    this.showAuthor = true,
   }) : assert(loadedCount >= 0);
 
   @override
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.baseline,
-          textBaseline: TextBaseline.alphabetic,
-          children: [
-            Text(
-              '评论',
-              style: AppType.title2.copyWith(
-                fontSize: ThreadMetrics.headingSize,
-                color: t.text,
-              ),
+    return HeaderTrailingRow(
+      trailingMinWidth:
+          CommentModeTokens.inset * 2 +
+          CommentModeTokens.iconSegment * (showAuthor ? 3 : 2),
+      trailing: CommentModeBar(
+        mode: mode,
+        onChanged: onModeChanged,
+        showAuthor: showAuthor,
+      ),
+      leading: Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.baseline,
+        textBaseline: TextBaseline.alphabetic,
+        children: [
+          Text(
+            '评论',
+            style: AppType.title2.copyWith(
+              fontSize: ThreadMetrics.headingSize,
+              color: t.text,
             ),
-            const SizedBox(width: 6),
-            Flexible(
-              child: busy
-                  ? const CommentModeBusy()
-                  // 只有从第 1 页连续读到末页才给完整数,否则标明是已加载数
-                  : Text(
-                      complete ? '$loadedCount' : '已加载 $loadedCount',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppType.footnote.copyWith(
-                        fontSize: ThreadMetrics.metaSize,
-                        color: t.text3,
-                      ),
+          ),
+          const SizedBox(width: 6),
+          Flexible(
+            child: busy
+                ? const CommentModeBusy()
+                // Only a continuous, complete loaded range has a complete count.
+                : Text(
+                    totalCount != null
+                        ? '$totalCount'
+                        : complete
+                        ? '$loadedCount'
+                        : '已加载 $loadedCount',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppType.footnote.copyWith(
+                      fontSize: ThreadMetrics.metaSize,
+                      color: t.text3,
                     ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        CommentModeBar(mode: mode, onChanged: onModeChanged),
-      ],
+                  ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -99,7 +111,6 @@ class ThreadReplyStrip extends StatelessWidget {
     final count = replies.length;
     final previewCount = count > 2 ? 2 : count;
     return Container(
-      decoration: ShapeDecoration(color: t.fill, shape: appShape(AppRadii.md)),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -108,8 +119,6 @@ class ThreadReplyStrip extends StatelessWidget {
           // descendant into this group, even when a long thread has thousands.
           for (var i = 0; i < previewCount; i++)
             _ReplyPreview(post: replies[i], onOpen: onOpen, position: i),
-          if (showAction)
-            Divider(height: .5, thickness: .5, color: t.separator),
           if (showAction)
             PressScale(
               semanticLabel: '查看已加载的 $count 条回复',
@@ -122,10 +131,10 @@ class ThreadReplyStrip extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(vertical: 10),
                     child: Row(
                       children: [
-                        Icon(
-                          SolarIconsBold.chatRoundDots,
-                          size: 17,
-                          color: t.accent,
+                        Container(
+                          width: ThreadInteractionTokens.expandLineWidth,
+                          height: ThreadInteractionTokens.expandLineHeight,
+                          color: t.text3,
                         ),
                         const SizedBox(width: 8),
                         Expanded(
@@ -143,7 +152,7 @@ class ThreadReplyStrip extends StatelessWidget {
                         ),
                         const SizedBox(width: 6),
                         Icon(
-                          SolarIconsBold.altArrowRight,
+                          SolarIconsBold.altArrowDown,
                           size: 16,
                           color: t.accent,
                         ),
@@ -172,7 +181,7 @@ class _ReplyPreview extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
-    final summary = _replySummary(post);
+    final summary = threadReplySummary(post);
     final author = post.author.trim();
     return PressScale(
       key: ValueKey('thread-reply-preview-${post.pid}-$position'),
@@ -245,23 +254,18 @@ class ThreadReplyContext extends StatelessWidget {
     final resolved = target?.pid == reference.pid ? target : null;
     final author = resolved?.author.trim() ?? '';
     final label = author.isEmpty ? '查看引用楼层' : '回复 $author';
-    final summary = resolved == null ? null : _replySummary(resolved);
     return PressScale(
       key: ValueKey('thread-reply-context-${reference.tid}-${reference.pid}'),
-      semanticLabel: summary == null ? label : '$label，$summary，查看引用楼层',
+      semanticLabel: '$label，查看引用楼层',
       onTap: onOpen,
       scale: .985,
       child: ExcludeSemantics(
         child: Container(
           constraints: const BoxConstraints(minHeight: 44),
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          decoration: ShapeDecoration(
-            color: t.accentFill,
-            shape: appShape(AppRadii.sm),
-          ),
           child: Row(
             children: [
-              Icon(SolarIconsBold.reply, size: 18, color: t.accent),
+              Icon(SolarIconsBold.reply, size: 18, color: t.text3),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
@@ -276,27 +280,14 @@ class ThreadReplyContext extends StatelessWidget {
                         fontSize: AppType.sizeFootnote,
                         height: 1.4,
                         fontWeight: FontWeight.w600,
-                        color: t.text,
+                        color: t.text3,
                       ),
                     ),
-                    if (summary != null) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        summary,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: AppType.sizeFootnote,
-                          height: 1.5,
-                          color: t.text2,
-                        ),
-                      ),
-                    ],
                   ],
                 ),
               ),
               const SizedBox(width: 6),
-              Icon(SolarIconsBold.altArrowRight, size: 16, color: t.accent),
+              Icon(SolarIconsBold.altArrowRight, size: 16, color: t.text3),
             ],
           ),
         ),
@@ -307,7 +298,7 @@ class ThreadReplyContext extends StatelessWidget {
 
 /// Read at most 120 visible graphemes, directly from non-quote text blocks.
 /// No concatenation of a complete long post, quote traversal, or image loading.
-String _replySummary(Post post) {
+String threadReplySummary(Post post) {
   final text = StringBuffer();
   var length = 0;
   var space = false;

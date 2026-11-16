@@ -58,7 +58,10 @@ void main() {
     // v1 规则:正文不写红字,墨色 500 + 浅朱下划线
     expect(span.style!.color, AppTokens.light.text);
     expect(span.style!.decoration, TextDecoration.underline);
-    expect(span.style!.decorationColor, AppTokens.light.linkLine);
+    expect(
+      span.style!.decorationColor,
+      AppTokens.light.accent.withValues(alpha: .35),
+    );
     (span.recognizer! as TapGestureRecognizer).onTap!();
     await tester.pump();
     expect(launched, [Uri.parse(url)]);

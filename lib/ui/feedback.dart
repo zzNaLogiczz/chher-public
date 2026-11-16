@@ -1,7 +1,10 @@
-/// 反馈与状态:顶部提示条、静态骨架(规格 §6.14)
+/// 反馈与状态:顶部提示条与整组骨架。
 library;
 
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:motor/motor.dart';
 
 import '../design/motion.dart';
@@ -149,7 +152,205 @@ class _ToastViewState extends State<_ToastView> with TickerProviderStateMixin {
   }
 }
 
-/// 列表首屏的静态骨架:fill 色圆角条,不做闪光动画(不占帧)
+/// Loading breathes as one cached layer; scroll and TickerMode stop hidden work.
+class SkeletonPulse extends StatefulWidget {
+  final bool active;
+  final Widget child;
+  const SkeletonPulse({super.key, this.active = true, required this.child});
+
+  @override
+  State<SkeletonPulse> createState() => _SkeletonPulseState();
+}
+
+class _SkeletonPulseState extends State<SkeletonPulse>
+    with SingleTickerProviderStateMixin {
+  late final _clock = AnimationController(
+    vsync: this,
+    duration: AppMotion.skeletonDelay,
+  )..addStatusListener(_status);
+  final _bounds = GlobalKey();
+  ScrollPosition? _position;
+  Animation<double>? _routeAnimation;
+  bool _waiting = true;
+  bool _visible = false;
+  bool _scheduled = false;
+  bool _enabled = false;
+
+  void _status(AnimationStatus status) {
+    if (status == AnimationStatus.completed && _waiting) {
+      setState(() => _waiting = false);
+      _sync();
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final routeAnimation = ModalRoute.of(context)?.animation;
+    if (routeAnimation != _routeAnimation) {
+      _routeAnimation?.removeListener(_checkAfterLayout);
+      _routeAnimation = routeAnimation;
+      _routeAnimation?.addListener(_checkAfterLayout);
+    }
+    final position = Scrollable.maybeOf(context)?.position;
+    if (position != _position) {
+      _position?.removeListener(_checkAfterLayout);
+      _position = position;
+      _position?.addListener(_checkAfterLayout);
+    }
+    _enabled =
+        TickerMode.valuesOf(context).enabled &&
+        !MediaQuery.disableAnimationsOf(context);
+    _sync();
+    _checkAfterLayout();
+  }
+
+  @override
+  void didUpdateWidget(covariant SkeletonPulse oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _sync();
+  }
+
+  void _checkAfterLayout() {
+    if (_scheduled) return;
+    _scheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _scheduled = false;
+      if (!mounted) return;
+      final box = _bounds.currentContext?.findRenderObject();
+      if (box is! RenderBox || !box.hasSize) return;
+      final bounds = box.localToGlobal(Offset.zero) & box.size;
+      var visible = bounds.overlaps(Offset.zero & MediaQuery.sizeOf(context));
+      final RenderObject? viewport = RenderAbstractViewport.maybeOf(box);
+      if (viewport is RenderBox && viewport.hasSize) {
+        visible =
+            visible &&
+            bounds.overlaps(
+              viewport.localToGlobal(Offset.zero) & viewport.size,
+            );
+      }
+      _visible = visible;
+      _sync();
+    });
+  }
+
+  void _sync() {
+    if (!widget.active || !_enabled || !_visible) {
+      _clock.stop();
+    } else if (!_clock.isAnimating) {
+      if (_waiting) {
+        _clock.forward();
+      } else {
+        _clock.repeat(period: AppMotion.skeletonCycle);
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _position?.removeListener(_checkAfterLayout);
+    _routeAnimation?.removeListener(_checkAfterLayout);
+    _clock.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => RepaintBoundary(
+    key: _bounds,
+    child: AnimatedBuilder(
+      animation: _clock,
+      child: widget.child,
+      builder: (context, child) => Opacity(
+        opacity: _waiting || !_enabled
+            ? 1
+            : AppMotion.skeletonMinOpacity +
+                  (1 - AppMotion.skeletonMinOpacity) *
+                      (1 + math.cos(_clock.value * math.pi * 2)) /
+                      2,
+        child: child,
+      ),
+    ),
+  );
+}
+
+/// The incoming layout is fixed immediately; only its paint crossfades.
+class SkeletonContent extends StatefulWidget {
+  final bool loading;
+  final Color? background;
+  final Widget skeleton;
+  final Widget child;
+  const SkeletonContent({
+    super.key,
+    required this.loading,
+    this.background,
+    required this.skeleton,
+    required this.child,
+  });
+
+  @override
+  State<SkeletonContent> createState() => _SkeletonContentState();
+}
+
+class _SkeletonContentState extends State<SkeletonContent>
+    with SingleTickerProviderStateMixin {
+  late final _arrival =
+      AnimationController(
+        vsync: this,
+        duration: AppMotion.fade,
+        value: widget.loading ? 0 : 1,
+      )..addStatusListener((status) {
+        if (status == AnimationStatus.completed) setState(() {});
+      });
+
+  @override
+  void didUpdateWidget(covariant SkeletonContent oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.loading == oldWidget.loading) return;
+    if (widget.loading) {
+      _arrival.value = 0;
+    } else {
+      _arrival.duration = MediaQuery.disableAnimationsOf(context)
+          ? AppMotion.reducedFade
+          : AppMotion.fade;
+      _arrival.forward();
+    }
+  }
+
+  @override
+  void dispose() {
+    _arrival.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Stack(
+    children: [
+      widget.loading
+          ? SkeletonPulse(
+              child: TickerMode(enabled: false, child: widget.skeleton),
+            )
+          : widget.child,
+      if (!widget.loading && !_arrival.isCompleted)
+        Positioned.fill(
+          child: IgnorePointer(
+            child: FadeTransition(
+              opacity: ReverseAnimation(_arrival),
+              child: RepaintBoundary(
+                child: ColoredBox(
+                  color: widget.background ?? AppTokens.of(context).bg,
+                  child: ExcludeSemantics(
+                    child: TickerMode(enabled: false, child: widget.skeleton),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+    ],
+  );
+}
+
+/// 列表首屏骨架:整组呼吸,不逐条重画。
 class SkeletonList extends StatelessWidget {
   final int rows;
   const SkeletonList({super.key, this.rows = 6});
@@ -171,27 +372,29 @@ class SkeletonList extends StatelessWidget {
         ),
       ),
     );
-    return Semantics(
-      label: '加载中',
-      child: ClipRect(
-        child: SingleChildScrollView(
-          physics: const NeverScrollableScrollPhysics(),
-          padding: const EdgeInsets.fromLTRB(
-            AppSpace.screen,
-            16,
-            AppSpace.screen,
-            0,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              for (var i = 0; i < rows; i++) ...[
-                bar(.28, 12),
-                bar(.9, 16),
-                bar(.5, 12),
-                const SizedBox(height: 18),
+    return SkeletonPulse(
+      child: Semantics(
+        label: '加载中',
+        child: ClipRect(
+          child: SingleChildScrollView(
+            physics: const NeverScrollableScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(
+              AppSpace.screen,
+              16,
+              AppSpace.screen,
+              0,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (var i = 0; i < rows; i++) ...[
+                  bar(.28, 12),
+                  bar(.9, 16),
+                  bar(.5, 12),
+                  const SizedBox(height: 18),
+                ],
               ],
-            ],
+            ),
           ),
         ),
       ),

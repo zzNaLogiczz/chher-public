@@ -38,12 +38,7 @@ class AttachmentBar extends StatelessWidget {
             .firstOrNull;
         final canAdd = enabled && controller.remaining > 0;
         return DecoratedBox(
-          decoration: BoxDecoration(
-            color: t.surface,
-            border: Border(
-              top: BorderSide(color: t.separator, width: AppSpace.hairline),
-            ),
-          ),
+          decoration: BoxDecoration(color: t.surface),
           child: SafeArea(
             top: false,
             child: Column(

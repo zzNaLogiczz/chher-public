@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:chh_app/data/forum_repository.dart';
 import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/models/models.dart';
+import 'package:chh_app/models/thread_sort.dart';
+import 'package:chh_app/ui/picker.dart';
 import 'package:chh_app/network/chh_client.dart';
 import 'package:chh_app/pages/forum_threads_page.dart';
 import 'package:chh_app/ui/chrome_button.dart';
@@ -97,47 +99,59 @@ Future<void> _mount(
       ),
     ),
   );
-  await tester.pumpAndSettle();
+  if (repo.pending == null) {
+    await tester.pumpAndSettle();
+  } else {
+    // Keep the initial request pending while the controls remain usable.
+    await tester.pump(const Duration(seconds: 1));
+  }
 }
 
-ChromeGroupItem _sort(WidgetTester tester) => tester
-    .widget<ChromeGroup>(find.byType(ChromeGroup))
-    .items
-    .firstWhere((item) => item.tooltip == '排序');
+ThreadSort _sort(WidgetTester tester) => tester
+    .widget<PickerButton<ThreadSort>>(find.byType(PickerButton<ThreadSort>))
+    .value;
 
-Future<void> _pick(WidgetTester tester, String label) async {
+Future<void> _pick(
+  WidgetTester tester,
+  String label, {
+  bool pendingContent = false,
+}) async {
   await tester.tap(find.byTooltip('排序'));
-  await tester.pumpAndSettle();
+  if (pendingContent) {
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+  } else {
+    await tester.pumpAndSettle();
+  }
   await tester.tap(find.text(label).last);
   await tester.pump(const Duration(milliseconds: 200));
   await tester.pumpAndSettle();
 }
 
 void main() {
-  testWidgets(
-    'default sort returns to navigation alongside search and favorite',
-    (tester) async {
-      final repo = _Forums();
-      await _mount(tester, repo, 1101);
-      expect(_sort(tester).selected, isFalse);
-      expect(
-        tester
-            .widget<ChromeGroup>(find.byType(ChromeGroup))
-            .items
-            .map((i) => i.tooltip),
-        ['分类筛选', '排序', '搜索帖子', '收藏版块'],
-      );
-      expect(repo.requests.single.orderby, isNull);
-    },
-  );
+  testWidgets('sort sits with the list while navigation has three actions', (
+    tester,
+  ) async {
+    final repo = _Forums();
+    await _mount(tester, repo, 1101);
+    expect(_sort(tester), ThreadSort.latest);
+    expect(
+      tester
+          .widget<ChromeGroup>(find.byType(ChromeGroup))
+          .items
+          .map((i) => i.tooltip),
+      ['分类筛选', '搜索帖子', '收藏版块'],
+    );
+    expect(repo.requests.single.orderby, isNull);
+  });
 
-  testWidgets('reply sort selects the icon and sends site parameters', (
+  testWidgets('reply sort changes the label and sends site parameters', (
     tester,
   ) async {
     final repo = _Forums();
     await _mount(tester, repo, 1102);
     await _pick(tester, '回复最多');
-    expect(_sort(tester).selected, isTrue);
+    expect(_sort(tester), ThreadSort.replies);
     expect(repo.requests.last.filter, 'reply');
     expect(repo.requests.last.orderby, 'replies');
     final count = repo.requests.length;
@@ -181,7 +195,7 @@ void main() {
     await tester.tap(find.byTooltip('关闭'));
     await tester.pumpAndSettle();
     expect(repo.requests.length, count);
-    expect(_sort(tester).selected, isTrue);
+    expect(_sort(tester), ThreadSort.posted);
   });
 
   testWidgets('sort memory survives route recreation and isolates fid', (
@@ -191,10 +205,10 @@ void main() {
     await _mount(tester, repo, 1105);
     await _pick(tester, '查看最多');
     await _mount(tester, repo, 1106);
-    expect(_sort(tester).selected, isFalse);
+    expect(_sort(tester), ThreadSort.latest);
     expect(repo.requests.last.orderby, isNull);
     await _mount(tester, repo, 1105);
-    expect(_sort(tester).selected, isTrue);
+    expect(_sort(tester), ThreadSort.views);
     expect(repo.requests.last.orderby, 'views');
   });
 
@@ -237,13 +251,14 @@ void main() {
     expect(find.byType(PinnedGroupRow), findsNothing);
     await _pick(tester, '最新回复');
     expect(find.byType(PinnedGroupRow), findsOneWidget);
-    expect(_sort(tester).selected, isFalse);
+    expect(_sort(tester), ThreadSort.latest);
   });
 
   testWidgets('changing sort discards a late default response', (tester) async {
     final repo = _Forums()..pending = Completer<ThreadListPage>();
     await _mount(tester, repo, 1109);
-    await _pick(tester, '查看最多');
+    expect(repo.pending!.isCompleted, isFalse);
+    await _pick(tester, '查看最多', pendingContent: true);
     repo.pending!.complete(
       const ThreadListPage(
         threads: [
@@ -267,7 +282,7 @@ void main() {
     '320dp at 2x keeps actions reachable and sort sheet labels readable',
     (tester) async {
       await _mount(tester, _Forums(), 1110, narrow: true);
-      for (final tooltip in ['分类筛选', '排序', '搜索帖子', '收藏版块']) {
+      for (final tooltip in ['分类筛选', '搜索帖子', '收藏版块']) {
         final size = tester.getSize(find.byTooltip(tooltip));
         expect(size.width, greaterThanOrEqualTo(44));
         expect(size.height, greaterThanOrEqualTo(44));

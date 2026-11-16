@@ -3,8 +3,10 @@ library;
 
 import 'dart:async';
 import '../design/motion.dart';
+import '../ui/sheet_scaffold.dart';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import '../ui/editor_touch.dart';
 import 'package:smooth_sheets/smooth_sheets.dart';
 import 'package:solar_icons/solar_icons.dart';
@@ -25,25 +27,11 @@ Future<PostResult?> showExpressiveComposerRoute(
 }) {
   final t = AppTokens.of(context);
   return Navigator.of(context).push(
-    ModalSheetRoute<PostResult>(
+    AppSheetRoute<PostResult>(
       builder: builder,
-      barrierDismissible: true,
       barrierColor: t.scrim,
       barrierLabel: '关闭编辑',
-      swipeDismissible: true,
-      swipeDismissSensitivity: const SwipeDismissSensitivity(
-        minFlingVelocityRatio: 1.6,
-        dismissalOffset: SheetOffset(.32),
-      ),
-      transitionDuration: MediaQuery.disableAnimationsOf(context)
-          ? Duration.zero
-          : AppMotion.sheetDuration,
-      viewportBuilder: (context, child) => SheetViewport(
-        padding: EdgeInsets.only(
-          top: MediaQuery.viewPaddingOf(context).top + 8,
-        ),
-        child: child,
-      ),
+      reduced: MediaQuery.disableAnimationsOf(context),
     ),
   );
 }
@@ -57,6 +45,7 @@ class ExpressiveComposer extends StatefulWidget {
   final String initialText;
   final String? quoteLabel;
   final String? quoteText;
+  final bool compactReply;
   final String unknownActionLabel;
   final Future<PostResult> Function(String) onSubmit;
   final ValueChanged<String>? onDraftChanged;
@@ -74,6 +63,7 @@ class ExpressiveComposer extends StatefulWidget {
     this.initialText = '',
     this.quoteLabel,
     this.quoteText,
+    this.compactReply = false,
     this.unknownActionLabel = '返回阅读确认',
     this.onDraftChanged,
     this.onLogin,
@@ -94,6 +84,10 @@ class _ExpressiveComposerState extends State<ExpressiveComposer>
   late String _lastText = widget.initialText;
   _ComposePhase _phase = _ComposePhase.idle;
   PostResult? _failure;
+  static const _backChannel = MethodChannel('chh/composer_back');
+  bool _nativeBackEnabled = false;
+  bool get _android =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
   bool _keyboardVisible = false;
   double _fullExtent = 1;
 
@@ -119,6 +113,17 @@ class _ExpressiveComposerState extends State<ExpressiveComposer>
     _hasText.value = _input.text.trim().isNotEmpty;
     _input.addListener(_textChanged);
     _sheet.addListener(_sheetChanged);
+    if (_android) {
+      _backChannel.setMethodCallHandler((call) async {
+        if (call.method == 'back' &&
+            mounted &&
+            ModalRoute.of(context)?.isCurrent == true &&
+            !_busy) {
+          _focus.unfocus();
+          await Navigator.of(context).maybePop();
+        }
+      });
+    }
   }
 
   @override
@@ -136,6 +141,20 @@ class _ExpressiveComposerState extends State<ExpressiveComposer>
       });
     }
     _keyboardVisible = visible;
+  }
+
+  void _syncNativeBack(bool enabled) {
+    if (!_android || enabled == _nativeBackEnabled) return;
+    _nativeBackEnabled = enabled;
+    unawaited(
+      _backChannel
+          .invokeMethod<void>('setEnabled', enabled)
+          .catchError(
+            (
+              Object _,
+            ) {}, // Other platforms and old hosts retain normal route back.
+          ),
+    );
   }
 
   void _textChanged() {
@@ -157,8 +176,9 @@ class _ExpressiveComposerState extends State<ExpressiveComposer>
     _sheet.animateTo(
       SheetOffset(expand ? 1 : .62),
       duration: MediaQuery.disableAnimationsOf(context)
-          ? Duration.zero
+          ? AppMotion.immediateSheet
           : AppMotion.revealDuration,
+      // smooth_sheets applies this curve twice; sheet overshoot exceeds its domain.
       curve: AppMotion.revealCurve,
     );
   }
@@ -223,6 +243,8 @@ class _ExpressiveComposerState extends State<ExpressiveComposer>
 
   @override
   void dispose() {
+    _syncNativeBack(false);
+    if (_android) _backChannel.setMethodCallHandler(null);
     _successHold.dispose();
     _input.dispose();
     _focus.dispose();
@@ -234,6 +256,9 @@ class _ExpressiveComposerState extends State<ExpressiveComposer>
 
   @override
   Widget build(BuildContext context) {
+    _syncNativeBack(
+      _keyboardVisible && ModalRoute.isCurrentOf(context) == true,
+    );
     final t = AppTokens.of(context);
     final hasViewport =
         context.findAncestorWidgetOfExactType<SheetViewport>() != null;
@@ -245,6 +270,7 @@ class _ExpressiveComposerState extends State<ExpressiveComposer>
         ),
         child: Sheet(
           controller: _sheet,
+          physics: AppSheetPhysics.of(context, controller: _sheet),
           initialOffset: SheetOffset(hasViewport ? .62 : 1),
           snapGrid: const SheetSnapGrid(
             snaps: [SheetOffset(.62), SheetOffset(1)],
@@ -258,13 +284,9 @@ class _ExpressiveComposerState extends State<ExpressiveComposer>
           padding: EdgeInsets.only(
             bottom: MediaQuery.viewInsetsOf(context).bottom,
           ),
-          decoration: MaterialSheetDecoration(
+          decoration: SheetDecorationBuilder(
             size: SheetSize.stretch,
-            color: t.surface,
-            clipBehavior: Clip.antiAlias,
-            borderRadius: const BorderRadius.vertical(
-              top: Radius.circular(AppRadii.xl),
-            ),
+            builder: (context, child) => AppSheetSurface(child: child),
           ),
           child: SheetContentScaffold(
             backgroundColor: t.surface,
@@ -277,6 +299,18 @@ class _ExpressiveComposerState extends State<ExpressiveComposer>
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                if (widget.compactReply)
+                  SafeArea(
+                    top: false,
+                    bottom: widget.attachments == null,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(24, 8, 24, 12),
+                      child: Align(
+                        alignment: Alignment.centerRight,
+                        child: _sendButton(),
+                      ),
+                    ),
+                  ),
                 _footer(t),
                 if (widget.attachments != null)
                   AttachmentBar(
@@ -291,8 +325,9 @@ class _ExpressiveComposerState extends State<ExpressiveComposer>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    if (widget.quoteLabel != null ||
-                        (widget.quoteText?.isNotEmpty ?? false))
+                    if (!widget.compactReply &&
+                        (widget.quoteLabel != null ||
+                            (widget.quoteText?.isNotEmpty ?? false)))
                       QuoteView(
                         author: widget.quoteLabel ?? '引用内容',
                         text: widget.quoteText ?? '',
@@ -373,67 +408,105 @@ class _ExpressiveComposerState extends State<ExpressiveComposer>
           ),
         ),
       ),
-      Padding(
-        padding: const EdgeInsets.fromLTRB(8, 0, 12, 10),
-        child: Row(
-          children: [
-            AppButton(
-              label: '取消',
-              variant: AppButtonVariant.quiet,
-              onPressed: _busy ? null : () => _close(),
-            ),
-            Expanded(
-              child: Column(
+      if (widget.compactReply)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 0, 12, 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
                 children: [
-                  Text(
-                    widget.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppType.headline.copyWith(color: t.text),
+                  Icon(SolarIconsBold.reply, size: 18, color: t.text3),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      widget.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppType.headline.copyWith(color: t.text),
+                    ),
                   ),
-                  Text(
-                    widget.modeLabel,
+                  AppButton(
+                    label: '取消',
+                    variant: AppButtonVariant.quiet,
+                    onPressed: _busy ? null : () => _close(),
+                  ),
+                ],
+              ),
+              if (widget.quoteText?.isNotEmpty == true)
+                Padding(
+                  padding: const EdgeInsets.only(left: 26, right: 12),
+                  child: Text(
+                    widget.quoteText!,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: AppType.footnote.copyWith(color: t.text3),
                   ),
-                ],
+                ),
+            ],
+          ),
+        )
+      else
+        Padding(
+          padding: const EdgeInsets.fromLTRB(8, 0, 12, 10),
+          child: Row(
+            children: [
+              AppButton(
+                label: '取消',
+                variant: AppButtonVariant.quiet,
+                onPressed: _busy ? null : () => _close(),
               ),
-            ),
-            ListenableBuilder(
-              listenable: Listenable.merge([_hasText, ?widget.attachments]),
-              builder: (context, _) => AppButton(
-                key: const ValueKey('composer-send'),
-                // 文字随状态变化,忙碌与成功时在同一个胶囊里变形
-                label: switch (_phase) {
-                  _ComposePhase.success => '已发送',
-                  _ComposePhase.sending => '发送中',
-                  _ComposePhase.failure when !_uncertain => '重试发送',
-                  _ => '发送',
-                },
-                small: true,
-                state: switch (_phase) {
-                  _ComposePhase.sending => AppButtonState.busy,
-                  _ComposePhase.success => AppButtonState.success,
-                  _ => AppButtonState.idle,
-                },
-                onPressed: _busy || _uncertain || !_canSend ? null : _send,
+              Expanded(
+                child: Column(
+                  children: [
+                    Text(
+                      widget.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppType.headline.copyWith(color: t.text),
+                    ),
+                    Text(
+                      widget.modeLabel,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppType.footnote.copyWith(color: t.text3),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+              _sendButton(),
+            ],
+          ),
         ),
-      ),
     ],
+  );
+
+  Widget _sendButton() => ListenableBuilder(
+    listenable: Listenable.merge([_hasText, ?widget.attachments]),
+    builder: (context, _) => AppButton(
+      key: const ValueKey('composer-send'),
+      // 文字随状态变化,忙碌与成功时在同一个胶囊里变形
+      label: switch (_phase) {
+        _ComposePhase.success => '已发送',
+        _ComposePhase.sending => '发送中',
+        _ComposePhase.failure when !_uncertain => '重试发送',
+        _ => '发送',
+      },
+      small: true,
+      state: switch (_phase) {
+        _ComposePhase.sending => AppButtonState.busy,
+        _ComposePhase.success => AppButtonState.success,
+        _ => AppButtonState.idle,
+      },
+      onPressed: _busy || _uncertain || !_canSend ? null : _send,
+    ),
   );
 
   /// 底部只在失败、需要登录或结果未知时出现,说明状态与下一步;草稿保留
   Widget _footer(AppTokens t) => _failure == null
       ? const SizedBox.shrink()
       : DecoratedBox(
-          decoration: BoxDecoration(
-            color: t.surface,
-            border: Border(top: BorderSide(color: t.separator, width: .5)),
-          ),
+          decoration: BoxDecoration(color: t.surface),
           child: SafeArea(
             top: false,
             // 下面还有图片横栏时,底部安全区由横栏负责

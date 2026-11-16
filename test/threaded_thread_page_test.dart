@@ -7,9 +7,10 @@ import 'package:chh_app/parser/header_parser.dart';
 import 'package:chh_app/models/models.dart';
 import 'package:chh_app/pages/thread_detail_page.dart';
 import 'package:chh_app/widgets/composer_sheet.dart';
+import 'package:chh_app/widgets/expressive_controls.dart';
 import 'package:chh_app/widgets/post_card.dart';
 import 'package:chh_app/widgets/thread_comment_widgets.dart';
-import 'package:chh_app/ui/segmented.dart';
+import 'package:chh_app/widgets/comment_mode_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -77,8 +78,10 @@ Finder card(int pid) =>
 
 Future<void> tapViewMode(WidgetTester tester, String label) async {
   final segment = find.descendant(
-    of: find.byType(AppSegmented<ThreadViewMode>),
-    matching: find.text(label),
+    of: find.byType(CommentModeBar),
+    matching: find.byKey(
+      ValueKey('comment-mode-${['评论', '原楼层', '只看楼主'].indexOf(label)}'),
+    ),
   );
   await tester.ensureVisible(segment);
   await tester.pump();
@@ -86,13 +89,13 @@ Future<void> tapViewMode(WidgetTester tester, String label) async {
 }
 
 Future<ThreadViewMode> currentViewMode(WidgetTester tester) async {
-  final segmented = find.byType(AppSegmented<ThreadViewMode>);
+  final segmented = find.byType(CommentModeBar);
   await tester.scrollUntilVisible(
     segmented,
     300,
     scrollable: find.byType(Scrollable).first,
   );
-  return tester.widget<AppSegmented<ThreadViewMode>>(segmented).value;
+  return tester.widget<CommentModeBar>(segmented).mode;
 }
 
 void main() {
@@ -109,6 +112,7 @@ void main() {
       await pump(
         tester,
         ThreadDetailPage(
+          preloadPages: 1,
           tid: 123,
           title: '合成引用',
           loadPage: (n, _, _) async {
@@ -136,7 +140,7 @@ void main() {
         expect(reply, findsOneWidget);
       }
       await tester.scrollUntilVisible(
-        find.byType(AppSegmented<ThreadViewMode>),
+        find.byType(CommentModeBar),
         -200,
         scrollable: find.byType(Scrollable).first,
       );
@@ -178,6 +182,7 @@ void main() {
     await pump(
       tester,
       ThreadDetailPage(
+        preloadPages: 1,
         tid: 123,
         title: '分页引用',
         loadPage: (n, _, _) async {
@@ -225,6 +230,7 @@ void main() {
     await pump(
       tester,
       ThreadDetailPage(
+        preloadPages: 1,
         tid: 123,
         title: '歧义引用',
         loadPage: (n, _, _) async => n == 1
@@ -261,7 +267,7 @@ void main() {
     expect(find.text('展开 1 条回复'), findsNothing);
     expect(card(4), findsWidgets);
     await tester.scrollUntilVisible(
-      find.byType(AppSegmented<ThreadViewMode>),
+      find.byType(CommentModeBar),
       -200,
       scrollable: find.byType(Scrollable).first,
     );
@@ -290,6 +296,7 @@ void main() {
     await pump(
       tester,
       ThreadDetailPage(
+        preloadPages: 1,
         tid: 123,
         title: '示例讨论',
         loadPage: (_, _, _) async => data,
@@ -319,7 +326,7 @@ void main() {
     await tester.pumpAndSettle();
     final reply = find.byKey(const ValueKey('comment-reply-4'));
     for (var n = 0; n < 12 && reply.hitTestable().evaluate().isEmpty; n++) {
-      await tester.drag(find.byType(ListView).first, const Offset(0, -140));
+      await tester.drag(find.byType(Scrollable).first, const Offset(0, -140));
       await tester.pumpAndSettle();
     }
     expect(reply.hitTestable(), findsOneWidget);
@@ -340,6 +347,7 @@ void main() {
     await pump(
       tester,
       ThreadDetailPage(
+        preloadPages: 1,
         tid: 123,
         title: '通知',
         focusPid: 4,
@@ -360,6 +368,7 @@ void main() {
     await pump(
       tester,
       ThreadDetailPage(
+        preloadPages: 1,
         tid: 123,
         title: '模式',
         loadPage: (_, _, _) async =>
@@ -393,6 +402,7 @@ void main() {
     await pump(
       tester,
       ThreadDetailPage(
+        preloadPages: 1,
         tid: 123,
         title: '长回复',
         initialThreaded: false,
@@ -417,6 +427,7 @@ void main() {
     await pump(
       tester,
       ThreadDetailPage(
+        preloadPages: 1,
         tid: 123,
         title: '未关联引文',
         initialThreaded: false,
@@ -435,6 +446,7 @@ void main() {
       await pump(
         tester,
         ThreadDetailPage(
+          preloadPages: 1,
           tid: 123,
           title: '增量',
           loadPage: (n, _, _) async {
@@ -450,7 +462,7 @@ void main() {
       expect(reads, [1, 2]);
       await tester.pumpAndSettle();
       expect(reads, [1, 2]);
-      await tester.drag(find.byType(ListView).first, const Offset(0, -180));
+      await tester.drag(find.byType(Scrollable).first, const Offset(0, -180));
       await tester.pumpAndSettle();
       expect(reads, [1, 2, 3]);
       expect(tester.takeException(), isNull);
@@ -467,6 +479,7 @@ void main() {
       await pump(
         tester,
         ThreadDetailPage(
+          preloadPages: 1,
           tid: 123,
           title: '楼主续篇',
           loadPage: (_, author, _) async {
@@ -499,6 +512,7 @@ void main() {
     await pump(
       tester,
       ThreadDetailPage(
+        preloadPages: 1,
         tid: 123,
         title: '中段',
         initialPage: 4,
@@ -509,7 +523,12 @@ void main() {
         },
       ),
     );
-    await tapViewMode(tester, '只看楼主');
+    expect(find.byKey(const ValueKey('comment-mode-2')), findsNothing);
+    // The unknown-author option is hidden; retain the request cancellation
+    // regression for the existing callback path (e.g. restored reading mode).
+    tester
+        .widget<ThreadCommentHeading>(find.byType(ThreadCommentHeading))
+        .onModeChanged(ThreadViewMode.author);
     await tester.pump();
     await tapViewMode(tester, '评论');
     await tester.pump();
@@ -536,6 +555,7 @@ void main() {
     await pump(
       tester,
       ThreadDetailPage(
+        preloadPages: 1,
         tid: 123,
         title: '示例讨论',
         loadPage: (_, author, _) async {
@@ -557,18 +577,16 @@ void main() {
       final before = tester.getTopLeft(heading).dy;
       await tester.tap(
         find.descendant(
-          of: find.byType(AppSegmented<ThreadViewMode>),
-          matching: find.text(label),
+          of: find.byType(CommentModeBar),
+          matching: find.byKey(
+            ValueKey('comment-mode-${['评论', '原楼层', '只看楼主'].indexOf(label)}'),
+          ),
         ),
       );
       await tester.pumpAndSettle();
       expect(tester.getTopLeft(heading).dy, closeTo(before, 1), reason: label);
       expect(
-        tester
-            .widget<AppSegmented<ThreadViewMode>>(
-              find.byType(AppSegmented<ThreadViewMode>),
-            )
-            .value,
+        tester.widget<CommentModeBar>(find.byType(CommentModeBar)).mode,
         mode,
       );
     }
@@ -593,6 +611,7 @@ void main() {
     await pump(
       tester,
       ThreadDetailPage(
+        preloadPages: 1,
         tid: 123,
         title: '示例讨论',
         loadPage: (_, uid, _) async =>
@@ -607,7 +626,16 @@ void main() {
     // 控件先选中目标并显示等待,旧评论仍在
     expect(heading.mode, ThreadViewMode.author);
     expect(heading.busy, isTrue);
+    expect(find.byType(CommentModeBusy), findsOneWidget);
     expect(card(2), findsWidgets);
+    await tester.pump(const Duration(milliseconds: 400));
+    final fadingReply = find
+        .ancestor(of: card(2), matching: find.byType(ContentFade))
+        .first;
+    expect(
+      tester.widget<ContentFade>(fadingReply).opacity.value,
+      closeTo(.45, .001),
+    );
 
     author.completeError(Exception('offline'));
     await tester.pump();
@@ -618,6 +646,17 @@ void main() {
     );
     expect(reverted.mode, ThreadViewMode.threaded);
     expect(reverted.busy, isFalse);
+    expect(find.byType(CommentModeBusy), findsNothing);
+    await tester.pumpAndSettle();
+    final thumb = tester.getRect(
+      find.byKey(const ValueKey('comment-mode-thumb')),
+    );
+    final firstSegment = tester.getRect(
+      find.byKey(const ValueKey('comment-mode-0')),
+    );
+    expect(thumb.left, closeTo(firstSegment.left, .1));
+    expect(thumb.width, closeTo(firstSegment.width, .1));
+    expect(tester.widget<ContentFade>(fadingReply).opacity.value, 1);
     expect(card(2), findsWidgets);
     expect(card(3), findsWidgets);
     await tester.pumpAndSettle(const Duration(seconds: 3));
@@ -631,6 +670,7 @@ void main() {
     await pump(
       tester,
       ThreadDetailPage(
+        preloadPages: 1,
         tid: 123,
         title: '按需读取',
         loadPage: (n, _, _) async {
@@ -668,6 +708,7 @@ void main() {
       await pump(
         tester,
         ThreadDetailPage(
+          preloadPages: 1,
           tid: 123,
           title: '提交后续载',
           initialThreaded: false,
@@ -694,11 +735,11 @@ void main() {
       await bottom(tester);
       expect(reads, contains((3, false)));
       await tester.scrollUntilVisible(
-        find.text('回复 #2'),
+        find.byKey(const ValueKey('comment-reply-2')),
         -200,
         scrollable: find.byType(Scrollable).first,
       );
-      await tester.tap(find.text('回复 #2'));
+      await tester.tap(find.byKey(const ValueKey('comment-reply-2')));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField), '本地模拟');
       await tester.pump();
@@ -742,6 +783,7 @@ void main() {
       await pump(
         tester,
         ThreadDetailPage(
+          preloadPages: 1,
           tid: 123,
           title: '账号隔离',
           loadPage: (_, _, _) async {
@@ -775,6 +817,7 @@ void main() {
     await pump(
       tester,
       ThreadDetailPage(
+        preloadPages: 1,
         tid: 123,
         title: '重试',
         loadPage: (n, _, _) async {

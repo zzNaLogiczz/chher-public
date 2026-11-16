@@ -320,14 +320,14 @@ void main() {
     // 真机现场:一级页形态下交替点 提醒/私信 数轮后整页单色灰——
     // 根因是显式 controller swap 让普通 position attach 进 NestedScrollView
     // 内层控制器(框架断言,release 下 as 强转抛错炸帧)。
-    // 修复后:分段切换只动 PrimaryScrollController(inherited 路径重建 position)。
+    // 两段各自保留滚动控制器，共用漆面骨架，切换不交换 position。
     final messages = _FakeMessages();
     await _pumpShell(tester, messages);
     await _tapTab(tester, '消息');
 
     for (var round = 0; round < 4; round++) {
       for (final segment in ['私信', '提醒']) {
-        await tester.tap(find.textContaining(segment));
+        await tester.tap(find.text(segment).hitTestable().first);
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 120));
         await tester.pump(const Duration(milliseconds: 300));
@@ -339,12 +339,11 @@ void main() {
     _expectNotGrey('after alternating segments', rows[2]);
 
     // 切换协调仍在:列表上滑,漆面头部跟随收起
-    await tester.drag(find.byType(ListView).first, const Offset(0, -300));
+    final list = find.byType(CustomScrollView).hitTestable().first;
+    await tester.drag(list, const Offset(0, -300));
     await tester.pumpAndSettle();
-    final outer = tester
-        .state<NestedScrollViewState>(find.byType(NestedScrollView))
-        .outerController;
-    expect(outer.offset, greaterThan(0));
+    final controller = tester.widget<CustomScrollView>(list).controller!;
+    expect(controller.offset, greaterThan(0));
     expect(tester.takeException(), isNull);
   });
 

@@ -120,12 +120,14 @@ Widget _action(
   FavoriteIndex index,
   _Favorites repository, {
   bool loggedIn = true,
+  VoidCallback? onChanged,
 }) => _app(
   FavoriteActionBuilder(
     target: _target,
     index: index,
     repository: repository,
     isLoggedIn: () => loggedIn,
+    onChanged: onChanged,
     builder: (context, favorited, busy, toggle) => ReadingBar(
       placeholder: '写回复…',
       onCompose: () {},
@@ -147,6 +149,30 @@ void main() {
   tearDown(() {
     chhSession.loggedIn = false;
     favoriteIndex.setUid(null);
+  });
+
+  testWidgets('favorite change callback runs only after confirmed changes', (
+    tester,
+  ) async {
+    final index = FavoriteIndex(null)..setUid(1);
+    final repository = _Favorites(index)..pending = Completer<void>();
+    var changes = 0;
+    await tester.pumpWidget(
+      _action(index, repository, onChanged: () => changes++),
+    );
+    await tester.tap(find.byKey(ReadingBar.favoriteKey));
+    await tester.pump();
+    expect(changes, 0);
+    repository.pending!.complete();
+    await tester.pumpAndSettle();
+    expect(changes, 1);
+    repository.pending = null;
+    repository.fail = true;
+    await tester.tap(find.byKey(ReadingBar.favoriteKey));
+    await tester.pumpAndSettle();
+    expect(changes, 1);
+    await tester.pumpWidget(const SizedBox());
+    index.dispose();
   });
 
   testWidgets(
@@ -257,7 +283,7 @@ void main() {
   );
 
   testWidgets(
-    'directory favorites lead categories, preserve order and respect category',
+    'directory favorites lead categories, preserve order and survive category jumps',
     (tester) async {
       chhSession.loggedIn = true;
       favoriteIndex.setUid(1);
@@ -289,23 +315,27 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(find.text('收藏'), findsOneWidget);
+      expect(find.byKey(const ValueKey('forum-section-0')), findsOneWidget);
       expect(find.text('帖子不显示'), findsNothing);
       expect(
-        tester.getTopLeft(find.text('收藏')).dy,
+        tester.getTopLeft(find.byKey(const ValueKey('forum-section-0'))).dy,
         lessThan(tester.getTopLeft(find.text('硬件')).dy),
       );
       expect(
         tester.getTopLeft(find.text('收藏摄影版块')).dy,
         lessThan(tester.getTopLeft(find.text('收藏电脑版块')).dy),
       );
-      await tester.tap(find.text('全部分区'));
+      await tester.drag(
+        find.byType(CustomScrollView).first,
+        const Offset(0, -160),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('forum-directory-jump')));
       await tester.pumpAndSettle();
       await tester.tap(find.text('硬件').last);
       await tester.pump(const Duration(milliseconds: 250));
       await tester.pumpAndSettle();
-      expect(find.text('收藏'), findsNothing);
-      expect(find.text('收藏摄影版块'), findsNothing);
+      expect(find.text('收藏摄影版块'), findsOneWidget);
       expect(find.text('普通电脑'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
@@ -329,7 +359,7 @@ void main() {
     expect(find.text('收藏'), findsNothing);
     favoriteIndex.merge([_forum]);
     await tester.pumpAndSettle();
-    expect(find.text('收藏'), findsOneWidget);
+    expect(find.byKey(const ValueKey('forum-section-0')), findsOneWidget);
     chhSession.loggedIn = false;
     favoriteIndex.setUid(null);
     await tester.pumpAndSettle();

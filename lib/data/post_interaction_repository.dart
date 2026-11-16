@@ -247,6 +247,103 @@ class PostInteractionRepository {
     }
   }
 
+  Future<PostSupplementForm> supplementForm({
+    required int tid,
+    required int pid,
+    Uri? pageUrl,
+  }) async {
+    final identity = _identity();
+    final revision = sessionRevision?.call();
+    final page = pageUrl ?? supplementPageUrl(tid, pid);
+    if (!isSupplementUrl(page, tid, pid)) {
+      throw const PostInteractionException(
+        PostResult(PostResultKind.failed, '操作地址无效，请刷新帖子'),
+      );
+    }
+    final raw = await client.getAjaxHtml(page, refresh: true);
+    _checkIdentity(identity, revision);
+    final form = parsePostSupplementForm(
+      raw,
+      tid: tid,
+      pid: pid,
+      pageUrl: page,
+      sessionIdentity: identity,
+      sessionRevision: revision,
+    );
+    if (form == null) {
+      throw PostInteractionException(
+        parseInteractionPageError(raw) ??
+            const PostResult(PostResultKind.failed, '无法读取补充表单，请重试'),
+      );
+    }
+    return form;
+  }
+
+  Future<PostResult> submitSupplement({
+    required PostSupplementForm form,
+    required String message,
+  }) async {
+    final lock = '${form.sessionIdentity}:supplement:${form.tid}:${form.pid}';
+    if (!_pending.add(lock)) {
+      return const PostResult(PostResultKind.failed, '正在提交，请稍候');
+    }
+    var posting = false;
+    try {
+      _checkIdentity(form.sessionIdentity, form.sessionRevision);
+      final fresh = await supplementForm(
+        tid: form.tid,
+        pid: form.pid,
+        pageUrl: form.pageUrl,
+      );
+      _checkIdentity(form.sessionIdentity, form.sessionRevision);
+      if (message.trim().isEmpty) {
+        return const PostResult(PostResultKind.failed, '请输入补充内容');
+      }
+      if (fresh.maxLength != null && message.length > fresh.maxLength!) {
+        return PostResult(PostResultKind.failed, '补充内容最多 ${fresh.maxLength} 字');
+      }
+      final action = fresh.action.replace(
+        queryParameters: {
+          ...fresh.action.queryParameters,
+          'postappendsubmit': 'yes',
+          'inajax': '1',
+        },
+      );
+      posting = true;
+      final response = await client.postAjaxForm(action, {
+        ...fresh.hidden,
+        'formhash': fresh.formhash,
+        'handlekey': 'postappend',
+        'postappendmessage': message,
+        'postappendsubmit': 'yes',
+      }, retryTransportFailures: false);
+      _checkIdentity(form.sessionIdentity, form.sessionRevision);
+      if (response.status <= 0 ||
+          (response.status >= 300 && response.status < 400)) {
+        return const PostResult(PostResultKind.unknown, '提交结果待核对，请刷新确认');
+      }
+      if (response.rejectedBeforeApp) {
+        return const PostResult(PostResultKind.failed, '请求被拦截，请稍后重试');
+      }
+      final result = parsePostSupplementResult(
+        response.body,
+        status: response.status,
+      );
+      if (result.isSuccess) client.clearCache();
+      return result;
+    } on PostInteractionException catch (e) {
+      return posting
+          ? const PostResult(PostResultKind.unknown, '提交结果待核对，请刷新确认')
+          : e.result;
+    } catch (_) {
+      return posting
+          ? const PostResult(PostResultKind.unknown, '提交结果待核对，请刷新确认')
+          : const PostResult(PostResultKind.failed, '读取补充表单失败，请重试');
+    } finally {
+      _pending.remove(lock);
+    }
+  }
+
   Future<PostResult> _post(
     PostInteractionKind kind,
     int tid,

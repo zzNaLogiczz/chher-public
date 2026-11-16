@@ -2,13 +2,12 @@
 library;
 
 import 'package:flutter/material.dart';
-import '../ui/app_button.dart';
+import 'package:solar_icons/solar_icons.dart';
+import '../ui/press.dart';
+import '../ui/sheet_scaffold.dart';
 import '../design/icons.dart';
-import '../design/motion.dart';
 import '../design/shapes.dart';
 import '../design/theme.dart';
-import '../ui/grouped.dart';
-import '../widgets/account_widgets.dart';
 import '../widgets/settings_appearance.dart';
 import '../design/tokens.dart';
 import '../design/typography.dart';
@@ -38,13 +37,8 @@ class SettingsPage extends StatelessWidget {
           AppearanceMode.dark => Brightness.dark,
           AppearanceMode.system => outerBrightness,
         };
-        final disableAnimations = MediaQuery.disableAnimationsOf(context);
-        return AnimatedTheme(
+        return Theme(
           data: buildAppTheme(targetBrightness, ctrl.style),
-          duration: disableAnimations
-              ? Duration.zero
-              : AppMotion.revealDuration,
-          curve: AppMotion.revealCurve,
           child: LargeTitleScaffold(
             title: '设置',
             surface: AppSurface.grouped,
@@ -107,7 +101,8 @@ class _SettingsBodyState extends State<SettingsBody> {
       children: [
         _SettingsSection(
           key: const ValueKey('settings-appearance'),
-          title: '外观与风格',
+          title: '外观',
+          card: false,
           child: ListenableBuilder(
             listenable: widget.appearanceController ?? appearance,
             builder: (context, _) => SettingsAppearance(
@@ -117,75 +112,107 @@ class _SettingsBodyState extends State<SettingsBody> {
         ),
         _SettingsSection(
           key: const ValueKey('settings-storage'),
-          title: '存储与诊断',
+          title: '通用',
           child: Column(
             children: [
-              GroupedRow(
+              _SettingsRow(
                 title: '图片缓存',
-                value: _cacheLabel,
-                leading: const AccountToolWell(icon: AppIcons.imageBold),
+                value: Text(
+                  _cacheLabel,
+                  style: SettingsTokens.valueLabel.copyWith(color: t.text3),
+                ),
+                leading: Icon(
+                  SolarIconsBold.galleryMinimalistic,
+                  size: 22,
+                  color: t.text2,
+                ),
                 onTap: () => _clearCache(context),
               ),
-              Padding(
-                padding: const EdgeInsets.only(
-                  left: AppSpace.rowInset + IconTile.size + 12,
-                ),
-                child: Divider(
-                  height: AppSpace.hairline,
-                  thickness: AppSpace.hairline,
-                  color: t.separator.withValues(alpha: .42),
-                ),
-              ),
-              GroupedRow(
+              _SettingsRow(
                 title: '运行日志',
-                leading: const AccountToolWell(icon: AppIcons.logBold),
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const LogPage()),
+                leading: Icon(AppIcons.logBold, size: 22, color: t.text2),
+                onTap: () => Navigator.of(
+                  context,
+                ).push(MaterialPageRoute(builder: (_) => const LogPage())),
+              ),
+              ListenableBuilder(
+                listenable: appUpdater,
+                builder: (context, _) => _SettingsRow(
+                  key: const ValueKey('settings-about'),
+                  title: '关于 Chher',
+                  value: appUpdater.hasUpdate
+                      ? DecoratedBox(
+                          key: const ValueKey('settings-update-badge'),
+                          decoration: BoxDecoration(
+                            color: t.accentFill,
+                            borderRadius: BorderRadius.circular(AppRadii.full),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 3,
+                            ),
+                            child: Text(
+                              '有新版本',
+                              style: SettingsTokens.badgeLabel.copyWith(
+                                color: t.accent,
+                              ),
+                            ),
+                          ),
+                        )
+                      : Text(
+                          AppInfo.version,
+                          style: SettingsTokens.valueLabel.copyWith(
+                            color: t.text3,
+                          ),
+                        ),
+                  leading: AppClip(
+                    radius: SettingsTokens.logoRadius,
+                    child: Image.asset(
+                      appLogoAsset,
+                      width: SettingsTokens.iconSize,
+                      height: SettingsTokens.iconSize,
+                    ),
+                  ),
+                  onTap: () => Navigator.of(
+                    context,
+                  ).push(MaterialPageRoute(builder: (_) => const AboutPage())),
                 ),
               ),
             ],
-          ),
-        ),
-        _SettingsSection(
-          key: const ValueKey('settings-about-section'),
-          title: '关于',
-          child: ListenableBuilder(
-            listenable: appUpdater,
-            builder: (context, _) => GroupedRow(
-              key: const ValueKey('settings-about'),
-              title: '关于 Chher',
-              value: AppInfo.version,
-              dot: appUpdater.hasUpdate,
-              leading: AppClip(
-                radius: AppRadii.xs,
-                child: Image.asset(
-                  appLogoAsset,
-                  width: IconTile.size,
-                  height: IconTile.size,
-                ),
-              ),
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const AboutPage()),
-              ),
-            ),
           ),
         ),
         ListenableBuilder(
           listenable: chhSession,
           builder: (context, _) => chhSession.loggedIn
               ? Padding(
-                  padding: const EdgeInsets.only(top: 20),
+                  padding: const EdgeInsets.only(top: 28),
                   child: DecoratedBox(
                     decoration: ShapeDecoration(
                       color: t.surface,
-                      shape: appShape(AppRadii.md),
+                      shape: appShape(AppRadii.full),
+                      shadows: SettingsTokens.cardShadow(t),
                     ),
                     child: AppClip(
-                      radius: AppRadii.md,
-                      child: GroupedDestructiveRow(
+                      radius: AppRadii.full,
+                      child: PressHighlight(
                         key: const ValueKey('settings-logout'),
-                        label: '退出登录',
+                        semanticLabel: '退出登录',
                         onTap: () => _logout(context),
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(
+                            minHeight: SettingsTokens.logoutHeight,
+                          ),
+                          child: Center(
+                            child: Text(
+                              '退出登录',
+                              style: SettingsTokens.rowLabel.copyWith(
+                                color: t.red,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                   ),
@@ -197,24 +224,7 @@ class _SettingsBodyState extends State<SettingsBody> {
   }
 
   Future<void> _clearCache(BuildContext context) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('清除图片缓存？'),
-        actions: [
-          AppButton(
-            label: '取消',
-            variant: AppButtonVariant.quiet,
-            onPressed: () => Navigator.pop(context, false),
-          ),
-          AppButton(
-            label: '清除',
-            variant: AppButtonVariant.plain,
-            onPressed: () => Navigator.pop(context, true),
-          ),
-        ],
-      ),
-    );
+    final ok = await _confirm(context, title: '清除图片缓存？', action: '清除');
     if (ok != true) return;
     try {
       await imageDiskCache.clear();
@@ -227,24 +237,7 @@ class _SettingsBodyState extends State<SettingsBody> {
   }
 
   Future<void> _logout(BuildContext context) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('退出当前账号？'),
-        actions: [
-          AppButton(
-            label: '取消',
-            variant: AppButtonVariant.quiet,
-            onPressed: () => Navigator.pop(context, false),
-          ),
-          AppButton(
-            label: '退出',
-            variant: AppButtonVariant.destructive,
-            onPressed: () => Navigator.pop(context, true),
-          ),
-        ],
-      ),
-    );
+    final ok = await _confirm(context, title: '退出当前账号？', action: '退出');
     if (ok == true) await chhSession.logout();
   }
 }
@@ -255,26 +248,95 @@ String _formatBytes(int bytes) {
   return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
 }
 
+Future<bool?> _confirm(
+  BuildContext context, {
+  required String title,
+  required String action,
+}) => showAppSheet<bool>(
+  context,
+  builder: (context) {
+    final t = AppTokens.of(context);
+    Widget button(String label, bool confirm) => PressScale(
+      semanticLabel: label,
+      onTap: () => Navigator.pop(context, confirm),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: confirm ? t.red : t.fill,
+          borderRadius: BorderRadius.circular(AppRadii.full),
+        ),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(
+            minHeight: SettingsTokens.confirmationButtonHeight,
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Center(
+              child: Text(
+                label,
+                style: SettingsTokens.rowLabel.copyWith(
+                  color: confirm ? SettingsTokens.strongForeground(t) : t.text,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    return SingleChildScrollView(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: t.fill,
+                  borderRadius: BorderRadius.circular(AppRadii.bar),
+                ),
+                child: const SizedBox(width: 36, height: 5),
+              ),
+            ),
+            const SizedBox(height: 22),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: SettingsTokens.confirmationTitle.copyWith(color: t.text),
+            ),
+            const SizedBox(height: 26),
+            button(action, true),
+            const SizedBox(height: 8),
+            button('取消', false),
+          ],
+        ),
+      ),
+    );
+  },
+);
+
 class _SettingsSection extends StatelessWidget {
   final String title;
   final Widget child;
-  const _SettingsSection({super.key, required this.title, required this.child});
+  final bool card;
+  const _SettingsSection({
+    super.key,
+    required this.title,
+    required this.child,
+    this.card = true,
+  });
 
   @override
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
     return Padding(
-      padding: const EdgeInsets.only(top: 20),
+      padding: const EdgeInsets.only(top: 22),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(
-              AppSpace.rowInset,
-              0,
-              AppSpace.rowInset,
-              7,
-            ),
+            padding: const EdgeInsets.fromLTRB(18, 0, 18, 10),
             child: Text(
               title,
               style: AppType.footnote.copyWith(
@@ -283,14 +345,79 @@ class _SettingsSection extends StatelessWidget {
               ),
             ),
           ),
-          DecoratedBox(
-            decoration: ShapeDecoration(
-              color: t.surface,
-              shape: appShape(AppRadii.md),
+          if (!card)
+            child
+          else
+            DecoratedBox(
+              decoration: ShapeDecoration(
+                color: t.surface,
+                shape: appShape(SettingsTokens.cardRadius),
+                shadows: SettingsTokens.cardShadow(t),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(SettingsTokens.cardInset),
+                child: child,
+              ),
             ),
-            child: AppClip(radius: AppRadii.md, child: child),
-          ),
         ],
+      ),
+    );
+  }
+}
+
+class _SettingsRow extends StatelessWidget {
+  final String title;
+  final Widget leading;
+  final Widget? value;
+  final VoidCallback onTap;
+  const _SettingsRow({
+    super.key,
+    required this.title,
+    required this.leading,
+    this.value,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
+    return PressHighlight(
+      semanticLabel: title,
+      borderRadius: BorderRadius.circular(SettingsTokens.rowRadius),
+      onTap: onTap,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: SettingsTokens.rowHeight),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          child: LayoutBuilder(
+            builder: (context, constraints) => Row(
+              children: [
+                SizedBox.square(
+                  dimension: SettingsTokens.iconSize,
+                  child: Center(child: leading),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: SettingsTokens.rowLabel.copyWith(color: t.text),
+                  ),
+                ),
+                if (value != null) ...[
+                  const SizedBox(width: 6),
+                  ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth: constraints.maxWidth * .45,
+                    ),
+                    child: value!,
+                  ),
+                ],
+                const SizedBox(width: 6),
+                Icon(AppIcons.forward, size: 13, color: t.text3),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

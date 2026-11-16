@@ -12,7 +12,7 @@ import 'cookie_jar.dart';
 import '../core/app_log.dart';
 import '../core/chh_urls.dart';
 
-class DirectFetcher implements ChhFetcher, AjaxFormFetcher {
+class DirectFetcher implements ChhFetcher, AjaxFormFetcher, FormFieldsFetcher {
   final Dio _dio;
 
   /// 登录态 Cookie(由 ChhSession 从 WebView Cookie 仓注入);为空时游客直连
@@ -83,6 +83,12 @@ class DirectFetcher implements ChhFetcher, AjaxFormFetcher {
       _postForm(url, form);
 
   @override
+  Future<ChhResponse> postFormFields(
+    Uri url,
+    List<MapEntry<String, String>> fields,
+  ) => _postForm(url, Map.fromEntries(fields), fields: fields);
+
+  @override
   Future<ChhResponse> postAjaxForm(Uri url, Map<String, String> form) =>
       _postForm(url, form, ajax: true);
 
@@ -90,6 +96,7 @@ class DirectFetcher implements ChhFetcher, AjaxFormFetcher {
     Uri url,
     Map<String, String> form, {
     bool ajax = false,
+    List<MapEntry<String, String>>? fields,
   }) async {
     try {
       final h = <String, String>{
@@ -102,7 +109,7 @@ class DirectFetcher implements ChhFetcher, AjaxFormFetcher {
       // 自动跟随会吃掉中间的 Set-Cookie,不跟随又只能拿到空响应。
       final r = await _dio.post<String>(
         url.toString(),
-        data: form,
+        data: fields == null ? form : encodeFormFields(fields),
         options: Options(headers: h, followRedirects: false),
       );
       final set = r.headers.map['set-cookie'] ?? const <String>[];
@@ -112,7 +119,9 @@ class DirectFetcher implements ChhFetcher, AjaxFormFetcher {
       if (status >= 300 && status < 400) {
         // A rating may already be committed. A failed landing-page GET must
         // never turn this redirect into a reason to submit through WebView.
-        if (ajax) return ChhResponse(status, r.data ?? '', setCookies: set);
+        if (ajax || fields != null) {
+          return ChhResponse(status, r.data ?? '', setCookies: set);
+        }
         return await _followRedirect(
           url,
           r.headers.value('location'),
@@ -177,6 +186,12 @@ class DirectFetcher implements ChhFetcher, AjaxFormFetcher {
       }
     }
     final data = e.requestOptions.data;
+    if (data is String) {
+      secrets.add(data);
+      secrets.addAll(
+        Uri(query: data).queryParametersAll.values.expand((values) => values),
+      );
+    }
     if (data is Map) secrets.addAll(data.values.map((value) => '$value'));
     if (data is FormData) {
       secrets.addAll(data.fields.map((entry) => entry.value));

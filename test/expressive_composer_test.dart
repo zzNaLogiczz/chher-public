@@ -9,6 +9,7 @@ import 'package:chh_app/widgets/expressive_composer.dart';
 import 'package:chh_app/design/icons.dart';
 import 'package:chh_app/ui/quote.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:smooth_sheets/smooth_sheets.dart';
@@ -55,6 +56,8 @@ Future<void> _open(
                     context,
                     onSubmit: onSubmit,
                     draftKey: draftKey,
+                    quoteOf: quote == null ? null : '读者甲',
+                    quoteText: quote,
                   ),
             child: const Text('打开写作画布'),
           ),
@@ -71,6 +74,100 @@ Finder get _send => find.byKey(const ValueKey('composer-send'));
 
 void main() {
   composerRedesignTests();
+  for (final sending in [false, true]) {
+    testWidgets('IME back closes composer once, busy=$sending', (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      const channel = MethodChannel('chh/composer_back');
+      final enabled = <bool>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, (
+        call,
+      ) async {
+        enabled.add(call.arguments as bool);
+        return null;
+      });
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          channel,
+          null,
+        ),
+      );
+      final pending = Completer<PostResult>();
+      await _open(
+        tester,
+        draftKey: 'ime-back-$sending',
+        submit: (_) => pending.future,
+      );
+      tester.view.viewInsets = const FakeViewPadding(bottom: 310);
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('composer-canvas')),
+        '保留草稿',
+      );
+      await tester.pumpAndSettle();
+      expect(enabled.last, isTrue);
+      if (!sending) {
+        final navigator = Navigator.of(
+          tester.element(find.byType(ExpressiveComposer)),
+        );
+        unawaited(
+          navigator.push(
+            MaterialPageRoute<void>(
+              builder: (_) => const Scaffold(body: Text('验证页面')),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(enabled.last, isFalse);
+        await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+          'chh/composer_back',
+          const StandardMethodCodec().encodeMethodCall(
+            const MethodCall('back'),
+          ),
+          (_) {},
+        );
+        await tester.pumpAndSettle();
+        expect(find.text('验证页面'), findsOneWidget);
+        navigator.pop();
+        await tester.pumpAndSettle();
+        expect(enabled.last, isTrue);
+      }
+      if (sending) {
+        await tester.tap(_send);
+        await tester.pump(const Duration(milliseconds: 200));
+        await tester.pump();
+        expect(
+          tester.widget<PopScope>(find.byType(PopScope).last).canPop,
+          isFalse,
+        );
+      }
+      await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+        'chh/composer_back',
+        const StandardMethodCodec().encodeMethodCall(const MethodCall('back')),
+        (_) {},
+      );
+      if (sending) {
+        await tester.pump(const Duration(milliseconds: 200));
+        expect(find.byType(ExpressiveComposer), findsOneWidget);
+        expect(find.text('保留草稿'), findsOneWidget);
+        pending.complete(const PostResult(PostResultKind.failed, '离线测试'));
+        await tester.pump();
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('取消'));
+      }
+      await tester.pumpAndSettle();
+      expect(find.byType(ExpressiveComposer), findsNothing);
+      expect(enabled.last, isFalse);
+      tester.view.resetViewInsets();
+      await tester.tap(find.text('打开写作画布'));
+      await tester.pumpAndSettle();
+      expect(find.text('保留草稿'), findsOneWidget);
+      await tester.tap(find.text('取消'));
+      await tester.pumpAndSettle();
+      debugDefaultTargetPlatformOverride = null;
+    });
+  }
+
   testWidgets('composer cancel uses secondary text, not accent', (
     tester,
   ) async {
@@ -220,8 +317,8 @@ void main() {
           return const PostResult(PostResultKind.loginRequired, '');
         },
       );
-      // 引用整块可点,展开文字随内容溢出出现
-      final expand = find.text('展开引用');
+      // 四行后通过展开按钮继续阅读
+      final expand = find.text('展开');
       expect(expand, findsOneWidget);
       expect(
         tester.getSize(find.byType(QuoteView)).height,
@@ -229,7 +326,7 @@ void main() {
       );
       await tester.tap(expand);
       await tester.pumpAndSettle();
-      expect(find.text('收起引用'), findsOneWidget);
+      expect(find.text('收起'), findsOneWidget);
       await tester.enterText(find.byType(TextField), '登录后继续的草稿');
       await tester.pump();
       await tester.tap(_send);
@@ -258,6 +355,29 @@ void main() {
 }
 
 void composerRedesignTests() {
+  testWidgets(
+    'forum reply has one-line context above the editor and send below',
+    (tester) async {
+      await _open(tester, quote: '需要回复的正文\n第二行仅保留为一行引用');
+      expect(find.text('回复 读者甲'), findsOneWidget);
+      expect(find.byType(QuoteView), findsNothing);
+      final context = find.text('需要回复的正文\n第二行仅保留为一行引用');
+      expect(tester.widget<Text>(context).maxLines, 1);
+      expect(
+        tester.getBottomLeft(context).dy,
+        lessThan(tester.getTopLeft(find.byType(TextField)).dy),
+      );
+      expect(
+        tester.getTopLeft(_send).dy,
+        greaterThan(tester.getBottomLeft(find.byType(TextField)).dy),
+      );
+      expect(find.text('楼层回复'), findsNothing);
+      await tester.enterText(find.byType(TextField), '未发送的草稿');
+      await tester.tap(find.text('取消'));
+      await tester.pumpAndSettle();
+      expect(find.byType(ComposerSheet), findsNothing);
+    },
+  );
   testWidgets('send stays visible above the keyboard', (tester) async {
     await _open(tester);
     tester.view.viewInsets = const FakeViewPadding(bottom: 300);

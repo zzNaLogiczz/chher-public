@@ -240,7 +240,11 @@ Future<_Workload> _mountRealGroup(
       () => Future<void>.delayed(const Duration(milliseconds: 10)),
     );
     await tester.pump();
-    if (workload.decodes.isNotEmpty &&
+    final displayed = tester.widgetList<RawImage>(
+      find.descendant(of: fixture.stackStage, matching: find.byType(RawImage)),
+    );
+    if (displayed.isNotEmpty &&
+        displayed.every((image) => image.image != null) &&
         workload.completedDecodes == workload.decodes.length) {
       break;
     }

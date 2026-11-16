@@ -55,6 +55,7 @@ void main() {
       final t = page.threads.firstWhere((t) => t.tid == 900101);
       expect(t.title, contains('mini sea view'));
       expect(t.author, '示例作者甲');
+      expect(t.authorUid, '1001');
       expect(t.typeName, 'ITX');
       expect(t.replies, 2);
       expect(t.views, 1434);
@@ -62,6 +63,16 @@ void main() {
       expect(t.createdAt, DateTime(2026, 1, 2, 3, 4));
       expect(t.lastPostUser, '示例作者乙');
       expect(t.sticky, isFalse);
+    });
+
+    test('查询串作者链接仍取发帖人 UID，不取最后回复人', () {
+      final page = parseThreadList(
+        sample(
+          'thread_list_synthetic.html',
+        ).replaceAll('space-uid-1001.html', 'home.php?mod=space&amp;uid=1001'),
+      );
+      expect(page.threads.first.authorUid, '1001');
+      expect(page.threads.first.lastPostUser, '示例作者乙');
     });
   });
 
@@ -137,6 +148,7 @@ void main() {
       expect(t.forumName, contains('示例装机区'));
       expect(t.forumFid, 290);
       expect(t.author, '示例动态作者1');
+      expect(t.authorUid, '4001');
       expect(t.replies, 3);
       expect(t.views, 393);
     });

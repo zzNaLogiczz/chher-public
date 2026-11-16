@@ -8,6 +8,7 @@ import 'package:chh_app/models/post_interaction.dart';
 import 'package:chh_app/parser/post_action_parser.dart';
 import 'package:chh_app/widgets/post_action_menu.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:html/parser.dart' as html;
 
@@ -49,6 +50,7 @@ PostRateForm form({int remaining = 4}) => PostRateForm(
 Future<void> openMenu(
   WidgetTester tester, {
   required Future<PostRateForm> Function() check,
+  Post? post,
   bool loggedIn = true,
   bool isSelf = false,
   bool blocked = false,
@@ -71,7 +73,7 @@ Future<void> openMenu(
             onPressed: () async {
               final result = await showPostActionMenu(
                 context,
-                post: menuPost(),
+                post: post ?? menuPost(),
                 opening: false,
                 loggedIn: loggedIn,
                 blocked: blocked,
@@ -95,6 +97,39 @@ Future<void> openMenu(
 }
 
 void main() {
+  testWidgets('copy uses the reply text without repeating quoted context', (
+    tester,
+  ) async {
+    String? copied;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'Clipboard.setData') {
+          copied = (call.arguments as Map)['text'] as String;
+        }
+        return null;
+      },
+    );
+    await openMenu(
+      tester,
+      check: () async => form(),
+      post: const Post(
+        pid: 20,
+        floor: 2,
+        author: '测试作者',
+        timeRaw: '',
+        content: [
+          QuoteBlock([TextBlock('引用原文')]),
+          TextBlock('第一段'),
+          TextBlock('第二段'),
+        ],
+      ),
+    );
+    await tester.tap(find.text('复制文字'));
+    await tester.pumpAndSettle();
+    expect(copied, '第一段\n\n第二段');
+    expect(find.text('更多操作'), findsNothing);
+  });
   testWidgets('missing rating link preflights before allowing form entry', (
     tester,
   ) async {

@@ -83,11 +83,145 @@ void main() {
     expect(find.text('加载失败'), findsOneWidget);
   });
 
-  testWidgets('skeleton schedules no frames', (tester) async {
-    await tester.pumpWidget(app(const SkeletonList()));
+  Widget surface(Widget child) => Directionality(
+    textDirection: TextDirection.ltr,
+    child: MediaQuery(
+      data: const MediaQueryData(size: Size(800, 600)),
+      child: Theme(data: buildAppTheme(Brightness.light), child: child),
+    ),
+  );
+
+  double pulseOpacity(WidgetTester tester) => tester
+      .widget<Opacity>(
+        find
+            .descendant(
+              of: find.byType(SkeletonPulse),
+              matching: find.byType(Opacity),
+            )
+            .first,
+      )
+      .opacity;
+
+  testWidgets('skeleton waits 300ms then breathes as one group', (
+    tester,
+  ) async {
+    await tester.pumpWidget(surface(const SkeletonList()));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 299));
+    expect(pulseOpacity(tester), 1);
+    await tester.pump(const Duration(milliseconds: 2));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 800));
+    expect(pulseOpacity(tester), closeTo(.55, .01));
+    expect(
+      find.descendant(
+        of: find.byType(SkeletonList),
+        matching: find.byType(Opacity),
+      ),
+      findsOneWidget,
+    );
+    await tester.pump(const Duration(milliseconds: 800));
+    expect(pulseOpacity(tester), closeTo(1, .01));
+    await tester.pumpWidget(const SizedBox.shrink());
+    expect(tester.binding.transientCallbackCount, 0);
+  });
+
+  testWidgets('hidden and reduced motion skeletons stop their ticker', (
+    tester,
+  ) async {
+    Widget skeleton({required bool enabled, bool reduced = false}) => surface(
+      MediaQuery(
+        data: MediaQueryData(
+          size: const Size(800, 600),
+          disableAnimations: reduced,
+        ),
+        child: TickerMode(enabled: enabled, child: const SkeletonList()),
+      ),
+    );
+    await tester.pumpWidget(skeleton(enabled: true));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pumpWidget(skeleton(enabled: false));
     await tester.pump();
     expect(tester.binding.transientCallbackCount, 0);
-    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(skeleton(enabled: true, reduced: true));
+    await tester.pump();
+    expect(pulseOpacity(tester), 1);
+    expect(tester.binding.transientCallbackCount, 0);
+  });
+
+  testWidgets('offscreen skeleton stops and resumes on returning', (
+    tester,
+  ) async {
+    final scroll = ScrollController();
+    addTearDown(scroll.dispose);
+    await tester.pumpWidget(
+      surface(
+        SingleChildScrollView(
+          controller: scroll,
+          child: const Column(
+            children: [
+              SizedBox(
+                height: 100,
+                child: SkeletonPulse(child: SizedBox.expand()),
+              ),
+              SizedBox(height: 2000),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    scroll.jumpTo(900);
+    await tester.pump();
+    expect(tester.binding.transientCallbackCount, 0);
+    scroll.jumpTo(0);
+    await tester.pump();
+    expect(tester.binding.transientCallbackCount, 1);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('arrival keeps size and mounted content, then stops ticker', (
+    tester,
+  ) async {
+    var mounts = 0;
+    Widget content(bool loading) => surface(
+      Center(
+        child: SkeletonContent(
+          loading: loading,
+          skeleton: const SizedBox(width: 200, height: 100),
+          child: _ArrivalProbe(onMount: () => mounts++),
+        ),
+      ),
+    );
+    await tester.pumpWidget(content(true));
+    final before = tester.getSize(find.byType(SkeletonContent));
+    await tester.pumpWidget(content(false));
+    expect(tester.getSize(find.byType(SkeletonContent)), before);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 180));
+    expect(mounts, 1);
+    expect(find.byType(FadeTransition), findsNothing);
+    expect(tester.binding.transientCallbackCount, 0);
+  });
+
+  testWidgets('cached content appears without any loading ticker', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      surface(
+        const SkeletonContent(
+          loading: false,
+          skeleton: SizedBox(height: 100),
+          child: Text('cached'),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('cached'), findsOneWidget);
+    expect(find.byType(SkeletonPulse), findsNothing);
+    expect(tester.binding.transientCallbackCount, 0);
   });
 
   test('no SnackBar remains in lib', () {
@@ -102,4 +236,22 @@ void main() {
     }
     expect(offenders, isEmpty);
   });
+}
+
+class _ArrivalProbe extends StatefulWidget {
+  final VoidCallback onMount;
+  const _ArrivalProbe({required this.onMount});
+  @override
+  State<_ArrivalProbe> createState() => _ArrivalProbeState();
+}
+
+class _ArrivalProbeState extends State<_ArrivalProbe> {
+  @override
+  void initState() {
+    super.initState();
+    widget.onMount();
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox(width: 200, height: 100);
 }

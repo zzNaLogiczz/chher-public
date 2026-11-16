@@ -1,4 +1,5 @@
 import 'package:chh_app/design/motion.dart';
+import 'package:chh_app/design/thread_page_tokens.dart';
 import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/design/tokens.dart';
 import 'package:chh_app/models/models.dart';
@@ -24,9 +25,7 @@ AnimationController? _highlight(WidgetTester tester, Finder target) => tester
     )
     .map((widget) => widget.animation)
     .whereType<AnimationController>()
-    .where(
-      (animation) => animation.duration == AppMotion.noticeHighlightDuration,
-    )
+    .where((animation) => animation.duration == ThreadPageTokens.focusDuration)
     .firstOrNull;
 
 Future<AnimationController> _openNotice(
@@ -119,72 +118,57 @@ Future<void> _at(
   int milliseconds,
 ) async {
   final elapsed =
-      controller.value * AppMotion.noticeHighlightDuration.inMicroseconds;
+      controller.value * ThreadPageTokens.focusDuration.inMicroseconds;
   final remaining = milliseconds * 1000 - elapsed.round();
   expect(remaining, greaterThanOrEqualTo(0));
   await tester.pump(Duration(microseconds: remaining));
 }
 
 void main() {
-  test('notice highlight has two pulses, two seconds of hold and a fade', () {
-    double at(int ms, {bool reduced = false}) => AppMotion.noticeHighlight(
-      ms / AppMotion.noticeHighlightDuration.inMilliseconds,
-      reduced: reduced,
-    );
-    expect(AppMotion.noticeHighlightDuration.inMilliseconds, 5200);
-    for (final ms in [0, 1200, 2400, 3400, 4400]) {
-      expect(at(ms), closeTo(1, .001));
+  test('notice highlight fades once over 1.6 seconds', () {
+    expect(AppMotion.noticeHighlightDuration.inMilliseconds, 1600);
+    for (final reduced in [false, true]) {
+      expect(AppMotion.noticeHighlight(0, reduced: reduced), 1);
+      expect(AppMotion.noticeHighlight(.5, reduced: reduced), .5);
+      expect(AppMotion.noticeHighlight(1, reduced: reduced), 0);
     }
-    for (final ms in [600, 1800]) {
-      expect(at(ms), lessThan(.2));
-      expect(at(ms, reduced: true), 1);
-    }
-    expect(at(4800), inExclusiveRange(0, 1));
-    expect(at(5200), 0);
-    expect(at(5200, reduced: true), 0);
   });
 
-  testWidgets('notice reply flashes twice, holds, fades and does not replay', (
-    tester,
-  ) async {
-    final controller = await _openNotice(tester, reduced: false);
-    final high = Color.alphaBlend(
-      AppTokens.light.accentFill,
-      AppTokens.light.bg,
+  for (final reduced in [false, true]) {
+    testWidgets(
+      'notice reply fades in 1.6 seconds without replay reduced=$reduced',
+      (tester) async {
+        final controller = await _openNotice(tester, reduced: reduced);
+        final high = Color.alphaBlend(
+          AppTokens.light.accentFill,
+          AppTokens.light.bg,
+        );
+        final original = AppTokens.light.surface;
+        expect(_replyColor(tester), isSameColorAs(high));
+        await _at(tester, controller, 800);
+        expect(
+          _replyColor(tester),
+          isSameColorAs(Color.lerp(original, high, .5)!),
+        );
+        await _at(tester, controller, 1600);
+        expect(_replyColor(tester), isSameColorAs(original));
+        await tester.pump(const Duration(milliseconds: 1));
+        expect(controller.isAnimating, isFalse);
+        final scroll = tester.state<ScrollableState>(
+          find.byType(Scrollable).first,
+        );
+        final offset = scroll.position.pixels;
+        scroll.position.jumpTo(scroll.position.maxScrollExtent);
+        await tester.pumpAndSettle();
+        expect(_reply(), findsNothing);
+        scroll.position.jumpTo(offset);
+        await tester.pumpAndSettle();
+        expect(_replyColor(tester), isSameColorAs(original));
+        expect(controller.isAnimating, isFalse);
+        expect(tester.takeException(), isNull);
+      },
     );
-    final original = AppTokens.light.bg;
-    expect(_replyColor(tester), isSameColorAs(high));
-    await _at(tester, controller, 600);
-    final low = _replyColor(tester);
-    expect(low, isSameColorAs(original));
-    await _at(tester, controller, 1200);
-    expect(_replyColor(tester), isSameColorAs(high));
-    await _at(tester, controller, 1800);
-    expect(_replyColor(tester), isSameColorAs(low));
-    for (final ms in [2400, 3400, 4400]) {
-      await _at(tester, controller, ms);
-      expect(_replyColor(tester), isSameColorAs(high));
-    }
-    await _at(tester, controller, 4800);
-    expect(_replyColor(tester), isNot(high));
-    expect(_replyColor(tester), isNot(original));
-    await _at(tester, controller, 5200);
-    expect(_replyColor(tester), isSameColorAs(original));
-    await tester.pump(const Duration(milliseconds: 1));
-    expect(controller.isAnimating, isFalse);
-
-    final scroll = tester.state<ScrollableState>(find.byType(Scrollable).first);
-    final offset = scroll.position.pixels;
-    scroll.position.jumpTo(scroll.position.maxScrollExtent);
-    await tester.pumpAndSettle();
-    expect(_reply(), findsNothing);
-    scroll.position.jumpTo(offset);
-    await tester.pumpAndSettle();
-    expect(_replyColor(tester), isSameColorAs(original));
-    await tester.pump(const Duration(milliseconds: 1));
-    expect(controller.isAnimating, isFalse);
-    expect(tester.takeException(), isNull);
-  });
+  }
 
   for (final brightness in Brightness.values) {
     testWidgets('feedback retains its palette in $brightness', (tester) async {
@@ -221,17 +205,12 @@ void main() {
           .toList();
       await show(0);
       final original = backgrounds();
-      expect(original, [tokens.greenFill, Colors.transparent]);
+      expect(original, [tokens.surface, Colors.transparent]);
       await show(1);
       final highlighted = backgrounds();
       expect(
         highlighted.first,
-        isSameColorAs(
-          Color.alphaBlend(
-            tokens.green.withValues(alpha: .10),
-            tokens.greenFill,
-          ),
-        ),
+        isSameColorAs(Color.alphaBlend(tokens.accentFill, tokens.surface)),
       );
       expect(
         highlighted.last,
@@ -242,7 +221,7 @@ void main() {
       final fading = backgrounds();
       expect(
         fading.first,
-        isSameColorAs(Color.lerp(tokens.greenFill, highlighted.first, .5)!),
+        isSameColorAs(Color.lerp(tokens.surface, highlighted.first, .5)!),
       );
       await show(0);
       expect(backgrounds(), original);
@@ -251,7 +230,7 @@ void main() {
   }
 
   testWidgets(
-    'opening rating panel shares the notice clock and restores green',
+    'opening rating panel shares the 1.6s notice fade and restores surface',
     (tester) async {
       final controller = await _openNotice(
         tester,
@@ -275,63 +254,24 @@ void main() {
       }
 
       final high = Color.alphaBlend(
-        AppTokens.light.green.withValues(alpha: .10),
-        AppTokens.light.greenFill,
+        AppTokens.light.accentFill,
+        AppTokens.light.surface,
       );
       final position = tester
           .state<ScrollableState>(find.byType(Scrollable).first)
           .position;
       expect(position.pixels, greaterThan(0));
       expect(panelColor(), isSameColorAs(high));
-      await _at(tester, controller, 600);
-      final low = panelColor();
-      expect(low, isSameColorAs(AppTokens.light.greenFill));
-      await _at(tester, controller, 1200);
-      expect(panelColor(), isSameColorAs(high));
-      await _at(tester, controller, 1800);
-      expect(panelColor(), isSameColorAs(low));
-      for (final ms in [2400, 3400, 4400]) {
-        await _at(tester, controller, ms);
-        expect(panelColor(), isSameColorAs(high));
-      }
-      await _at(tester, controller, 4800);
-      expect(panelColor(), isNot(isSameColorAs(high)));
-      expect(panelColor(), isNot(isSameColorAs(AppTokens.light.greenFill)));
-      await _at(tester, controller, 5200);
-      expect(panelColor(), isSameColorAs(AppTokens.light.greenFill));
+      await _at(tester, controller, 800);
+      expect(
+        panelColor(),
+        isSameColorAs(Color.lerp(AppTokens.light.surface, high, .5)!),
+      );
+      await _at(tester, controller, 1600);
+      expect(panelColor(), isSameColorAs(AppTokens.light.surface));
       await tester.pump(const Duration(milliseconds: 1));
       expect(controller.isAnimating, isFalse);
       expect(tester.takeException(), isNull);
     },
   );
-
-  testWidgets('reduced motion keeps notice feedback steady then restores it', (
-    tester,
-  ) async {
-    final controller = await _openNotice(tester, reduced: true);
-    for (final ms in [600, 1200, 1800, 2400, 3400, 4400]) {
-      await _at(tester, controller, ms);
-      expect(
-        _replyColor(tester),
-        isSameColorAs(
-          Color.alphaBlend(AppTokens.light.accentFill, AppTokens.light.bg),
-        ),
-      );
-    }
-    await _at(tester, controller, 4800);
-    expect(
-      _replyColor(tester),
-      isNot(
-        isSameColorAs(
-          Color.alphaBlend(AppTokens.light.accentFill, AppTokens.light.bg),
-        ),
-      ),
-    );
-    expect(_replyColor(tester), isNot(AppTokens.light.bg));
-    await _at(tester, controller, 5200);
-    expect(_replyColor(tester), isSameColorAs(AppTokens.light.bg));
-    await tester.pump(const Duration(milliseconds: 1));
-    expect(controller.isAnimating, isFalse);
-    expect(tester.takeException(), isNull);
-  });
 }

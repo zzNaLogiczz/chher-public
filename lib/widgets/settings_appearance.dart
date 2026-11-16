@@ -1,43 +1,72 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:motor/motor.dart';
+import 'package:solar_icons/solar_icons.dart';
 
 import '../core/appearance.dart';
-import '../design/icons.dart';
 import '../design/motion.dart';
 import '../design/shapes.dart';
 import '../design/theme.dart';
+import '../design/theme_reveal.dart';
 import '../design/tokens.dart';
 import '../design/typography.dart';
 import '../ui/chrome_button.dart';
 import '../ui/press.dart';
 
-/// 风格画片和明暗模式共用一个平面设置分组。
-class SettingsAppearance extends StatelessWidget {
+/// 独立风格卡与页面上的明暗胶囊。
+class SettingsAppearance extends StatefulWidget {
   final AppearanceController controller;
   const SettingsAppearance({super.key, required this.controller});
 
   @override
+  State<SettingsAppearance> createState() => _SettingsAppearanceState();
+}
+
+class _SettingsAppearanceState extends State<SettingsAppearance> {
+  Offset? _origin;
+
+  void _change(VoidCallback change) {
+    ThemeReveal.change(context, change, origin: _origin);
+    _origin = null;
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final controller = widget.controller;
     final styles = AppearanceStyle.values;
     final modes = AppearanceMode.values;
-    return Padding(
-      padding: const EdgeInsets.all(12),
-      child: Column(
-        children: [
-          _StyleSelectorRow(
-            styles: styles,
-            selected: controller.style,
-            showCinnabarDot: !controller.styleDotSeen,
-            onSelect: controller.setStyle,
-          ),
-          const SizedBox(height: 10),
-          _ModeSlideBar(
-            modes: modes,
-            selected: controller.mode,
-            onSelect: controller.set,
-          ),
-        ],
+    return Listener(
+      onPointerDown: (event) => _origin = event.position,
+      onPointerMove: (event) => _origin = event.position,
+      onPointerCancel: (_) => _origin = null,
+      onPointerUp: (_) =>
+          WidgetsBinding.instance.addPostFrameCallback((_) => _origin = null),
+      child: Padding(
+        padding: EdgeInsets.zero,
+        child: Column(
+          children: [
+            _StyleSelectorRow(
+              styles: styles,
+              selected: controller.style,
+              showCinnabarDot: !controller.styleDotSeen,
+              onSelect: (style) {
+                if (style != controller.style) {
+                  _change(() => controller.setStyle(style));
+                }
+              },
+            ),
+            const SizedBox(height: SettingsTokens.previewGap),
+            _ModeSlideBar(
+              modes: modes,
+              selected: controller.mode,
+              onSelect: (mode) {
+                if (mode != controller.mode) {
+                  _change(() => controller.set(mode));
+                }
+              },
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -93,11 +122,11 @@ class _SpringSlideTrackState extends State<_SpringSlideTrack>
     }
   }
 
-  void _snapTo(int target) {
+  void _snapTo(int target, {double? velocity}) {
     if (MediaQuery.disableAnimationsOf(context)) {
       _position.value = target.toDouble();
     } else {
-      _position.animateTo(target.toDouble());
+      _position.animateTo(target.toDouble(), withVelocity: velocity);
     }
   }
 
@@ -134,7 +163,7 @@ class _SpringSlideTrackState extends State<_SpringSlideTrack>
       if (_dragNotified != target) HapticFeedback.selectionClick();
       widget.onSelect(target);
     }
-    _snapTo(target);
+    _snapTo(target, velocity: velocity);
   }
 
   void _onDragCancel() {
@@ -185,71 +214,31 @@ class _StyleSelectorRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = AppTokens.of(context);
     final selectedIndex = styles.indexOf(selected).clamp(0, styles.length - 1);
     return _SpringSlideTrack(
       count: styles.length,
       index: selectedIndex,
-      gap: 10,
+      gap: SettingsTokens.previewGap,
       onSelect: (index) => onSelect(styles[index]),
-      builder: (context, position, itemWidth, step) => Stack(
+      builder: (context, position, itemWidth, step) => Row(
         children: [
-          Positioned.fill(
-            child: Row(
-              children: [
-                for (var i = 0; i < styles.length; i++) ...[
-                  if (i > 0) const SizedBox(width: 10),
-                  Expanded(
-                    child: DecoratedBox(
-                      decoration: ShapeDecoration(
-                        color: t.fill3,
-                        shape: appShape(AppRadii.sm),
-                      ),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          Positioned(
-            left: position * step,
-            top: 0,
-            bottom: 0,
-            width: itemWidth,
-            child: IgnorePointer(
-              child: DecoratedBox(
-                decoration: ShapeDecoration(
-                  color: t.accentFill,
-                  shape: appShape(AppRadii.sm).copyWith(
-                    side: BorderSide(color: t.accent, width: 1.5),
-                  ),
-                  shadows: t.shadowE1,
-                ),
+          for (var i = 0; i < styles.length; i++) ...[
+            if (i > 0) const SizedBox(width: SettingsTokens.previewGap),
+            Expanded(
+              child: StylePreviewCard(
+                key: ValueKey('settings-style-${styles[i].name}'),
+                style: styles[i],
+                selected: selected == styles[i],
+                emphasis: selected == styles[i] ? 1 : 0,
+                dot: styles[i] == AppearanceStyle.cinnabar && showCinnabarDot,
+                onTap: () {
+                  if (selected == styles[i]) return;
+                  HapticFeedback.selectionClick();
+                  onSelect(styles[i]);
+                },
               ),
             ),
-          ),
-          Row(
-            children: [
-              for (var i = 0; i < styles.length; i++) ...[
-                if (i > 0) const SizedBox(width: 10),
-                Expanded(
-                  child: StylePreviewCard(
-                    key: ValueKey('settings-style-${styles[i].name}'),
-                    style: styles[i],
-                    selected: selected == styles[i],
-                    emphasis: (1 - (position - i).abs()).clamp(0.0, 1.0),
-                    dot:
-                        styles[i] == AppearanceStyle.cinnabar &&
-                        showCinnabarDot,
-                    onTap: () {
-                      HapticFeedback.selectionClick();
-                      onSelect(styles[i]);
-                    },
-                  ),
-                ),
-              ],
-            ],
-          ),
+          ],
         ],
       ),
     );
@@ -271,51 +260,74 @@ class _ModeSlideBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
     final selectedIndex = modes.indexOf(selected).clamp(0, modes.length - 1);
-    return DecoratedBox(
-      decoration: ShapeDecoration(
-        color: t.fill,
-        shape: appShape(AppRadii.full),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(3),
-        child: _SpringSlideTrack(
-          count: modes.length,
-          index: selectedIndex,
-          onSelect: (index) => onSelect(modes[index]),
-          builder: (context, position, itemWidth, step) => Stack(
-            children: [
-              Positioned(
-                left: position * step,
-                top: 0,
-                bottom: 0,
-                width: itemWidth,
-                child: IgnorePointer(
-                  child: DecoratedBox(
-                    decoration: ShapeDecoration(
-                      color: t.segmentedThumb,
-                      shape: appShape(AppRadii.full),
-                      shadows: t.shadowE1,
+    // Measure once per theme/text-scale change, outside the spring builder.
+    final labelWidths = <double>[];
+    for (final mode in modes) {
+      final painter = TextPainter(
+        text: TextSpan(text: mode.label, style: SettingsTokens.modeLabel),
+        textDirection: Directionality.of(context),
+        textScaler: MediaQuery.textScalerOf(context),
+      )..layout();
+      labelWidths.add(painter.width);
+      painter.dispose();
+    }
+    return SizedBox(
+      key: const ValueKey('settings-mode-track'),
+      height: SettingsTokens.modeHeight,
+      child: DecoratedBox(
+        decoration: ShapeDecoration(
+          color: SettingsTokens.modeTrack(t),
+          shape: appShape(AppRadii.full),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: SettingsTokens.modeInset,
+          ),
+          child: _SpringSlideTrack(
+            count: modes.length,
+            index: selectedIndex,
+            onSelect: (index) => onSelect(modes[index]),
+            builder: (context, position, itemWidth, step) => Stack(
+              children: [
+                Positioned(
+                  left: 0,
+                  top: SettingsTokens.modeInset,
+                  bottom: SettingsTokens.modeInset,
+                  width: itemWidth,
+                  child: Transform.translate(
+                    offset: Offset(position * step, 0),
+                    child: IgnorePointer(
+                      child: DecoratedBox(
+                        key: const ValueKey('settings-mode-thumb'),
+                        decoration: ShapeDecoration(
+                          color: SettingsTokens.modeThumb(t),
+                          shape: appShape(AppRadii.full),
+                          shadows: SettingsTokens.thumbShadow(t),
+                        ),
+                      ),
                     ),
                   ),
                 ),
-              ),
-              Row(
-                children: [
-                  for (var i = 0; i < modes.length; i++)
-                    Expanded(
-                      child: _ModeOption(
-                        mode: modes[i],
-                        selected: selected == modes[i],
-                        emphasis: (1 - (position - i).abs()).clamp(0.0, 1.0),
-                        onTap: () {
-                          HapticFeedback.selectionClick();
-                          onSelect(modes[i]);
-                        },
+                Row(
+                  children: [
+                    for (var i = 0; i < modes.length; i++)
+                      Expanded(
+                        child: _ModeOption(
+                          mode: modes[i],
+                          labelWidth: labelWidths[i],
+                          selected: selected == modes[i],
+                          emphasis: (1 - (position - i).abs()).clamp(0.0, 1.0),
+                          onTap: () {
+                            if (selected == modes[i]) return;
+                            HapticFeedback.selectionClick();
+                            onSelect(modes[i]);
+                          },
+                        ),
                       ),
-                    ),
-                ],
-              ),
-            ],
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -325,12 +337,14 @@ class _ModeSlideBar extends StatelessWidget {
 
 class _ModeOption extends StatelessWidget {
   final AppearanceMode mode;
+  final double labelWidth;
   final bool selected;
   final double emphasis;
   final VoidCallback onTap;
 
   const _ModeOption({
     required this.mode,
+    required this.labelWidth,
     required this.selected,
     required this.emphasis,
     required this.onTap,
@@ -345,34 +359,78 @@ class _ModeOption extends StatelessWidget {
       child: PressScale(
         key: ValueKey('settings-mode-${mode.name}'),
         semanticLabel: mode.label,
-        scale: .94,
+        scale: AppPressScale.control,
         motion: AppMotion.entryTap,
         onTap: onTap,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: 44),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-            child: ExcludeSemantics(
-              child: Center(
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Text(
-                    mode.label,
-                    style: AppType.footnote.copyWith(
-                      color: labelColor,
-                      fontWeight: emphasis > 0.5
-                          ? FontWeight.w600
-                          : FontWeight.w400,
+        child: SizedBox(
+          height: SettingsTokens.modeHeight,
+          child: ExcludeSemantics(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final labelStyle = SettingsTokens.modeLabel.copyWith(
+                  color: labelColor,
+                );
+                final showIcon = labelWidth + 28 <= constraints.maxWidth;
+                return Center(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (showIcon) ...[
+                          if (mode == AppearanceMode.system)
+                            CustomPaint(
+                              size: const Size.square(14),
+                              painter: _SystemModeIcon(labelColor),
+                            )
+                          else
+                            Icon(
+                              mode == AppearanceMode.light
+                                  ? SolarIconsBold.sun
+                                  : SolarIconsBold.moon,
+                              size: 16,
+                              color: labelColor,
+                            ),
+                          const SizedBox(width: 6),
+                        ],
+                        Text(mode.label, style: labelStyle),
+                      ],
                     ),
                   ),
-                ),
-              ),
+                );
+              },
             ),
           ),
         ),
       ),
     );
   }
+}
+
+class _SystemModeIcon extends CustomPainter {
+  const _SystemModeIcon(this.color);
+  final Color color;
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    canvas.drawArc(
+      rect.deflate(1),
+      1.5707963268,
+      3.1415926536,
+      true,
+      Paint()..color = color,
+    );
+    canvas.drawOval(
+      rect.deflate(1),
+      Paint()
+        ..color = color
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.6,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_SystemModeIcon oldDelegate) => color != oldDelegate.color;
 }
 
 class StylePreviewCard extends StatelessWidget {
@@ -385,7 +443,7 @@ class StylePreviewCard extends StatelessWidget {
     super.key,
     required this.style,
     required this.selected,
-    this.emphasis = 1.0,
+    this.emphasis = 1,
     required this.dot,
     required this.onTap,
   });
@@ -393,49 +451,76 @@ class StylePreviewCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
-    final e = emphasis.clamp(0.0, 1.0);
-    final labelColor = Color.lerp(t.text2, t.text, e)!;
+    final reduced = MediaQuery.disableAnimationsOf(context);
     return Semantics(
       selected: selected,
       child: PressScale(
         semanticLabel: style.label,
-        scale: .94,
-        motion: AppMotion.entryTap,
+        scale: AppPressScale.card,
         onTap: onTap,
-        child: Padding(
-          // 外框 AppRadii.sm (12) - 4dp 边距 = AppRadii.xs (8) 严格同心曲率
-          padding: const EdgeInsets.fromLTRB(6, 6, 6, 9),
-          child: ExcludeSemantics(
-            child: Column(
-              children: [
-                Transform.scale(
-                  scale: 0.965 + 0.035 * e,
-                  child: _StyleMiniature(style: style),
-                ),
-                const SizedBox(height: 8),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 2),
-                  child: Row(
+        child: DecoratedBox(
+          decoration: ShapeDecoration(
+            color: t.surface,
+            shape: appShape(SettingsTokens.cardRadius),
+            shadows: SettingsTokens.cardShadow(t),
+          ),
+          child: Stack(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(SettingsTokens.previewInset),
+                child: ExcludeSemantics(
+                  child: Column(
                     children: [
-                      Expanded(
-                        child: Text(
-                          style.label,
-                          style: AppType.subhead.copyWith(
-                            color: labelColor,
-                            fontWeight: FontWeight.w600,
-                          ),
+                      _StyleMiniature(style: style),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(12, 10, 6, 10),
+                        child: Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                style.label,
+                                style: AppType.subhead.copyWith(
+                                  color: t.text,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                            if (dot) ...[
+                              const SizedBox(width: 6),
+                              Transform.translate(
+                                offset: const Offset(0, -5),
+                                child: DotBadge(visible: dot),
+                              ),
+                            ],
+                            const Spacer(),
+                            _StyleCheckBadge(selected: selected),
+                          ],
                         ),
                       ),
-                      if (dot) ...[
-                        const DotBadge(visible: true),
-                        const SizedBox(width: 5),
-                      ],
-                      _StyleCheckBadge(emphasis: e),
                     ],
                   ),
                 ),
-              ],
-            ),
+              ),
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: TweenAnimationBuilder<double>(
+                    tween: Tween(end: selected ? 1 : 0),
+                    duration: reduced ? AppMotion.reducedFade : AppMotion.fade,
+                    builder: (context, opacity, _) => DecoratedBox(
+                      key: ValueKey('settings-style-outline-${style.name}'),
+                      decoration: ShapeDecoration(
+                        shape: appShape(SettingsTokens.cardRadius).copyWith(
+                          side: BorderSide(
+                            color: t.accent.withValues(alpha: opacity),
+                            width: SettingsTokens.selectionWidth,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -444,40 +529,46 @@ class StylePreviewCard extends StatelessWidget {
 }
 
 class _StyleCheckBadge extends StatelessWidget {
-  final double emphasis;
-  const _StyleCheckBadge({required this.emphasis});
-
+  final bool selected;
+  const _StyleCheckBadge({required this.selected});
   @override
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
-    final e = emphasis.clamp(0.0, 1.0);
     return SizedBox.square(
-      dimension: 18,
+      dimension: SettingsTokens.radioSize,
       child: Stack(
         alignment: Alignment.center,
         children: [
-          DecoratedBox(
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: Color.lerp(
-                  t.separator.withValues(alpha: .65),
-                  t.accent,
-                  e,
-                )!,
-                width: 1.5,
+          if (!selected)
+            DecoratedBox(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: t.text3, width: 1.5),
+              ),
+              child: const SizedBox.expand(),
+            ),
+          SingleMotionBuilder(
+            value: selected ? 1.0 : 0.0,
+            motion: AppMotion.pop,
+            active: !MediaQuery.disableAnimationsOf(context),
+            builder: (context, value, _) => Transform.scale(
+              scale: value.clamp(0.0, 2.0),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: t.accent,
+                  shape: BoxShape.circle,
+                ),
+                child: SizedBox.square(
+                  dimension: SettingsTokens.radioSize,
+                  child: Icon(
+                    Icons.check_rounded,
+                    size: 14,
+                    color: SettingsTokens.strongForeground(t),
+                  ),
+                ),
               ),
             ),
-            child: const SizedBox.expand(),
           ),
-          if (e > 0.01)
-            Transform.scale(
-              scale: e,
-              child: Opacity(
-                opacity: e,
-                child: Icon(AppIcons.success, size: 18, color: t.accent),
-              ),
-            ),
         ],
       ),
     );
@@ -487,139 +578,128 @@ class _StyleCheckBadge extends StatelessWidget {
 class _StyleMiniature extends StatelessWidget {
   final AppearanceStyle style;
   const _StyleMiniature({required this.style});
-
   @override
   Widget build(BuildContext context) {
-    final darkT = (1.0 - AppTokens.of(context).bg.computeLuminance()).clamp(
-      0.0,
-      1.0,
-    );
-    final t = tokensFor(
-      Brightness.light,
-      style,
-    ).lerp(tokensFor(Brightness.dark, style), darkT);
+    final t = tokensFor(Theme.of(context).brightness, style);
     final misty = style == AppearanceStyle.misty;
-    Widget bar(Color color, double width) => Container(
-      width: width,
-      height: 3.5,
-      decoration: ShapeDecoration(
+    Widget bar(Color color, double width, double height) => DecoratedBox(
+      decoration: BoxDecoration(
         color: color,
-        shape: appShape(AppRadii.bar),
+        borderRadius: BorderRadius.circular(AppRadii.bar),
       ),
-    );
-    Widget tray(Color background, List<Color> dots) => Container(
-      height: 11,
-      decoration: ShapeDecoration(
-        color: background,
-        shape: appShape(AppRadii.bar),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [for (final c in dots) bar(c, 4)],
-      ),
+      child: SizedBox(width: width, height: height),
     );
     return AppClip(
-      radius: AppRadii.xs,
-      child: Container(
-        height: 70,
-        color: misty ? t.grouped : t.bg,
-        child: misty
-            ? Column(
-                children: [
-                  Container(
-                    height: 19,
-                    padding: const EdgeInsets.symmetric(horizontal: 7),
-                    color: t.surface,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [bar(t.text, 18), bar(t.accent, 4.5)],
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 7,
-                      vertical: 5,
-                    ),
-                    child: Container(
-                      padding: const EdgeInsets.all(3.5),
-                      decoration: ShapeDecoration(
-                        color: t.surface,
-                        shape: appShape(AppRadii.xs),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              bar(t.accent.withValues(alpha: .28), 6),
-                              const SizedBox(width: 4),
-                              bar(t.text, 20),
+      radius: SettingsTokens.previewRadius,
+      child: SizedBox(
+        height: SettingsTokens.previewHeight,
+        child: ColoredBox(
+          color: t.grouped,
+          child: Stack(
+            children: [
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                height: 50,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: misty
+                        ? LinearGradient(
+                            colors: [
+                              t.mistyBlue.withValues(alpha: .16),
+                              t.mistyViolet.withValues(alpha: .12),
                             ],
-                          ),
-                          const SizedBox(height: 4),
-                          tray(t.mistyTray, [
-                            t.mistyBlue,
-                            t.mistyOrange,
-                            t.mistyGreen,
-                            t.mistyViolet,
-                          ]),
-                        ],
+                          )
+                        : t.lacGradient,
+                  ),
+                ),
+              ),
+              if (!misty)
+                Positioned(
+                  top: 44,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: t.grouped,
+                      borderRadius: BorderRadius.vertical(
+                        top: Radius.circular(SettingsTokens.logoRadius),
                       ),
                     ),
                   ),
-                ],
-              )
-            : Stack(
-                children: [
-                  Container(
-                    height: 32,
-                    padding: const EdgeInsets.fromLTRB(7, 5, 7, 0),
-                    color: t.lacMid,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                ),
+              Positioned(
+                left: 12,
+                top: 15,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: t.warnBg,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const SizedBox.square(dimension: 15),
+                ),
+              ),
+              Positioned(
+                left: 33,
+                top: 20,
+                child: bar(misty ? t.text : t.onLac, 36, 5),
+              ),
+              Positioned(
+                left: 10,
+                right: 10,
+                top: 38,
+                height: 24,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: t.surface,
+                    borderRadius: BorderRadius.circular(AppRadii.xs),
+                    boxShadow: SettingsTokens.cardShadow(t),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 6),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
                       children: [
-                        bar(t.onLac, 18),
-                        const SizedBox(height: 5),
-                        tray(t.lacRecess, [
-                          t.onLac,
-                          t.onLac,
-                          t.onLac,
-                          t.onLac,
-                        ]),
+                        for (final color
+                            in misty
+                                ? [
+                                    t.mistyBlue,
+                                    t.mistyOrange,
+                                    t.mistyGreen,
+                                    t.mistyViolet,
+                                  ]
+                                : List.filled(4, t.accent))
+                          bar(color, 5, 5),
                       ],
                     ),
                   ),
-                  Positioned(
-                    top: 27,
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    child: Container(
-                      padding: const EdgeInsets.fromLTRB(7, 6, 7, 0),
-                      decoration: ShapeDecoration(
-                        color: t.grouped,
-                        shape: appShape(AppRadii.xs),
-                      ),
-                      alignment: Alignment.topCenter,
-                      child: Container(
-                        height: 16,
-                        padding: const EdgeInsets.symmetric(horizontal: 5),
-                        decoration: ShapeDecoration(
-                          color: t.surface,
-                          shape: appShape(AppRadii.xs),
-                        ),
-                        child: Row(
-                          children: [
-                            bar(t.accentFill2, 6),
-                            const SizedBox(width: 4),
-                            Flexible(child: bar(t.text3, 28)),
-                          ],
-                        ),
-                      ),
+                ),
+              ),
+              Positioned(
+                left: 10,
+                right: 10,
+                top: 68,
+                height: 24,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: t.surface,
+                    borderRadius: BorderRadius.circular(AppRadii.xs),
+                    boxShadow: SettingsTokens.cardShadow(t),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 10),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: bar(t.text.withValues(alpha: .28), 30, 4),
                     ),
                   ),
-                ],
+                ),
               ),
+            ],
+          ),
+        ),
       ),
     );
   }

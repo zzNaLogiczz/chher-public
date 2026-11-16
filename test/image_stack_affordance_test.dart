@@ -28,12 +28,12 @@ void main() {
             photos: photos,
           );
           final stage = tester.getRect(fixture.stackStage);
-          // The B frame bounds the stage height by content (cap 400), and
+          // The paper frame bounds stage height (480 plus 16 for edges), and
           // the reading host scrolls; it is never unbounded or viewport-torn.
-          expect(stage.height, lessThanOrEqualTo(400));
+          expect(stage.height, lessThanOrEqualTo(496));
           // Median ratio of [1:20, 2:1, 1:1] is 1:1 after the clamp floor.
           final frame = fixture.frameOf(stage.width, 1.0);
-          expect(stage.height, closeTo(frame.fh, 1));
+          expect(stage.height, closeTo(frame.fh + 16, 1));
           final seen = <int>{};
           for (final element in find.byType(RawImage).evaluate()) {
             final widget = element.widget as RawImage;
@@ -58,10 +58,11 @@ void main() {
             // Long shots fill the frame width from the top; every other
             // photo keeps its own ratio inside the frame, uncropped.
             final inner = fixture.innerRectOf(ratio, frame.fw, frame.fh);
-            expect(box.size.width / box.size.height, closeTo(
-              inner.width / inner.height,
-              .001,
-            ), reason: 'photo $i');
+            expect(
+              box.size.width / box.size.height,
+              closeTo(inner.width / inner.height, .001),
+              reason: 'photo $i',
+            );
             expect(
               widget.image!.width / widget.image!.height,
               closeTo(ratio, .001),
@@ -78,8 +79,7 @@ void main() {
             expect(natural, findsOneWidget);
           }
           expect(seen, {0, 1, 2});
-          // No counter text anywhere; the only allowed label is the long-shot
-          // chip that marks a cropped tall photo.
+          // The caption stays separate from the long-photo crop label.
           final labels = find
               .descendant(
                 of: find.byType(ImageStackGallery),
@@ -87,7 +87,8 @@ void main() {
               )
               .evaluate()
               .map((e) => (e.widget as Text).data ?? '');
-          expect(labels, everyElement('长图'));
+          expect(labels, contains('展开全部'));
+          expect(labels, contains('长图，点开看全部'));
           expect(tester.takeException(), isNull);
         },
       );

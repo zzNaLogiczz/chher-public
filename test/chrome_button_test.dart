@@ -142,6 +142,80 @@ void main() {
     expect(find.text('3'), findsNothing);
   });
 
+  testWidgets('badges pop from .6, roll real counts and shrink on clear', (
+    tester,
+  ) async {
+    Widget badge(int count) => app(CountBadge(count: count));
+    double scale() => tester
+        .widget<Transform>(
+          find
+              .descendant(
+                of: find.byType(CountBadge),
+                matching: find.byType(Transform),
+              )
+              .first,
+        )
+        .transform
+        .entry(0, 0);
+    await tester.pumpWidget(badge(3));
+    expect(scale(), .6);
+    await tester.pumpAndSettle();
+    expect(scale(), 1);
+    await tester.pumpWidget(badge(7));
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(find.text('3'), findsOneWidget);
+    expect(find.text('7'), findsOneWidget);
+    expect(find.text('4'), findsNothing);
+    expect(
+      find.descendant(
+        of: find.byType(CountBadge),
+        matching: find.byType(FractionalTranslation),
+      ),
+      findsNWidgets(2),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('3'), findsNothing);
+    await tester.pumpWidget(badge(0));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(scale(), lessThan(1));
+    expect(find.text('0'), findsNothing);
+    await tester.pumpAndSettle();
+    expect(find.byKey(CountBadge.surfaceKey), findsNothing);
+    expect(tester.binding.transientCallbackCount, 0);
+  });
+
+  testWidgets('dot appears at .6 and reduced motion bypasses spatial motion', (
+    tester,
+  ) async {
+    await tester.pumpWidget(app(const DotBadge(visible: true)));
+    final transform = find.descendant(
+      of: find.byType(DotBadge),
+      matching: find.byType(Transform),
+    );
+    expect(tester.widget<Transform>(transform).transform.entry(0, 0), .6);
+    await tester.pumpAndSettle();
+    Widget reduced(int count) => app(
+      MediaQuery(
+        data: const MediaQueryData(disableAnimations: true),
+        child: CountBadge(count: count),
+      ),
+    );
+    await tester.pumpWidget(reduced(3));
+    await tester.pumpWidget(reduced(7));
+    expect(
+      find.descendant(
+        of: find.byType(CountBadge),
+        matching: find.byType(FractionalTranslation),
+      ),
+      findsNothing,
+    );
+    expect(find.text('7'), findsOneWidget);
+    await tester.pumpWidget(reduced(0));
+    expect(find.byKey(CountBadge.surfaceKey), findsNothing);
+    await tester.pumpAndSettle();
+    expect(tester.binding.transientCallbackCount, 0);
+  });
+
   testWidgets('neutral badge uses text color fill', (tester) async {
     await tester.pumpWidget(
       app(const CountBadge(count: 65, tone: BadgeTone.neutral)),

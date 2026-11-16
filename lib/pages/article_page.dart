@@ -4,6 +4,7 @@ library;
 import 'package:flutter/material.dart';
 import 'source_page_drawer.dart';
 import '../ui/app_button.dart';
+import '../ui/press.dart';
 import 'package:flutter/cupertino.dart' show CupertinoIcons;
 import 'package:flutter/services.dart';
 import 'package:flutter/gestures.dart' show DragStartBehavior;
@@ -22,6 +23,7 @@ import '../data/favorite_index.dart';
 import '../ui/nav_bar.dart';
 import '../ui/chrome_button.dart';
 import '../models/models.dart';
+import '../models/quote_presentation.dart';
 import '../widgets/editorial_article_route.dart';
 import '../widgets/editorial_cover.dart';
 import '../widgets/image_grid.dart';
@@ -31,6 +33,10 @@ import '../widgets/rich_content_text.dart';
 import '../widgets/state_view.dart';
 import 'thread_detail_page.dart';
 import '../widgets/content_link_block.dart';
+import '../widgets/reading_list_end.dart';
+import '../ui/quote.dart';
+import '../models/image_stack_group.dart';
+import '../widgets/site_link_card.dart';
 
 class ArticlePage extends StatefulWidget {
   final int aid;
@@ -191,7 +197,7 @@ class _ArticlePageState extends State<ArticlePage> {
           ? AppSystemUi.lightIcons
           : (t.isDark ? AppSystemUi.lightIcons : AppSystemUi.darkIcons),
       child: Scaffold(
-        backgroundColor: t.bg,
+        backgroundColor: t.grouped,
         body: Stack(
           children: [
             NotificationListener<ScrollMetricsNotification>(
@@ -261,7 +267,11 @@ class _ArticlePageState extends State<ArticlePage> {
                         begin: Alignment.topCenter,
                         end: Alignment.bottomCenter,
                         stops: const [0, .7, 1],
-                        colors: [t.bg, t.bg, t.bg.withValues(alpha: 0)],
+                        colors: [
+                          t.grouped,
+                          t.grouped,
+                          t.grouped.withValues(alpha: 0),
+                        ],
                       ),
                     ),
                     child: SizedBox(
@@ -438,7 +448,6 @@ class _ArticlePageState extends State<ArticlePage> {
                 ),
               ),
             const SizedBox(height: 18),
-            Divider(height: .5, thickness: .5, color: t.separator),
           ],
         ),
       ),
@@ -447,12 +456,18 @@ class _ArticlePageState extends State<ArticlePage> {
 
   List<Widget> _contentSlivers() {
     final t = AppTokens.of(context);
+    final segments = groupPostImages(_blocks, groupImages: false);
     return [
       SliverList.builder(
         addRepaintBoundaries: false,
-        itemCount: _blocks.length,
-        itemBuilder: (context, i) {
-          final block = _blocks[i];
+        itemCount: segments.length,
+        itemBuilder: (context, index) {
+          final segment = segments[index];
+          final i = segment.blockIndex;
+          final rawBlock = segment.block!;
+          final block = rawBlock is QuoteBlock
+              ? quoteForDisplay(rawBlock)
+              : rawBlock;
           final metrics = ReadingMetrics.of(context);
           final bodyStyle = TextStyle(
             fontSize: metrics.bodySize,
@@ -474,7 +489,8 @@ class _ArticlePageState extends State<ArticlePage> {
                   child: Semantics(
                     button: true,
                     label: '查看第 ${_imageIndex[i]! + 1} 张原图',
-                    child: GestureDetector(
+                    child: PressScale(
+                      scale: AppPressScale.content,
                       onTap: () => Navigator.of(context).push(
                         MaterialPageRoute(
                           builder: (_) => ImageViewerPage(
@@ -491,22 +507,48 @@ class _ArticlePageState extends State<ArticlePage> {
                   padding: const EdgeInsets.fromLTRB(26, 10, 26, 16),
                   child: RichContentText(block: block, style: bodyStyle),
                 ),
-                QuoteBlock(:final children) => Padding(
+                QuoteBlock(:final source, :final children) => Padding(
                   padding: const EdgeInsets.fromLTRB(26, 8, 26, 16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      for (final child in children.whereType<TextBlock>())
-                        RichContentText(
-                          block: child,
-                          style: bodyStyle.copyWith(color: t.text2),
-                        ),
-                    ],
+                  child: QuoteView(
+                    author: source ?? '',
+                    text: children
+                        .whereType<TextBlock>()
+                        .map((b) => b.text)
+                        .join('\n'),
+                    bodyStyle: bodyStyle.copyWith(
+                      fontSize: metrics.bodySize - 2,
+                      color: t.text2,
+                    ),
+                    content: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        for (final child in children.whereType<TextBlock>())
+                          RichContentText(
+                            block: child,
+                            style: bodyStyle.copyWith(
+                              fontSize: metrics.bodySize - 2,
+                              color: t.text2,
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
                 ),
                 SiteLinkBlock() || BilibiliBlock() => Padding(
-                  padding: const EdgeInsets.fromLTRB(26, 4, 26, 16),
-                  child: ContentLinkBlockView(block: block),
+                  padding: EdgeInsets.fromLTRB(
+                    26,
+                    segment.linkGroupStart ? 4 : 0,
+                    26,
+                    segment.linkGroupEnd ? 16 : 0,
+                  ),
+                  child: segment.siteLinks != null
+                      ? SiteLinkGroupCard(
+                          blocks: segment.siteLinks!,
+                          grouped: segment.linksGrouped,
+                          first: segment.linkGroupStart,
+                          last: segment.linkGroupEnd,
+                        )
+                      : ContentLinkBlockView(block: block),
                 ),
               },
             ),
@@ -520,24 +562,7 @@ class _ArticlePageState extends State<ArticlePage> {
     if (_reader.isLoading) {
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 32),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            SizedBox(
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(
-                strokeWidth: 1.5,
-                color: t.text2,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Text(
-              '正在加载后续内容',
-              style: TextStyle(fontSize: AppType.sizeFootnote, color: t.text2),
-            ),
-          ],
-        ),
+        child: const Center(child: ReadingListEnd(loading: true)),
       );
     }
     if (_reader.error != null) {
@@ -564,22 +589,7 @@ class _ArticlePageState extends State<ArticlePage> {
       padding: const EdgeInsets.fromLTRB(26, 32, 26, 12),
       child: Column(
         children: [
-          Divider(height: .5, thickness: .5, color: t.separator),
-          const SizedBox(height: 26),
-          Text(
-            'CHH',
-            style: TextStyle(
-              fontSize: AppType.sizeTitle2,
-              fontWeight: FontWeight.w800,
-              letterSpacing: -1,
-              color: t.text3,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '正文已读完',
-            style: TextStyle(fontSize: AppType.sizeFootnote, color: t.text2),
-          ),
+          const ReadingListEnd(),
           const SizedBox(height: 14),
           AppButton(
             label: '查看评论',

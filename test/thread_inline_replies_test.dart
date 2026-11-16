@@ -5,7 +5,7 @@ import 'package:chh_app/models/models.dart';
 import 'package:chh_app/widgets/post_card.dart';
 import 'package:chh_app/widgets/rich_content_text.dart';
 import 'package:chh_app/pages/thread_detail_page.dart';
-import 'package:chh_app/ui/segmented.dart';
+import 'package:chh_app/widgets/comment_mode_bar.dart';
 import 'package:chh_app/widgets/thread_comment_widgets.dart';
 import 'package:chh_app/ui/reading_bar.dart';
 import 'package:chh_app/ui/press.dart';
@@ -30,8 +30,10 @@ Future<void> expand(WidgetTester tester) async {
 
 Future<void> tapViewMode(WidgetTester tester, String label) async {
   final segment = find.descendant(
-    of: find.byType(AppSegmented<ThreadViewMode>),
-    matching: find.text(label),
+    of: find.byType(CommentModeBar),
+    matching: find.byKey(
+      ValueKey('comment-mode-${['评论', '原楼层', '只看楼主'].indexOf(label)}'),
+    ),
   );
   await tester.ensureVisible(segment);
   await tester.pump();
@@ -39,16 +41,46 @@ Future<void> tapViewMode(WidgetTester tester, String label) async {
 }
 
 Future<ThreadViewMode> currentViewMode(WidgetTester tester) async {
-  final segmented = find.byType(AppSegmented<ThreadViewMode>);
+  final segmented = find.byType(CommentModeBar);
   await tester.scrollUntilVisible(
     segmented,
     300,
     scrollable: find.byType(Scrollable).first,
   );
-  return tester.widget<AppSegmented<ThreadViewMode>>(segmented).value;
+  return tester.widget<CommentModeBar>(segmented).mode;
 }
 
 void main() {
+  testWidgets(
+    'expansion names the exact remainder after the first ten replies',
+    (tester) async {
+      await fixture.pump(
+        tester,
+        ThreadDetailPage(
+          preloadPages: 1,
+          tid: 123,
+          title: '剩余回复',
+          loadPage: (_, _, _) async => fixture.page([
+            fixture.post(1),
+            fixture.post(2),
+            for (var n = 3; n <= 13; n++) fixture.post(n, target: 2),
+          ]),
+        ),
+      );
+      await fixture.bottom(tester);
+      expect(find.text('展开 11 条回复'), findsOneWidget);
+      await expand(tester);
+      await fixture.bottom(tester);
+      expect(find.text('展开 1 条回复'), findsOneWidget);
+      expect(find.textContaining('展开更多'), findsNothing);
+      await expand(tester);
+      await fixture.bottom(tester);
+      expect(find.text('展开 1 条回复'), findsNothing);
+      expect(find.byKey(const ValueKey('post-13')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets(
     'cached expansion reuses the thousand-post conversation snapshot',
     (tester) async {
@@ -61,6 +93,7 @@ void main() {
       await fixture.pump(
         tester,
         ThreadDetailPage(
+          preloadPages: 1,
           tid: 123,
           title: '千楼缓存展开',
           loadPage: (_, _, _) async {
@@ -78,7 +111,7 @@ void main() {
         await fixture.bottom(tester);
         expect(state.debugConversationIndex, same(snapshot));
         expect(posts.reads, initialReads, reason: 'Do not rescan source pages');
-        expect(find.text('展开更多回复（${998 - batch * 10}）'), findsOneWidget);
+        expect(find.text('展开 ${998 - batch * 10} 条回复'), findsOneWidget);
         expect(loads, 1);
       }
       final refresh = tester
@@ -100,6 +133,7 @@ void main() {
       await fixture.pump(
         tester,
         ThreadDetailPage(
+          preloadPages: 1,
           tid: 123,
           title: '展开动效',
           loadPage: (_, _, _) async {
@@ -135,7 +169,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(tester.getSize(first).height, greaterThan(middleHeight));
       await fixture.bottom(tester);
-      expect(find.text('展开更多回复（2）'), findsOneWidget);
+      expect(find.text('展开 2 条回复'), findsOneWidget);
       final previousReply = find.byKey(const ValueKey('post-12'));
       final previousHeight = tester.getSize(previousReply).height;
       await tester.tap(action);
@@ -155,6 +189,7 @@ void main() {
     await fixture.pump(
       tester,
       ThreadDetailPage(
+        preloadPages: 1,
         tid: 123,
         title: '减少动态效果',
         loadPage: (_, _, _) async => fixture.page([
@@ -191,6 +226,7 @@ void main() {
     await fixture.pump(
       tester,
       ThreadDetailPage(
+        preloadPages: 1,
         tid: 123,
         title: '长回复动效',
         loadPage: (_, _, _) async => fixture.page([
@@ -223,6 +259,7 @@ void main() {
     await fixture.pump(
       tester,
       ThreadDetailPage(
+        preloadPages: 1,
         tid: 123,
         title: '回复对象',
         loadPage: (_, _, _) async => fixture.page([
@@ -262,6 +299,7 @@ void main() {
     await fixture.pump(
       tester,
       ThreadDetailPage(
+        preloadPages: 1,
         tid: 123,
         title: '长回复',
         loadPage: (_, _, _) async => fixture.page([
@@ -328,7 +366,7 @@ void main() {
         final body = tester.widget<RichContentText>(
           find.byType(RichContentText),
         );
-        expect(body.block.text, startsWith('回复 B：'));
+        expect(body.prefix, '回复 B：');
         if (content.first is TextBlock) {
           expect(
             body.block.nodes.whereType<InlineSmiley>().single,
@@ -348,6 +386,7 @@ void main() {
     await fixture.pump(
       tester,
       ThreadDetailPage(
+        preloadPages: 1,
         tid: 123,
         title: '分批回复',
         loadPage: (_, _, _) async {
@@ -364,11 +403,11 @@ void main() {
     expect(fixture.card(3), findsNothing);
     await expand(tester);
     await fixture.bottom(tester);
-    expect(find.text('展开更多回复（15）'), findsOneWidget);
+    expect(find.text('展开 15 条回复'), findsOneWidget);
     expect(fixture.card(13), findsNothing);
     await expand(tester);
     await fixture.bottom(tester);
-    expect(find.text('展开更多回复（5）'), findsOneWidget);
+    expect(find.text('展开 5 条回复'), findsOneWidget);
     expect(fixture.card(23), findsNothing);
     await expand(tester);
     await fixture.bottom(tester);
@@ -387,6 +426,7 @@ void main() {
       await fixture.pump(
         tester,
         ThreadDetailPage(
+          preloadPages: 1,
           tid: 123,
           title: '按需加载',
           loadPage: (n, _, _) async {
@@ -428,7 +468,7 @@ void main() {
       await expand(tester);
       await fixture.bottom(tester);
       expect(reads, [1, 2, 2]);
-      expect(find.text('展开更多回复（4）'), findsOneWidget);
+      expect(find.text('展开 4 条回复'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );

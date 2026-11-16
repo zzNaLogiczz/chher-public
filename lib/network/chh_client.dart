@@ -4,6 +4,8 @@
 /// 这样换 UI 框架或上鸿蒙时这一层可以整体搬走。
 library;
 
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../core/app_log.dart';
@@ -14,10 +16,10 @@ import 'file_fetcher.dart';
 import 'webview_fetcher.dart';
 
 class _CacheEntry {
-  final DateTime at;
+  final DateTime expiresAt;
   final String html;
   final int sequence;
-  _CacheEntry(this.html, this.at, this.sequence);
+  _CacheEntry(this.html, this.expiresAt, this.sequence);
   int get bytes => html.length * 2;
 }
 
@@ -25,12 +27,22 @@ class _ReadFlight {
   _ReadFlight(this.sequence, this.latestSuccessfulSequence);
   final int sequence;
   int latestSuccessfulSequence;
+  final readers = <bool Function()?>[];
+  bool get canContinue => readers.any((reader) => reader?.call() ?? true);
   late final Future<String> future;
 }
 
+class ThreadReadCancelled implements Exception {
+  const ThreadReadCancelled();
+}
+
 class ChhClient {
+  /// Keep rapid reading responsive while bounding serial source requests.
+  static const defaultThreadRequestInterval = Duration(milliseconds: 300);
+
   final List<ChhFetcher> fetchers;
   final Duration cacheTtl;
+  final Duration threadRequestInterval;
   final int maxCacheEntries;
   final int maxCacheBytes;
   final DateTime Function() now;
@@ -43,14 +55,20 @@ class ChhClient {
   final _cache = <String, _CacheEntry>{};
   String? _lastFetcherName;
   int _cacheGeneration = 0;
+
+  /// Derived caches must not reuse data across session/write invalidation.
+  int get cacheGeneration => _cacheGeneration;
   int _requestSequence = 0;
   int _lastObservedHeaderSequence = 0;
+  Future<void>? _threadTail;
+  DateTime? _lastThreadReadAt;
 
   ChhClient({
     List<ChhFetcher>? fetchers,
     this.cacheTtl = const Duration(seconds: 90),
-    this.maxCacheEntries = 64,
-    this.maxCacheBytes = 16 << 20,
+    this.maxCacheEntries = 128,
+    this.maxCacheBytes = 64 << 20,
+    this.threadRequestInterval = defaultThreadRequestInterval,
     DateTime Function()? now,
   }) : assert(maxCacheEntries >= 0 && maxCacheBytes >= 0),
        now = now ?? DateTime.now,
@@ -89,7 +107,25 @@ class ChhClient {
     Uri url, {
     bool refresh = false,
     bool fallback = true,
-  }) => _getHtml(url, refresh: refresh, fallback: fallback);
+    bool Function()? shouldContinue,
+  }) => _getHtml(
+    url,
+    refresh: refresh,
+    fallback: fallback,
+    shouldContinue: shouldContinue,
+  );
+
+  bool hasCachedHtml(Uri url) {
+    _pruneCache();
+    return _cache.containsKey('$url');
+  }
+
+  bool _isThreadPage(Uri url) =>
+      {'www.chiphell.com', 'chiphell.com'}.contains(url.host) &&
+      (RegExp(r'^/thread-\d+-\d+-\d+\.html$').hasMatch(url.path) ||
+          (url.path == '/forum.php' &&
+              (url.queryParameters['mod'] == 'viewthread' ||
+                  url.queryParameters['goto'] == 'findpost')));
 
   /// Discuz interaction forms require an XMLHttpRequest-shaped GET.
   /// Keep its cached response separate from ordinary full-page HTML.
@@ -101,7 +137,11 @@ class ChhClient {
     bool refresh = false,
     bool fallback = true,
     bool ajax = false,
+    bool Function()? shouldContinue,
   }) {
+    if (shouldContinue?.call() == false) {
+      return Future.error(const ThreadReadCancelled());
+    }
     final generation = _cacheGeneration;
     final key = '${ajax ? 'ajax:' : ''}$url';
     _pruneCache();
@@ -115,22 +155,74 @@ class ChhClient {
     final existing = _inFlight[request];
     if (existing != null &&
         existing.sequence >= existing.latestSuccessfulSequence) {
+      existing.readers.add(shouldContinue);
       return existing.future;
     }
     final flight = _ReadFlight(++_requestSequence, _cache[key]?.sequence ?? 0);
+    flight.readers.add(shouldContinue);
     _inFlight[request] = flight;
+    Future<String> read() => _fetchHtml(
+      url,
+      key: key,
+      generation: generation,
+      fallback: fallback,
+      ajax: ajax,
+      flight: flight,
+    );
     flight.future =
-        _fetchHtml(
-          url,
-          key: key,
-          generation: generation,
-          fallback: fallback,
-          ajax: ajax,
-          flight: flight,
-        ).whenComplete(() {
-          if (identical(_inFlight[request], flight)) _inFlight.remove(request);
-        });
+        (!ajax && _isThreadPage(url)
+                ? _readThread(
+                    read,
+                    key: key,
+                    generation: generation,
+                    refresh: refresh,
+                    flight: flight,
+                  )
+                : read())
+            .whenComplete(() {
+              if (identical(_inFlight[request], flight)) {
+                _inFlight.remove(request);
+              }
+            });
     return flight.future;
+  }
+
+  Future<String> _readThread(
+    Future<String> Function() read, {
+    required String key,
+    required int generation,
+    required bool refresh,
+    required _ReadFlight flight,
+  }) async {
+    final previous = _threadTail;
+    final completed = Completer<void>();
+    _threadTail = completed.future;
+    var started = false;
+    void checkActive() {
+      if (generation != _cacheGeneration || !flight.canContinue) {
+        throw const ThreadReadCancelled();
+      }
+    }
+
+    try {
+      if (previous != null) await previous;
+      checkActive();
+      _pruneCache();
+      // Another transport policy may have filled this page while it queued.
+      final cached = _cache[key];
+      if (!refresh && cached != null) return cached.html;
+      if (_lastThreadReadAt case final last?) {
+        final remaining = threadRequestInterval - now().difference(last);
+        if (remaining > Duration.zero) await Future<void>.delayed(remaining);
+      }
+      checkActive();
+      started = true;
+      return await read();
+    } finally {
+      if (started) _lastThreadReadAt = now();
+      completed.complete();
+      if (identical(_threadTail, completed.future)) _threadTail = null;
+    }
   }
 
   void _removeCached(String key) {
@@ -140,7 +232,7 @@ class ChhClient {
 
   void _pruneCache() {
     final expired = _cache.entries
-        .where((e) => now().difference(e.value.at) >= cacheTtl)
+        .where((e) => !now().isBefore(e.value.expiresAt))
         .map((e) => e.key)
         .toList();
     for (final key in expired) {
@@ -151,7 +243,10 @@ class ChhClient {
   void _cacheHtml(String key, String html, int sequence) {
     _pruneCache();
     _removeCached(key);
-    final entry = _CacheEntry(html, now(), sequence);
+    final ttl = !key.startsWith('ajax:') && _isThreadPage(Uri.parse(key))
+        ? const Duration(minutes: 30)
+        : cacheTtl;
+    final entry = _CacheEntry(html, now().add(ttl), sequence);
     // UTF-16 is a conservative payload budget without allocating encoded copies.
     if (maxCacheEntries == 0 || entry.bytes > maxCacheBytes) return;
     _cache[key] = entry;
@@ -173,6 +268,10 @@ class ChhClient {
     final failures = <String>[];
     var wafDetected = false;
     for (final f in fallback ? fetchers : fetchers.take(1)) {
+      if (!flight.canContinue ||
+          (_isThreadPage(url) && generation != _cacheGeneration)) {
+        throw const ThreadReadCancelled();
+      }
       final resp = await f.getHtml(
         url,
         headers: {
@@ -239,6 +338,17 @@ class ChhClient {
     bool retryTransportFailures = true,
   }) => _postForm(url, form, retryTransportFailures: retryTransportFailures);
 
+  Future<ChhResponse> postFormFields(
+    Uri url,
+    List<MapEntry<String, String>> fields, {
+    bool retryTransportFailures = true,
+  }) => _postForm(
+    url,
+    Map.fromEntries(fields),
+    fields: fields,
+    retryTransportFailures: retryTransportFailures,
+  );
+
   Future<ChhResponse> postAjaxForm(
     Uri url,
     Map<String, String> form, {
@@ -254,6 +364,7 @@ class ChhClient {
     Uri url,
     Map<String, String> form, {
     bool ajax = false,
+    List<MapEntry<String, String>>? fields,
     bool retryTransportFailures = true,
   }) async {
     AppLog.i('POST', '${AppLog.url(url)} ${AppLog.fields(form)}');
@@ -261,7 +372,10 @@ class ChhClient {
     ChhResponse? last;
     for (final f in fetchers) {
       try {
-        final resp = ajax && f is AjaxFormFetcher
+        if (fields != null && f is! FormFieldsFetcher) continue;
+        final resp = fields != null
+            ? await (f as FormFieldsFetcher).postFormFields(url, fields)
+            : ajax && f is AjaxFormFetcher
             ? await (f as AjaxFormFetcher).postAjaxForm(url, form)
             : await f.postForm(url, form);
         last = resp;
@@ -269,7 +383,11 @@ class ChhClient {
         // 写操作会改变站点状态,缓存里的旧页面全部作废
         clearCache();
 
-        if (ajax && resp.status >= 300 && resp.status < 400) return resp;
+        if ((ajax || fields != null) &&
+            resp.status >= 300 &&
+            resp.status < 400) {
+          return resp;
+        }
 
         // 点评/评分无法确定超时请求是否已被受理，禁止换通道重放。
         if (!retryTransportFailures && resp.status <= 0) {

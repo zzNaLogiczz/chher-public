@@ -201,7 +201,7 @@ void main() {
                 matching: find.byType(Scrollable),
               )
               .first;
-          final expand = find.text('展开引用');
+          final expand = find.text('展开');
           await tester.scrollUntilVisible(
             expand,
             180,

@@ -10,6 +10,9 @@ import 'package:smooth_sheets/smooth_sheets.dart';
 import '../design/icons.dart';
 import '../design/motion.dart';
 import '../design/shapes.dart';
+import '../design/sheet_tokens.dart';
+import 'sheet_route.dart';
+export 'sheet_route.dart';
 import '../design/tokens.dart';
 import '../design/typography.dart';
 import 'press.dart';
@@ -62,6 +65,8 @@ class SheetHeader extends StatelessWidget {
   final VoidCallback? onClose;
   final String closeTooltip;
   final Key? grabberKey;
+  final Widget? trailing;
+  final double trailingMinWidth;
 
   const SheetHeader({
     super.key,
@@ -71,6 +76,8 @@ class SheetHeader extends StatelessWidget {
     this.onClose,
     this.closeTooltip = '关闭',
     this.grabberKey,
+    this.trailing,
+    this.trailingMinWidth = 0,
   });
 
   @override
@@ -105,26 +112,34 @@ class SheetHeader extends StatelessWidget {
           ),
           child: Row(
             children: [
-              // 标题与计数占满剩余宽度,关闭钮始终贴右
               Expanded(
-                child: Row(
-                  children: [
-                    Flexible(
-                      child: Text(
-                        title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppType.headline.copyWith(color: t.text),
+                child: HeaderTrailingRow(
+                  trailing: trailing,
+                  trailingMinWidth: trailingMinWidth,
+                  leading: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Flexible(
+                        child: Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppType.headline.copyWith(color: t.text),
+                        ),
                       ),
-                    ),
-                    if (count != null) ...[
-                      const SizedBox(width: 6),
-                      Text(
-                        '$count',
-                        style: AppType.headline.copyWith(color: t.text3),
-                      ),
+                      if (count != null) ...[
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            '$count',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppType.headline.copyWith(color: t.text3),
+                          ),
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ),
               _CloseButton(
@@ -150,6 +165,43 @@ class SheetHeader extends StatelessWidget {
             ),
           ),
       ],
+    );
+  }
+}
+
+/// Gives a compact trailing control the width remaining after its heading.
+class HeaderTrailingRow extends StatelessWidget {
+  final Widget leading;
+  final Widget? trailing;
+  final double trailingMinWidth;
+
+  const HeaderTrailingRow({
+    super.key,
+    required this.leading,
+    this.trailing,
+    this.trailingMinWidth = 0,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (trailing == null) return leading;
+    return LayoutBuilder(
+      builder: (context, constraints) => Row(
+        children: [
+          ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth:
+                  (constraints.maxWidth -
+                          trailingMinWidth -
+                          CommentModeTokens.headingGap)
+                      .clamp(0, double.infinity),
+            ),
+            child: leading,
+          ),
+          const SizedBox(width: CommentModeTokens.headingGap),
+          Expanded(child: trailing!),
+        ],
+      ),
     );
   }
 }
@@ -192,15 +244,14 @@ Future<T?> showAppSheet<T>(
 }) {
   final t = AppTokens.of(context);
   final reduced = MediaQuery.disableAnimationsOf(context);
-  final curve = AppMotion.curveOf(AppMotion.sheet);
   return Navigator.of(context).push<T>(
-    ModalSheetRoute<T>(
+    AppSheetRoute<T>(
       builder: (context) => Sheet(
         initialOffset: SheetOffset(expandable ? .62 : 1),
         snapGrid: expandable
             ? const SheetSnapGrid(snaps: [SheetOffset(.62), SheetOffset(1)])
             : const SheetSnapGrid.single(snap: SheetOffset(1)),
-        physics: ClampingSheetPhysics(spring: AppMotion.sheet.description),
+        physics: AppSheetPhysics.of(context),
         decoration: SheetDecorationBuilder(
           size: expandable ? SheetSize.stretch : SheetSize.fit,
           builder: (context, child) => AppSheetSurface(child: child),
@@ -208,22 +259,12 @@ Future<T?> showAppSheet<T>(
         child: SafeArea(top: false, child: builder(context)),
       ),
       barrierColor: t.scrim,
-      barrierDismissible: true,
-      barrierLabel: '关闭',
-      swipeDismissible: true,
-      transitionDuration: reduced ? Duration.zero : curve.duration,
-      transitionCurve: curve,
-      viewportBuilder: (context, child) => SheetViewport(
-        padding: EdgeInsets.only(
-          top: MediaQuery.viewPaddingOf(context).top + 8,
-        ),
-        child: child,
-      ),
+      reduced: reduced,
     ),
   );
 }
 
-/// 弹层面:顶部 28 连续曲率圆角、surface 底;自带 Sheet 的弹层也用它
+/// 弹层面:四角 40 连续曲率圆角、surface 底;自带 Sheet 的弹层也用它
 ///
 /// 不画 e3 阴影:弹层下面总有遮罩,阴影看不出来,而对整张弹层做模糊
 /// 在真机上每帧要 Raster 约 8ms(QA12)。透明 Material 给文字默认样式。
@@ -234,7 +275,7 @@ class AppSheetSurface extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
-    const radius = BorderRadius.vertical(top: Radius.circular(AppRadii.xl));
+    const radius = BorderRadius.all(Radius.circular(AppSheetTokens.radius));
     final shape = kContinuousCorners
         ? const RoundedSuperellipseBorder(borderRadius: radius)
         : const RoundedRectangleBorder(borderRadius: radius);

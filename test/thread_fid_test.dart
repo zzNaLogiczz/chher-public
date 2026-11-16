@@ -148,7 +148,7 @@ void main() {
         opening.onReply!();
         await tester.pumpAndSettle();
         expect(find.byType(ComposerSheet), findsOneWidget);
-        expect(find.text('引用 示例作者甲 #1'), findsOneWidget);
+        expect(find.text('回复 示例作者甲'), findsOneWidget);
         await tester.tap(find.text('取消'));
         await tester.pumpAndSettle();
         expect(fixture.posts, 0);

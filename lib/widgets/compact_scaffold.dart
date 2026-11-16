@@ -11,6 +11,7 @@ import 'expressive_controls.dart';
 
 class CompactScaffold extends StatelessWidget {
   final String title;
+  final Widget? titleWidget;
   final Widget body;
   final List<Widget> actions;
   final bool showBack;
@@ -23,6 +24,7 @@ class CompactScaffold extends StatelessWidget {
   const CompactScaffold({
     super.key,
     required this.title,
+    this.titleWidget,
     required this.body,
     this.actions = const [],
     this.showBack = true,
@@ -85,13 +87,17 @@ class CompactScaffold extends StatelessWidget {
                               : null,
                           middle: Semantics(
                             header: true,
-                            child: Text(
-                              title,
-                              key: const ValueKey('compact-scaffold-title'),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: AppType.headline.copyWith(color: t.text),
-                            ),
+                            child:
+                                titleWidget ??
+                                Text(
+                                  title,
+                                  key: const ValueKey('compact-scaffold-title'),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: AppType.headline.copyWith(
+                                    color: t.text,
+                                  ),
+                                ),
                           ),
                           trailing: actions.isEmpty
                               ? null

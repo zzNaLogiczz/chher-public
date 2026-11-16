@@ -11,6 +11,7 @@ import 'package:flutter/physics.dart';
 import 'package:flutter/semantics.dart';
 
 import '../design/tokens.dart';
+import '../design/motion.dart';
 
 class EditorialArticleRoute extends PageRoute<void> {
   EditorialArticleRoute({
@@ -22,11 +23,6 @@ class EditorialArticleRoute extends PageRoute<void> {
   final WidgetBuilder builder;
   final bool reduceMotion;
 
-  static const _spring = SpringDescription(
-    mass: 1,
-    stiffness: 350,
-    damping: 38,
-  );
   bool get _reduced =>
       reduceMotion || SemanticsBinding.instance.disableAnimations;
 
@@ -34,6 +30,7 @@ class EditorialArticleRoute extends PageRoute<void> {
   bool _dragging = false;
   bool _popRequested = false;
   bool _disposed = false;
+  double? _releaseVelocity;
 
   @override
   bool get opaque => false;
@@ -47,10 +44,10 @@ class EditorialArticleRoute extends PageRoute<void> {
   bool get maintainState => true;
   @override
   Duration get transitionDuration =>
-      Duration(milliseconds: _reduced ? 100 : 520);
+      _reduced ? AppMotion.reducedFade : AppMotion.heroDuration;
   @override
   Duration get reverseTransitionDuration =>
-      Duration(milliseconds: _reduced ? 100 : 460);
+      _reduced ? AppMotion.reducedFade : AppMotion.heroDuration;
 
   @override
   AnimationController createAnimationController() {
@@ -67,10 +64,10 @@ class EditorialArticleRoute extends PageRoute<void> {
     if (_reduced) return null;
     final c = controller!;
     return SpringSimulation(
-      _spring,
+      AppMotion.hero,
       c.value,
       forward ? 1 : 0,
-      c.velocity,
+      forward ? c.velocity : (_releaseVelocity ?? c.velocity),
       snapToEnd: true,
     )..tolerance = const Tolerance(distance: .001, velocity: .001);
   }
@@ -124,17 +121,19 @@ class EditorialArticleRoute extends PageRoute<void> {
     if (dismiss) {
       // Freeze the direct transform. The ordinary pop measures the Hero here,
       // at the position the user actually released, rather than its old origin.
+      _releaseVelocity = -velocity;
       navigator!.pop();
     } else if (_reduced) {
-      _drag.animateTo(
-        0,
-        duration: const Duration(milliseconds: 100),
-        curve: Curves.easeOut,
-      );
+      _drag.value = 0;
     } else {
       _drag.animateWith(
-        SpringSimulation(_spring, _drag.value, 0, velocity, snapToEnd: true)
-          ..tolerance = const Tolerance(distance: .0001, velocity: .0001),
+        SpringSimulation(
+          AppMotion.hero,
+          _drag.value,
+          0,
+          velocity,
+          snapToEnd: true,
+        )..tolerance = const Tolerance(distance: .0001, velocity: .0001),
       );
     }
   }
@@ -176,7 +175,7 @@ class EditorialArticleRoute extends PageRoute<void> {
                   alignment: Alignment.topCenter,
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(
-                      reduced ? 0 : (fraction * 48).clamp(0.0, 28.0),
+                      reduced || fraction == 0 ? 0 : AppRadii.lg,
                     ),
                     child: child,
                   ),
@@ -204,7 +203,7 @@ class EditorialArticleRoute extends PageRoute<void> {
         final t = animation.value.clamp(0.0, 1.0);
         final navigationY = reduced ? 0.0 : (1 - t) * 32;
         final scale = reduced ? 1.0 : .96 + .04 * t;
-        final radius = reduced ? 0.0 : (1 - t) * 28;
+        final radius = reduced || t == 1 ? 0.0 : AppRadii.lg;
         return Transform.translate(
           offset: Offset(0, navigationY),
           child: Transform.scale(
@@ -212,9 +211,21 @@ class EditorialArticleRoute extends PageRoute<void> {
             alignment: Alignment.topCenter,
             child: ClipRRect(
               borderRadius: BorderRadius.circular(radius),
-              child: Opacity(
-                opacity: reduced ? t : (t / .28).clamp(0.0, 1.0),
-                child: child,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  child!,
+                  if (reduced && t < 1)
+                    Positioned.fill(
+                      child: IgnorePointer(
+                        child: ColoredBox(
+                          color: Theme.of(
+                            context,
+                          ).scaffoldBackgroundColor.withValues(alpha: 1 - t),
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ),
           ),

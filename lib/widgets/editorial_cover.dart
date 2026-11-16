@@ -1,7 +1,9 @@
 /// A single visual object shared by an editorial card and its reading header.
 library;
 
+import 'dart:ui' as ui;
 import 'dart:ui' show lerpDouble;
+import 'package:flutter/foundation.dart';
 import '../design/motion.dart';
 import '../design/typography.dart';
 
@@ -25,6 +27,7 @@ class EditorialCover extends StatelessWidget {
   final bool expanded;
   final String? eyebrow;
   final BoxFit fit;
+  final ValueListenable<double>? scrollOffset;
 
   /// 横滑卡只放图片,标题在图片下方;展开飞行时仍由目标页带出完整封面
   final bool showText;
@@ -37,6 +40,7 @@ class EditorialCover extends StatelessWidget {
     this.eyebrow,
     this.fit = BoxFit.cover,
     this.showText = true,
+    this.scrollOffset,
   });
 
   @override
@@ -57,6 +61,8 @@ class EditorialCover extends StatelessWidget {
       coverUrl: effectiveUrl,
       fit: effectiveFit,
       showText: showText,
+      feature: fit == BoxFit.contain,
+      scrollOffset: expanded ? null : scrollOffset,
       topInset: expanded ? MediaQuery.viewPaddingOf(context).top : 0,
     );
     final child = expanded
@@ -70,12 +76,7 @@ class EditorialCover extends StatelessWidget {
       transitionOnUserGestures: true,
       createRectTween: (begin, end) => RectTween(begin: begin, end: end),
       flightShuttleBuilder: (flightContext, animation, direction, from, to) {
-        // LayoutBuilder receives the interpolated Hero rectangle each frame;
-        // its typography follows that rectangle continuously in both directions.
-        // heroes.dart passes manifest.animation to this builder, NOT the
-        // forward-only _proxyAnimation used by its rectangle tween. Thus the
-        // value is 0 → 1 on push and 1 → 0 on pop. Using the same 24 → 0 tween
-        // in both cases also keeps a push interrupted by pop continuous.
+        // Freeze type metrics at takeoff; only the shared rectangle moves.
         final expandedContext = direction == HeroFlightDirection.push
             ? to
             : from;
@@ -92,6 +93,23 @@ class EditorialCover extends StatelessWidget {
         final sourceContents = sourceChild is _CoverContents
             ? sourceChild
             : null;
+        final destination = (to.widget as Hero).child;
+        final destinationChild = switch (destination) {
+          AppClip(:final child) => child,
+          ClipRRect(:final child) => child,
+          _ => null,
+        };
+        final collapsedContents = direction == HeroFlightDirection.push
+            ? sourceContents
+            : destinationChild is _CoverContents
+            ? destinationChild
+            : null;
+        final flightOffset = animation.drive(
+          Tween<double>(
+            begin: collapsedContents?.scrollOffset?.value ?? 0,
+            end: 0,
+          ),
+        );
         final flightUrl = sourceContents?.coverUrl ?? effectiveUrl;
         final flightFit = sourceContents?.fit ?? effectiveFit;
         return AnimatedBuilder(
@@ -102,17 +120,18 @@ class EditorialCover extends StatelessWidget {
               eyebrow: eyebrow,
               coverUrl: flightUrl,
               fit: flightFit,
+              feature: fit == BoxFit.contain,
+              scrollOffset: flightOffset,
               topInset: safeTop,
               flightProgress: animation,
               animateImage: false,
+              typographyHeight:
+                  (from.findRenderObject() as RenderBox).size.height,
             ),
           ),
           builder: (context, child) => animation.value == 1
               ? ClipRRect(child: child)
-              : AppClip(
-                  radius: lerpDouble(AppRadii.lg, 0, animation.value)!,
-                  child: child!,
-                ),
+              : AppClip(radius: AppRadii.lg, child: child!),
         );
       },
       child: child,
@@ -135,7 +154,10 @@ class _CoverContents extends StatelessWidget {
   final String? coverUrl;
   final bool animateImage;
   final Animation<double>? flightProgress;
+  final double? typographyHeight;
   final bool showText;
+  final bool feature;
+  final ValueListenable<double>? scrollOffset;
 
   const _CoverContents({
     required this.article,
@@ -145,7 +167,10 @@ class _CoverContents extends StatelessWidget {
     this.topInset = 0,
     this.animateImage = true,
     this.flightProgress,
+    this.typographyHeight,
     this.showText = true,
+    this.feature = false,
+    this.scrollOffset,
   });
 
   @override
@@ -155,19 +180,52 @@ class _CoverContents extends StatelessWidget {
     const overlay = ImageColors.shade;
     // These subtrees do not depend on the interpolating Hero rectangle. Keep
     // them stable while only text constraints and the clipping rect change.
-    final photo = (coverUrl?.isNotEmpty ?? false) ? _photo(context) : null;
+    Widget? photo = (coverUrl?.isNotEmpty ?? false) ? _photo(context) : null;
+    if (photo != null && feature) {
+      final fixedPhoto = photo;
+      final overscan = LayoutBuilder(
+        builder: (context, constraints) => OverflowBox(
+          minHeight: constraints.maxHeight + HomeCoverTokens.parallaxLimit * 2,
+          maxHeight: constraints.maxHeight + HomeCoverTokens.parallaxLimit * 2,
+          child: RepaintBoundary(child: fixedPhoto),
+        ),
+      );
+      photo = scrollOffset == null
+          ? overscan
+          : ValueListenableBuilder<double>(
+              valueListenable: scrollOffset!,
+              child: overscan,
+              builder: (context, offset, child) => Transform.translate(
+                key: const ValueKey('editorial-parallax'),
+                offset: Offset(
+                  0,
+                  MediaQuery.disableAnimationsOf(context)
+                      ? 0
+                      : editorialParallaxOffset(offset),
+                ),
+                child: child,
+              ),
+            );
+    }
     final shade = DecoratedBox(
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          stops: const [0, .28, .48, 1],
-          colors: [
-            overlay.withValues(alpha: .34),
-            overlay.withValues(alpha: .02),
-            overlay.withValues(alpha: .12),
-            overlay.withValues(alpha: .92),
-          ],
+          stops: feature ? const [0, .38, .68, 1] : const [0, .28, .48, 1],
+          colors: feature
+              ? [
+                  overlay.withValues(alpha: 0),
+                  overlay.withValues(alpha: 0),
+                  overlay.withValues(alpha: .5),
+                  overlay.withValues(alpha: .82),
+                ]
+              : [
+                  overlay.withValues(alpha: .34),
+                  overlay.withValues(alpha: .02),
+                  overlay.withValues(alpha: .12),
+                  overlay.withValues(alpha: .92),
+                ],
         ),
       ),
     );
@@ -176,13 +234,20 @@ class _CoverContents extends StatelessWidget {
       child: LayoutBuilder(
         builder: (context, constraints) {
           final height = constraints.maxHeight;
-          final prominence = ((height - 260) / 160).clamp(0.0, 1.0);
-          final textSize = lerpDouble(
-            AppType.sizeTitle2,
-            AppType.sizeLargeTitle,
-            prominence,
-          )!;
-          final inset = lerpDouble(20, 24, prominence)!;
+          final prominence = (((typographyHeight ?? height) - 260) / 160).clamp(
+            0.0,
+            1.0,
+          );
+          final textSize = feature
+              ? HomeCoverTokens.titleSize
+              : lerpDouble(
+                  AppType.sizeTitle2,
+                  AppType.sizeLargeTitle,
+                  prominence,
+                )!;
+          final inset = feature
+              ? HomeCoverTokens.inset
+              : lerpDouble(20, 24, prominence)!;
           final category = article.categoryName?.trim();
           final label =
               eyebrow ??
@@ -193,7 +258,7 @@ class _CoverContents extends StatelessWidget {
               ? rawSummary
               : null;
           final showSummary =
-              height >= 390 &&
+              height >= (feature ? 360 : 390) &&
               (summary?.isNotEmpty ?? false) &&
               MediaQuery.textScalerOf(context).scale(1) < 1.4;
 
@@ -209,7 +274,7 @@ class _CoverContents extends StatelessWidget {
                   ),
                   ?photo,
                   if (showText) shade,
-                  if (showText)
+                  if (showText && !feature)
                     Positioned(
                       top: inset + (flightProgress == null ? topInset : 0),
                       left: inset,
@@ -237,18 +302,44 @@ class _CoverContents extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Text(
-                            article.title,
-                            maxLines: 3,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: foreground,
-                              fontSize: textSize,
-                              height: 1.22,
-                              letterSpacing: -.55,
-                              fontWeight: FontWeight.w700,
+                          if (feature) ...[
+                            Wrap(
+                              spacing: 8,
+                              children: [
+                                Text(
+                                  label,
+                                  style: AppType.footnote.copyWith(
+                                    color: foreground,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                if (category?.isNotEmpty == true &&
+                                    category != label)
+                                  Text(
+                                    category!,
+                                    style: AppType.footnote.copyWith(
+                                      color: foreground.withValues(alpha: .62),
+                                    ),
+                                  ),
+                              ],
                             ),
-                          ),
+                            const SizedBox(height: 8),
+                          ],
+                          if (feature)
+                            _BalancedFeatureTitle(article.title)
+                          else
+                            Text(
+                              article.title,
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: foreground,
+                                fontSize: textSize,
+                                height: 1.22,
+                                letterSpacing: -.55,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
                           if (showSummary) ...[
                             const SizedBox(height: 12),
                             Text(
@@ -261,7 +352,8 @@ class _CoverContents extends StatelessWidget {
                                 height: 1.6,
                               ),
                             ),
-                          ] else if ((category?.isNotEmpty ?? false) &&
+                          ] else if (!feature &&
+                              (category?.isNotEmpty ?? false) &&
                               category != label) ...[
                             const SizedBox(height: 10),
                             Text(
@@ -299,6 +391,13 @@ class _CoverContents extends StatelessWidget {
         );
 
   Widget _photo(BuildContext context) {
+    if (feature) {
+      return _FeaturePhoto(
+        coverUrl: coverUrl!,
+        fallbackUrl: article.coverUrl,
+        animate: animateImage,
+      );
+    }
     final photo = NetImage(
       key: ValueKey('$coverUrl:$fit'),
       url: coverUrl!,
@@ -321,4 +420,347 @@ class _CoverContents extends StatelessWidget {
       child: photo,
     );
   }
+}
+
+class _BalancedFeatureTitle extends StatefulWidget {
+  final String title;
+  const _BalancedFeatureTitle(this.title);
+
+  @override
+  State<_BalancedFeatureTitle> createState() => _BalancedFeatureTitleState();
+}
+
+class _BalancedFeatureTitleState extends State<_BalancedFeatureTitle> {
+  static const _style = TextStyle(
+    color: ImageColors.foreground,
+    fontSize: HomeCoverTokens.titleSize,
+    height: 1.22,
+    letterSpacing: -.55,
+    fontWeight: FontWeight.w700,
+  );
+  Object? _measurement;
+  double _width = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final scaler = MediaQuery.textScalerOf(context);
+    final direction = Directionality.of(context);
+    final locale = Localizations.maybeLocaleOf(context);
+    // Use the resting card width, never the Hero's changing flight rectangle.
+    final available =
+        (MediaQuery.sizeOf(context).width -
+                HomeTokens.inset * 2 -
+                HomeCoverTokens.inset * 2)
+            .clamp(1.0, double.infinity);
+    final measurement = (
+      widget.title,
+      available,
+      scaler.scale(HomeCoverTokens.titleSize),
+      direction,
+      locale,
+    );
+    if (_measurement != measurement) {
+      _measurement = measurement;
+      final painter = TextPainter(
+        text: TextSpan(text: widget.title, style: _style),
+        textDirection: direction,
+        textScaler: scaler,
+        locale: locale,
+      )..layout(maxWidth: available);
+      final lines = painter.computeLineMetrics().length;
+      _width = available;
+      if (lines > 1 && lines <= 3) {
+        var low = available / lines;
+        var high = available;
+        while (high - low > .5) {
+          final middle = (low + high) / 2;
+          painter.layout(maxWidth: middle);
+          if (painter.computeLineMetrics().length > lines) {
+            low = middle;
+          } else {
+            high = middle;
+          }
+        }
+        _width = high;
+      }
+      painter.dispose();
+    }
+    return SizedBox(
+      key: const ValueKey('editorial-balanced-title'),
+      width: _width,
+      child: Text(
+        widget.title,
+        maxLines: 3,
+        overflow: TextOverflow.ellipsis,
+        style: _style,
+      ),
+    );
+  }
+}
+
+/// The photograph travels at 85% of the surrounding card's scroll speed.
+double editorialParallaxOffset(double offset) =>
+    (offset * HomeCoverTokens.parallaxFactor).clamp(
+      0.0,
+      HomeCoverTokens.parallaxLimit,
+    );
+
+bool isEditorialPortrait(Size size) =>
+    size.width > 0 &&
+    size.height >= size.width * HomeCoverTokens.portraitThreshold;
+
+class _FeaturePhoto extends StatefulWidget {
+  final String coverUrl;
+  final String? fallbackUrl;
+  final bool animate;
+  const _FeaturePhoto({
+    required this.coverUrl,
+    required this.fallbackUrl,
+    required this.animate,
+  });
+
+  @override
+  State<_FeaturePhoto> createState() => _FeaturePhotoState();
+}
+
+class _FeaturePhotoState extends State<_FeaturePhoto>
+    with SingleTickerProviderStateMixin {
+  late final _fade = AnimationController(vsync: this, value: 1);
+  final _streams = <ImageStream, ImageStreamListener>{};
+  ImageInfo? _wide;
+  ImageInfo? _portrait;
+  ui.Image? _blur;
+  String? _wideUrl;
+  String? _loadedCover;
+  int? _decodeWidth;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final width = boundedImageDecodeWidth(
+      MediaQuery.sizeOf(context).width,
+      MediaQuery.devicePixelRatioOf(context),
+    );
+    if (_decodeWidth != width) {
+      _decodeWidth = width;
+      _load();
+    }
+  }
+
+  @override
+  void didUpdateWidget(_FeaturePhoto oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.coverUrl != oldWidget.coverUrl ||
+        widget.fallbackUrl != oldWidget.fallbackUrl) {
+      _load();
+    }
+  }
+
+  void _load() {
+    final changed = _loadedCover != null && _loadedCover != widget.coverUrl;
+    _loadedCover = widget.coverUrl;
+    if (changed) {
+      _portrait?.dispose();
+      _portrait = null;
+      _fade.value = 1;
+    }
+    for (final entry in _streams.entries) {
+      entry.key.removeListener(entry.value);
+    }
+    _streams.clear();
+    final fallback = widget.fallbackUrl;
+    if (fallback != null &&
+        fallback.isNotEmpty &&
+        (_wide == null || _wideUrl != fallback)) {
+      _wideUrl = fallback;
+      _resolve(fallback, (info, _) {
+        _wide?.dispose();
+        _wide = info;
+        _blur?.dispose();
+        _blur = null;
+      });
+    }
+    if (widget.coverUrl != fallback) {
+      _resolve(widget.coverUrl, (info, synchronous) {
+        if (!isEditorialPortrait(
+          Size(info.image.width.toDouble(), info.image.height.toDouble()),
+        )) {
+          info.dispose();
+          return;
+        }
+        _portrait?.dispose();
+        _portrait = info;
+        if (changed && widget.animate) {
+          _fade.duration = MediaQuery.disableAnimationsOf(context)
+              ? AppMotion.reducedFade
+              : HomeCoverTokens.portraitFade;
+          _fade.forward(from: 0);
+        } else {
+          _fade.value = 1;
+        }
+      });
+    }
+  }
+
+  void _resolve(String url, void Function(ImageInfo, bool) receive) {
+    final stream = boundedNetworkImage(
+      url,
+      _decodeWidth!,
+    ).resolve(createLocalImageConfiguration(context));
+    final listener = ImageStreamListener((info, synchronous) {
+      if (!mounted) {
+        info.dispose();
+        return;
+      }
+      // Synchronous hits arrive during build; later arrivals need a rebuild.
+      if (synchronous) {
+        receive(info, true);
+      } else {
+        setState(() => receive(info, false));
+      }
+    }, onError: (Object _, StackTrace? _) {});
+    _streams[stream] = listener;
+    stream.addListener(listener);
+  }
+
+  void _prepareBlur(Size size) {
+    final wide = _wide?.image;
+    if (wide == null || size.isEmpty || !size.isFinite || _blur != null) {
+      return;
+    }
+    _blur?.dispose();
+    final width = HomeCoverTokens.blurDecodeWidth;
+    final height = (width * size.height / size.width).ceil().clamp(1, 1024);
+    final bounds = Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble());
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    final fitted = applyBoxFit(
+      BoxFit.cover,
+      Size(wide.width.toDouble(), wide.height.toDouble()),
+      bounds.size,
+    );
+    final source = Alignment.center.inscribe(
+      fitted.source,
+      Rect.fromLTWH(0, 0, wide.width.toDouble(), wide.height.toDouble()),
+    );
+    final sigma = HomeCoverTokens.blur * width / size.width;
+    canvas.drawImageRect(
+      wide,
+      source,
+      bounds,
+      Paint()
+        ..imageFilter = ui.ImageFilter.blur(
+          sigmaX: sigma,
+          sigmaY: sigma,
+          tileMode: TileMode.clamp,
+        ),
+    );
+    canvas.drawRect(
+      bounds,
+      Paint()
+        ..color = ImageColors.shade.withValues(
+          alpha: 1 - HomeCoverTokens.backdropBrightness,
+        ),
+    );
+    final picture = recorder.endRecording();
+    _blur = picture.toImageSync(width, height);
+    picture.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      _prepareBlur(constraints.biggest);
+      return CustomPaint(
+        key: const ValueKey('editorial-feature-photo'),
+        painter: _FeaturePhotoPainter(
+          wide: _wide?.image,
+          portrait: _portrait?.image,
+          blur: _blur,
+          fade: _fade,
+        ),
+      );
+    },
+  );
+
+  @override
+  void dispose() {
+    for (final entry in _streams.entries) {
+      entry.key.removeListener(entry.value);
+    }
+    _wide?.dispose();
+    _portrait?.dispose();
+    _blur?.dispose();
+    _fade.dispose();
+    super.dispose();
+  }
+}
+
+class _FeaturePhotoPainter extends CustomPainter {
+  final ui.Image? wide;
+  final ui.Image? portrait;
+  final ui.Image? blur;
+  final Animation<double> fade;
+  _FeaturePhotoPainter({
+    this.wide,
+    this.portrait,
+    this.blur,
+    required this.fade,
+  }) : super(repaint: fade);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (blur case final image?) {
+      canvas.drawImageRect(
+        image,
+        Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
+        Offset.zero & size,
+        Paint()..filterQuality = FilterQuality.low,
+      );
+    }
+    if (wide case final image?) {
+      final height = size.width * image.height / image.width;
+      // Paint alpha per strip instead of allocating a ShaderMask saveLayer.
+      const strips = 32;
+      for (var i = 0; i < strips; i++) {
+        final fraction = i / strips;
+        final alpha = ((1 - fraction) / .45).clamp(0.0, 1.0);
+        canvas.drawImageRect(
+          image,
+          Rect.fromLTWH(
+            0,
+            image.height * fraction,
+            image.width.toDouble(),
+            image.height / strips,
+          ),
+          Rect.fromLTWH(
+            0,
+            HomeCoverTokens.parallaxLimit + height * fraction,
+            size.width,
+            height / strips + .5,
+          ),
+          Paint()
+            ..color = ImageColors.foreground.withValues(alpha: alpha)
+            ..filterQuality = FilterQuality.low,
+        );
+      }
+    }
+    if (portrait case final image?) {
+      paintImage(
+        canvas: canvas,
+        rect: Offset.zero & size,
+        image: image,
+        fit: BoxFit.cover,
+        alignment: HomeCoverTokens.portraitAlignment,
+        opacity: fade.value,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_FeaturePhotoPainter oldDelegate) =>
+      oldDelegate.wide != wide ||
+      oldDelegate.portrait != portrait ||
+      oldDelegate.blur != blur ||
+      oldDelegate.fade != fade;
 }

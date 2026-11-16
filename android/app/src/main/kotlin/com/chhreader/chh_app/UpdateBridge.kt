@@ -111,11 +111,10 @@ internal class UpdateBridge(
     }
 
     private fun canInstall(): Boolean =
-        Build.VERSION.SDK_INT < Build.VERSION_CODES.O || activity.packageManager.canRequestPackageInstalls()
+        activity.packageManager.canRequestPackageInstalls()
 
     /** 打开“允许安装未知应用”设置页；用户返回后由 Dart 侧重新检查。 */
     private fun openInstallPermission(): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
         val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${activity.packageName}"))
         return try {
             activity.startActivity(intent)
@@ -199,13 +198,9 @@ internal class UpdateBridge(
 
     @Suppress("DEPRECATION")
     private fun archiveInfo(path: String): PackageInfo? {
-        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            // Android 9/10 的 archive parser 只有收到 GET_SIGNATURES 才收集证书。
-            // 同时请求两者，仍优先读取 signingInfo 中的当前签名证书。
-            PackageManager.GET_SIGNING_CERTIFICATES or PackageManager.GET_SIGNATURES
-        } else {
-            PackageManager.GET_SIGNATURES
-        }
+        // Android 9/10 的 archive parser 只有收到 GET_SIGNATURES 才收集证书。
+        // 同时请求两者，仍优先读取 signingInfo 中的当前签名证书。
+        val flags = PackageManager.GET_SIGNING_CERTIFICATES or PackageManager.GET_SIGNATURES
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             activity.packageManager.getPackageArchiveInfo(path, PackageManager.PackageInfoFlags.of(flags.toLong()))
         } else {
@@ -213,19 +208,12 @@ internal class UpdateBridge(
         }
     }
 
-    @Suppress("DEPRECATION")
-    private fun versionCodeOf(info: PackageInfo): Long =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) info.longVersionCode else info.versionCode.toLong()
+    private fun versionCodeOf(info: PackageInfo): Long = info.longVersionCode
 
     /** 安装包的签名证书必须与当前应用一致；系统也会拒绝，但这里提前给出明确结果。 */
-    @Suppress("DEPRECATION")
     private fun sameSigner(archive: PackageInfo): Boolean {
         val installed = signerDigests(
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                packageInfo(activity.packageName, PackageManager.GET_SIGNING_CERTIFICATES)
-            } else {
-                packageInfo(activity.packageName, PackageManager.GET_SIGNATURES)
-            },
+            packageInfo(activity.packageName, PackageManager.GET_SIGNING_CERTIFICATES),
         )
         val incoming = signerDigests(archive)
         return installed.isNotEmpty() && installed == incoming
@@ -233,7 +221,7 @@ internal class UpdateBridge(
 
     @Suppress("DEPRECATION")
     private fun signerDigests(info: PackageInfo): Set<String> {
-        val signing = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) info.signingInfo else null
+        val signing = info.signingInfo
         val signatures = if (signing != null) {
             signing.apkContentsSigners
         } else {

@@ -14,6 +14,7 @@ import '../core/link_target.dart';
 import '../models/models.dart';
 import '../data/thread_quote_matcher.dart';
 import 'dom_utils.dart';
+import 'post_note_parser.dart';
 
 const _skipTags = {'script', 'style', 'svg', 'button'};
 const _skipClasses = {
@@ -21,8 +22,6 @@ const _skipClasses = {
   // 附件说明挂在图片的悬浮提示里(文件名、大小、下载次数、上传时间),
   // 页面上本来就是 display:none,不该出现在正文
   'aimg_tip', 'tip_horn', 'attach_nopermission', 'attach_tips',
-  // 编辑说明与补充内容单独解析展示,不混在正文里
-  'pstatus',
 };
 const _paragraphTags = {
   'p',
@@ -41,8 +40,15 @@ const _paragraphTags = {
 
 /// [threadId] 限定论坛正文解析上下文，不用于补造引文缺失的目标 TID。
 /// 显式跨帖引用仍保留原目标，聚合层需另行校验是否属于当前主题。
-List<ContentBlock> parseContentBlocks(dom.Element root, {int? threadId}) =>
-    _parseContentBlocks(root, threadId: threadId, insideQuote: false);
+List<ContentBlock> parseContentBlocks(
+  dom.Element root, {
+  int? threadId,
+  List<PostNote>? notes,
+}) => _BlockWalker(
+  threadId: threadId,
+  insideQuote: false,
+  notes: notes,
+).run(root);
 
 /// 只用于正文外附件；在原 DOM 上检查祖先，避免复制节点后丢失权限边界。
 ImageBlock? parseAttachmentImage(dom.Element image) {
@@ -72,7 +78,43 @@ ImageBlock? parseAttachmentImage(dom.Element image) {
       url.contains('static/image/smiley/')) {
     return null;
   }
-  return ImageBlock(url);
+  return _imageBlock(image, url);
+}
+
+// zoomfile/file select the source URL; dimensions must come from explicit metadata.
+ImageBlock _imageBlock(dom.Element image, String url) {
+  double? dimension(String name) {
+    final raw = image.attributes[name] ?? image.attributes['data-$name'];
+    final attribute = double.tryParse(raw ?? '');
+    if (attribute != null && attribute.isFinite && attribute > 0) {
+      return attribute;
+    }
+    final css = RegExp(
+      '(?:^|;)\\s*$name\\s*:\\s*([0-9.]+)px(?:\\s*;|\\s*\$)',
+      caseSensitive: false,
+    ).firstMatch(image.attributes['style'] ?? '');
+    final value = double.tryParse(css?.group(1) ?? '');
+    return value != null && value.isFinite && value > 0 ? value : null;
+  }
+
+  var width = dimension('width');
+  var height = dimension('height');
+  if (width == null || height == null) {
+    final id = image.id;
+    var root = image;
+    while (root.parent != null) {
+      root = root.parent!;
+    }
+    final menu = RegExp(r'^aimg_[0-9]+$').hasMatch(id)
+        ? root.querySelector('#${id}_menu')
+        : null;
+    final size = RegExp(r'(\d+)\s*[x×]\s*(\d+)').firstMatch(menu?.text ?? '');
+    if (size != null) {
+      width = double.parse(size.group(1)!);
+      height = double.parse(size.group(2)!);
+    }
+  }
+  return ImageBlock(url, width: width, height: height);
 }
 
 List<ContentBlock> _parseContentBlocks(
@@ -105,7 +147,9 @@ class _BlockWalker {
   /// 引用是摘录:里面的链接只留文字,不出卡片也不可点
   final bool insideQuote;
 
-  _BlockWalker({required this.threadId, required this.insideQuote});
+  final List<PostNote>? notes;
+
+  _BlockWalker({required this.threadId, required this.insideQuote, this.notes});
 
   final out = <ContentBlock>[];
   final _buf = StringBuffer();
@@ -123,11 +167,24 @@ class _BlockWalker {
   final _seen = <String>{};
 
   List<ContentBlock> run(dom.Element root) {
-    for (final child in root.nodes) {
-      _walk(child);
-    }
+    _walkChildren(root);
     _flush();
     return out;
+  }
+
+  void _walkChildren(dom.Element parent) {
+    for (var i = 0; i < parent.nodes.length; i++) {
+      final supplement = notes != null && !insideQuote
+          ? parseSupplementSiblings(parent.nodes, i)
+          : null;
+      if (supplement != null) {
+        _flush();
+        notes!.add(supplement.note);
+        i = supplement.end;
+      } else {
+        _walk(parent.nodes[i]);
+      }
+    }
   }
 
   void _pushText() {
@@ -203,7 +260,7 @@ class _BlockWalker {
     // 页面上隐藏的内容一律不进正文
     if (_isHidden(node)) return;
 
-    if (tag == 'div' && node.classes.contains('locked')) {
+    if (node.classes.contains('locked')) {
       _flush();
       final text = cleanLockedText(node);
       if (text.isNotEmpty) {
@@ -211,13 +268,19 @@ class _BlockWalker {
       }
       return;
     }
+    if (notes != null && !insideQuote && !_isQuote(node)) {
+      final note = parsePostNoteElement(node);
+      if (note != null) {
+        _flush();
+        notes!.add(note);
+        return;
+      }
+    }
     if (tag == 'img') return _walkImage(node);
     if (_isQuote(node)) return _walkQuote(node, tag);
     if (tag == 'a' && !insideQuote && _walkAnchor(node)) return;
     if (_paragraphTags.contains(tag)) _flush();
-    for (final child in node.nodes) {
-      _walk(child);
-    }
+    _walkChildren(node);
     if (_paragraphTags.contains(tag)) _flush();
   }
 
@@ -233,7 +296,7 @@ class _BlockWalker {
     }
     _flush();
     final url = _imageUrl(node);
-    if (url != null) out.add(ImageBlock(url));
+    if (url != null) out.add(_imageBlock(node, url));
   }
 
   /// 引用块:整块转 QuoteBlock,内部递归解析
@@ -351,6 +414,7 @@ UnlinkedQuoteEvidence? _unlinkedQuoteEvidence(
                 _isQuote(node) ||
                 node.classes.contains('locked') ||
                 _isHidden(node) ||
+                node.classes.contains('pstatus') ||
                 node.classes.any(_skipClasses.contains),
           ) ||
       children.length < 2 ||
@@ -551,9 +615,13 @@ String? _imageUrl(dom.Element img) {
 
 String _normalize(String s) => s.replaceAll(RegExp(r'\s+'), ' ').trim();
 
-/// 行内样式标了 display:none 的节点,用户在网页上看不到,正文也不该有
+/// 不可见节点不进入正文或附属说明，避免跨过权限和隐藏边界。
 bool _isHidden(dom.Element el) {
-  final style = el.attributes['style'];
-  if (style == null) return false;
-  return style.replaceAll(' ', '').contains('display:none');
+  final style = (el.attributes['style'] ?? '')
+      .replaceAll(RegExp(r'\s'), '')
+      .toLowerCase();
+  return el.attributes.containsKey('hidden') ||
+      el.attributes['aria-hidden'] == 'true' ||
+      style.contains('display:none') ||
+      style.contains('visibility:hidden');
 }

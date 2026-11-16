@@ -143,4 +143,77 @@ void main() {
     expect(result.last.blockIndex, 999);
     expect(result.last.galleryIndex, 0);
   });
+
+  List<SiteLinkBlock> links(int count) => List.generate(
+    count,
+    (i) => SiteLinkBlock(classifyLink('thread-${97000 + i}-1-1.html')!),
+  );
+
+  test(
+    'up to twelve links stay together, longer groups keep row boundaries',
+    () {
+      final short = groupPostImages(links(12));
+      expect(short, hasLength(1));
+      expect(short.single.siteLinks, hasLength(12));
+      expect(short.single.linksGrouped, isFalse);
+
+      final source = links(13);
+      final long = groupPostImages(source);
+      expect(long, hasLength(13));
+      expect(long.every((segment) => segment.linksGrouped), isTrue);
+      expect(long.map((segment) => segment.siteLinks!.single), source);
+      expect(long.where((segment) => segment.linkGroupStart), [long.first]);
+      expect(long.where((segment) => segment.linkGroupEnd), [long.last]);
+      expect(
+        long.map((segment) => segment.blockIndex),
+        List.generate(13, (i) => i),
+      );
+      expect(() => long.first.siteLinks!.clear(), throwsUnsupportedError);
+    },
+  );
+
+  for (final groupImages in [false, true]) {
+    test(
+      'long link runs retain quote boundaries and gallery indices with groupImages=$groupImages',
+      () {
+        final first = links(1000);
+        final second = links(13);
+        const quote = QuoteBlock([ImageBlock('quoted-image')]);
+        final source = <ContentBlock>[
+          const ImageBlock('before-a'),
+          const ImageBlock('before-b'),
+          ...first,
+          quote,
+          ...second,
+          const ImageBlock('after-a'),
+          const ImageBlock('after-b'),
+        ];
+        final segments = groupPostImages(source, groupImages: groupImages);
+        final rows = segments
+            .where((segment) => segment.siteLinks != null)
+            .toList();
+        expect(rows, hasLength(1013));
+        expect(rows.every((segment) => segment.galleryIndex == 2), isTrue);
+        expect(
+          rows
+              .where((segment) => segment.linkGroupStart)
+              .map((segment) => segment.blockIndex),
+          [2, 1003],
+        );
+        expect(
+          rows
+              .where((segment) => segment.linkGroupEnd)
+              .map((segment) => segment.blockIndex),
+          [1001, 1015],
+        );
+        expect(
+          segments.singleWhere((segment) => segment.block == quote).blockIndex,
+          1002,
+        );
+        expect(segments.last.galleryIndex, groupImages ? 2 : 3);
+        expect(segments.last.blockIndex, groupImages ? 1016 : 1017);
+        expect(source, hasLength(1018));
+      },
+    );
+  }
 }

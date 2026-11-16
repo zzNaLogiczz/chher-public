@@ -25,6 +25,7 @@ class _RecordingClient extends ChhClient {
     Uri url, {
     bool refresh = false,
     bool fallback = true,
+    bool Function()? shouldContinue,
   }) async {
     requestedUrl = url;
     requestedRefresh = refresh;

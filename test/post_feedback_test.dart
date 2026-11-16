@@ -4,7 +4,7 @@ import 'package:chh_app/parser/thread_parser.dart';
 import 'package:chh_app/widgets/post_card.dart';
 import 'package:chh_app/widgets/post_feedback.dart';
 import 'package:chh_app/design/tokens.dart';
-import 'package:chh_app/design/motion.dart';
+import 'package:chh_app/design/thread_tokens.dart';
 import 'package:chh_app/ui/press.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -141,7 +141,11 @@ void main() {
           expect(number.style!.fontWeight, FontWeight.w600);
           expect(
             number.style!.color,
-            text.startsWith('-') ? tokens.red : tokens.green,
+            text.startsWith('4 ')
+                ? ThreadTokens.participants(tokens)
+                : text.startsWith('-')
+                ? tokens.red
+                : ThreadTokens.score(tokens),
           );
           expect(label.style!.fontSize, opening ? 13 : 12);
           expect(group.maxLines, isNull);
@@ -359,39 +363,28 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining('点评者1'), findsOneWidget);
   });
-  testWidgets('comment author content and time share inline text spans', (
+  testWidgets('comment author and time precede the content on its own line', (
     tester,
   ) async {
     const author = '很长的点评作者名字需要正常换行';
+    const content = '很长的点评内容应该正常换行显示';
     await mount(
       tester,
       const OpeningFeedback(
-        comments: [
-          PostComment(
-            author: author,
-            text: '很长的点评内容应该和作者一起正常换行显示',
-            timeRaw: '今天',
-          ),
-        ],
+        comments: [PostComment(author: author, text: content, timeRaw: '今天')],
       ),
       width: 180,
     );
-    final text = tester.widget<Text>(
-      find.byWidgetPredicate(
-        (widget) =>
-            widget is Text &&
-            (widget.textSpan?.toPlainText().contains('很长的点评内容') ?? false),
-      ),
+    final name = tester.widget<Text>(find.text(author));
+    expect(name.style!.fontWeight, FontWeight.w600);
+    expect(name.style!.color, AppTokens.light.text2);
+    expect(
+      tester.getTopLeft(find.text(content)).dy,
+      greaterThanOrEqualTo(tester.getBottomLeft(find.text('今天')).dy),
     );
-    final span = text.textSpan! as TextSpan;
-    expect(span.children!.every((child) => child is TextSpan), isTrue);
-    expect(span.toPlainText(), '$author 很长的点评内容应该和作者一起正常换行显示 今天');
-    final authorSpan = span.children!.first as TextSpan;
-    expect(authorSpan.style!.fontWeight, FontWeight.w600);
-    expect(authorSpan.style!.color, AppTokens.light.text);
     expect(tester.takeException(), isNull);
   });
-  testWidgets('rating rules use green while comment rules keep separators', (
+  testWidgets('feedback separates content with whitespace without rules', (
     tester,
   ) async {
     for (final brightness in Brightness.values) {
@@ -400,23 +393,19 @@ void main() {
         OpeningFeedback(rating: rating(4), comments: comments(3)),
         brightness: brightness,
       );
-      final green = brightness == Brightness.light
-          ? AppTokens.light.greenLine
-          : AppTokens.dark.greenLine;
-      final separator = brightness == Brightness.light
-          ? AppTokens.light.separator
-          : AppTokens.dark.separator;
-      final rules = find.byWidgetPredicate(
-        (widget) =>
-            widget is ColoredBox &&
-            (widget.color == green || widget.color == separator),
+      final t = brightness == Brightness.light
+          ? AppTokens.light
+          : AppTokens.dark;
+      expect(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is ColoredBox &&
+              (widget.color == t.greenLine || widget.color == t.separator),
+        ),
+        findsNothing,
       );
-      expect(rules, findsNWidgets(3));
-      expect(tester.widgetList<ColoredBox>(rules).map((box) => box.color), [
-        green,
-        green,
-        separator,
-      ]);
+      expect(find.text('评分者2'), findsOneWidget);
+      expect(find.text('点评者1'), findsOneWidget);
     }
   });
 
@@ -490,26 +479,27 @@ void main() {
     expect(find.text('站点原文'), findsOneWidget);
     expect(find.textContaining('1人'), findsNothing);
   });
-  testWidgets('revealed rows fade together and arrows use reveal motion', (
+  testWidgets('only added rating rows reveal and arrows use select', (
     tester,
   ) async {
     await mount(tester, OpeningFeedback(rating: rating(4)));
-    await tester.tap(find.text('展开全部 4 条评分'));
+    final firstPosition = tester.getTopLeft(find.text('评分者0'));
+    await tester.tap(find.text('其余 1 人'));
     await tester.pump();
-    final opacity = find
-        .ancestor(of: find.text('评分者3'), matching: find.byType(Opacity))
+    final panel = find
+        .ancestor(of: find.text('评分者3'), matching: find.byType(Align))
         .first;
-    expect(tester.widget<Opacity>(opacity).opacity, 0);
+    expect(tester.widget<Align>(panel).heightFactor, 0);
     await tester.pump(const Duration(milliseconds: 50));
-    expect(tester.widget<Opacity>(opacity).opacity, inExclusiveRange(0, 1));
-    final arrow = tester.widget<AnimatedRotation>(
-      find.byType(AnimatedRotation),
+    expect(tester.widget<Align>(panel).heightFactor, inExclusiveRange(0, 1));
+    expect(tester.getTopLeft(find.text('评分者0')), firstPosition);
+    expect(
+      find.ancestor(of: find.text('评分者3'), matching: find.byType(Opacity)),
+      findsNothing,
     );
-    expect(arrow.turns, .5);
-    expect(arrow.duration, AppMotion.revealDuration);
-    expect(arrow.curve, AppMotion.revealCurve);
     await tester.pumpAndSettle();
-    expect(tester.widget<Opacity>(opacity).opacity, 1);
+    expect(tester.widget<Align>(panel).heightFactor, 1);
+    expect(tester.binding.transientCallbackCount, 0);
   });
 
   testWidgets('opening ratings show three then expand and collapse twelve', (
@@ -518,7 +508,7 @@ void main() {
     await mount(tester, OpeningFeedback(rating: rating(12)));
     expect(find.text('评分者2'), findsOneWidget);
     expect(find.text('评分者3'), findsNothing);
-    await tap(tester, find.text('展开全部 12 条评分'));
+    await tap(tester, find.text('其余 9 人'));
     for (var i = 0; i < 12; i++) {
       expect(find.text('评分者$i'), findsOneWidget);
     }
@@ -583,7 +573,7 @@ void main() {
         tester,
         CommentFeedback(rating: rating(4), comments: comments(7)),
       );
-      await tap(tester, find.text('+55 邪恶指数 · 4人'));
+      await tap(tester, find.text('+55 邪恶指数　4人'));
       expect(find.text('评分者3'), findsOneWidget);
       expect(find.textContaining('点评者0'), findsNothing);
       await tap(tester, find.text('点评 7'));
@@ -591,7 +581,7 @@ void main() {
         expect(find.textContaining('点评者$i'), findsOneWidget);
       }
       expect(find.text('评分者3'), findsOneWidget);
-      await tap(tester, find.text('+55 邪恶指数 · 4人'));
+      await tap(tester, find.text('+55 邪恶指数　4人'));
       expect(find.text('评分者3'), findsNothing);
       expect(find.textContaining('点评者6'), findsOneWidget);
     },
@@ -622,8 +612,8 @@ void main() {
     expect(find.text('12 人评分'), findsOneWidget);
     expect(find.text('+8'), findsOneWidget);
     await mount(tester, CommentFeedback(rating: rating(1, participants: 12)));
-    expect(find.text('+55 邪恶指数 · 12人'), findsOneWidget);
-    await tap(tester, find.text('+55 邪恶指数 · 12人'));
+    expect(find.text('+55 邪恶指数　12人'), findsOneWidget);
+    await tap(tester, find.text('+55 邪恶指数　12人'));
     expect(find.text('评分者0'), findsOneWidget);
   });
   testWidgets('negative detail scores use red in both themes', (tester) async {
@@ -647,7 +637,7 @@ void main() {
       await mount(tester, OpeningFeedback(rating: rating(12)), reduced: true);
       final button = find.byType(PressScale);
       expect(tester.getSize(button).height, greaterThanOrEqualTo(44));
-      await tester.tap(find.text('展开全部 12 条评分'));
+      await tester.tap(find.text('其余 9 人'));
       await tester.pump();
       expect(find.text('评分者11'), findsOneWidget);
       expect(tester.binding.transientCallbackCount, 0);

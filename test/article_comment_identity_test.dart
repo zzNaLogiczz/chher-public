@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:chh_app/data/image_disk_cache.dart';
-import 'package:chh_app/design/brand.dart';
 import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/di.dart';
 import 'package:chh_app/models/article_discussion.dart';
@@ -14,7 +13,6 @@ import 'package:chh_app/ui/chrome_button.dart';
 import 'package:chh_app/ui/press.dart';
 import 'package:chh_app/widgets/article_discussion_widgets.dart';
 import 'package:chh_app/widgets/cached_net_image.dart';
-import 'package:chh_app/widgets/comment_mode_bar.dart';
 import 'package:chh_app/widgets/avatar_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
@@ -275,7 +273,11 @@ ${_comment('<a href="space-uid-81001.html">合成甲</a>', cid: 3)}
 
     for (final mode in ['评论', '原楼层', '只看作者']) {
       if (mode != '评论') {
-        await tester.tap(_inside(find.byType(CommentModeBar), find.text(mode)));
+        await tester.tap(
+          find.byKey(
+            ValueKey('comment-mode-${['评论', '原楼层', '只看作者'].indexOf(mode)}'),
+          ),
+        );
         await tester.pumpAndSettle();
       } else {
         await tester.tap(
@@ -309,20 +311,9 @@ ${_comment('<a href="space-uid-81001.html">合成甲</a>', cid: 3)}
           tester.getSize(avatar),
           cid == 2 && mode == '评论' ? const Size(24, 24) : const Size(32, 32),
         );
-        // 合成传输故意让头像失败，仍显示占位，正文和主页入口不受影响。
+        // 合成传输故意让头像失败，仍显示应用标志，正文和主页入口不受影响。
         expect(
-          _inside(
-            avatar,
-            find.byWidgetPredicate(
-              (w) =>
-                  w is Image &&
-                  w.image is ResizeImage &&
-                  (w.image as ResizeImage).imageProvider is AssetImage &&
-                  ((w.image as ResizeImage).imageProvider as AssetImage)
-                          .assetName ==
-                      appLogoAsset,
-            ),
-          ),
+          _inside(avatar, find.byKey(const ValueKey('avatar-logo'))),
           findsOneWidget,
         );
         expect(

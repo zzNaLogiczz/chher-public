@@ -27,6 +27,8 @@ void main() {
     await tester.pumpWidget(row(true));
     expect(find.byKey(NoticeRow.unreadDotKey), findsOneWidget);
     await tester.pumpWidget(row(false));
+    expect(find.byKey(NoticeRow.unreadDotKey), findsOneWidget);
+    await tester.pumpAndSettle();
     expect(find.byKey(NoticeRow.unreadDotKey), findsNothing);
     expect(find.text('16:37'), findsOneWidget);
   });

@@ -34,6 +34,9 @@ Post projectBlockedPost(
         : PostRating(
             // Server totals describe all participants, including hidden authors.
             summary: rating.summary,
+            tid: rating.tid,
+            pid: rating.pid,
+            detailsUrl: rating.detailsUrl,
             entries: rating.entries.where((e) => !isBlocked(e.uid)).toList(),
           ),
   );

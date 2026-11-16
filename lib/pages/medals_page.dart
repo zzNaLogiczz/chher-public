@@ -29,6 +29,14 @@ class _MedalsPageState extends State<MedalsPage> {
   int _seg = 0;
   late Future<List<MedalItem>> _future = (widget.repository ?? spaceRepo)
       .medals();
+  @override
+  void didUpdateWidget(covariant MedalsPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.repository != widget.repository) {
+      _future = (widget.repository ?? spaceRepo).medals(mine: _seg == 1);
+    }
+  }
+
   void _switch(int i) {
     if (_seg == i) return;
     setState(() {
@@ -38,12 +46,12 @@ class _MedalsPageState extends State<MedalsPage> {
   }
 
   Future<void> _reload() async {
-    setState(
-      () => _future = (widget.repository ?? spaceRepo).medals(
+    setState(() {
+      _future = (widget.repository ?? spaceRepo).medals(
         mine: _seg == 1,
         refresh: true,
-      ),
-    );
+      );
+    });
     await _future;
   }
 
@@ -72,9 +80,11 @@ class _MedalsPageState extends State<MedalsPage> {
         ),
         Expanded(
           child: FutureBuilder<List<MedalItem>>(
+            key: ValueKey((_seg, widget.repository)),
             future: _future,
             builder: (context, snap) {
-              if (snap.connectionState != ConnectionState.done) {
+              if (!snap.hasData &&
+                  snap.connectionState != ConnectionState.done) {
                 return StateView.loading();
               }
               final err = snap.error;
@@ -185,15 +195,7 @@ class _MedalCard extends StatelessWidget {
               ),
               onTap: () => _details(context),
             ),
-            if (!last)
-              Padding(
-                padding: const EdgeInsets.only(left: AppSpace.rowInset + 56),
-                child: Divider(
-                  height: AppSpace.hairline,
-                  thickness: AppSpace.hairline,
-                  color: t.separator,
-                ),
-              ),
+            if (!last) const SizedBox(height: 8),
           ],
         ),
       ),

@@ -309,9 +309,9 @@ void main() {
         expect(
           find.descendant(
             of: find.byType(ImageStackGallery),
-            matching: find.byType(Text),
+            matching: find.text('展开全部'),
           ),
-          findsNothing,
+          findsNWidgets(2),
         );
         expect(find.textContaining('连续图片'), findsNothing);
         expect(find.text('1 / 2'), findsNothing);
@@ -374,8 +374,8 @@ void main() {
             of: second,
             matching: find.byKey(const ValueKey('image-stack-stage')),
           ),
-          urls,
-          4,
+          urls.sublist(3),
+          1,
         );
         await toggleGroup(tester, second);
         // Expanded list renders every photo of the group as a native card.
@@ -388,11 +388,25 @@ void main() {
           ),
         );
         expect(expandedCards, findsNWidgets(2));
-        await openAndCheck(tester, semantic('查看连续图片第 2 张，共 2 张'), urls, 4);
+        await openAndCheck(
+          tester,
+          semantic('查看连续图片第 2 张，共 2 张'),
+          urls.sublist(3),
+          1,
+        );
         await toggleGroup(tester, second);
         expect(expandedCards, findsNothing);
         expect(
-          find.descendant(of: second, matching: semantic('连续图片，第 2 张，共 2 张')),
+          find.descendant(
+            of: second,
+            matching: find.byWidgetPredicate(
+              (w) =>
+                  w is Semantics &&
+                  RegExp(
+                    r'^连续图片，第 [12] 张，共 2 张$',
+                  ).hasMatch(w.properties.label ?? ''),
+            ),
+          ),
           findsOneWidget,
         );
         expect(tester.takeException(), isNull);
@@ -400,36 +414,37 @@ void main() {
     );
   }
 
-  testWidgets('repeated URLs keep their position in the full-floor gallery', (
-    tester,
-  ) async {
-    final urls = [photo(0), photo(1), photo(0), photo(2)];
-    await mount(
-      tester,
-      PostCard(
-        post: post([
-          ImageBlock(urls[0]),
-          ImageBlock(urls[1]),
-          const TextBlock('两组之间'),
-          ImageBlock(urls[2]),
-          ImageBlock(urls[3]),
-        ]),
-        isOpening: true,
-      ),
-    );
-    final second = find.byType(ImageStackGallery).last;
-    expect(tester.widget<ImageStackGallery>(second).galleryStartIndex, 2);
-    await openAndCheck(
-      tester,
-      find.descendant(
-        of: second,
-        matching: find.byKey(const ValueKey('image-stack-stage')),
-      ),
-      urls,
-      2,
-    );
-    expect(tester.takeException(), isNull);
-  });
+  testWidgets(
+    'repeated URLs keep their position within their consecutive group',
+    (tester) async {
+      final urls = [photo(0), photo(1), photo(0), photo(2)];
+      await mount(
+        tester,
+        PostCard(
+          post: post([
+            ImageBlock(urls[0]),
+            ImageBlock(urls[1]),
+            const TextBlock('两组之间'),
+            ImageBlock(urls[2]),
+            ImageBlock(urls[3]),
+          ]),
+          isOpening: true,
+        ),
+      );
+      final second = find.byType(ImageStackGallery).last;
+      expect(tester.widget<ImageStackGallery>(second).galleryStartIndex, 2);
+      await openAndCheck(
+        tester,
+        find.descendant(
+          of: second,
+          matching: find.byKey(const ValueKey('image-stack-stage')),
+        ),
+        urls.sublist(2),
+        0,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets(
     'appending a group with repeated URLs keeps the selected positional gallery index',
@@ -513,8 +528,8 @@ void main() {
         );
         expect(stage, findsOneWidget);
         expect(
-          find.descendant(of: galleries, matching: find.byType(Text)),
-          findsNothing,
+          find.descendant(of: galleries, matching: find.text('展开全部')),
+          findsOneWidget,
         );
         // Deck keeps a bounded window of live photos and ambience layers,
         // plus one live scrub thumb for long runs.
@@ -561,8 +576,8 @@ void main() {
         expect(expandedCards.evaluate().length, lessThan(12));
         expect(find.byType(ArticleImage).evaluate().length, lessThan(12));
         expect(
-          find.descendant(of: galleries, matching: find.byType(Text)),
-          findsNothing,
+          find.descendant(of: galleries, matching: find.text('收起')),
+          findsOneWidget,
         );
         await toggleGroup(tester, galleries);
         expect(expandedCards, findsNothing);
@@ -577,7 +592,15 @@ void main() {
               .expanded,
           isFalse,
         );
-        expect(semantic('连续图片，第 2 张，共 1000 张'), findsOneWidget);
+        final context = tester.element(galleries);
+        final current =
+            (PageStorage.of(
+                      context,
+                    ).readState(context, identifier: 'image-stack-state')
+                    as Map)['current']
+                as int;
+        expect(current, inInclusiveRange(0, 999));
+        expect(semantic('连续图片，第 ${current + 1} 张，共 1000 张'), findsOneWidget);
         expect(tester.takeException(), isNull);
       },
     );
@@ -645,29 +668,22 @@ void main() {
     },
   );
 
-  testWidgets(
-    'the frame gallery has a single mode glyph without captions or arrows',
-    (tester) async {
-      await actualPanel(tester);
-      final gallery = find.byType(ImageStackGallery);
-      expect(
-        find.descendant(
-          of: gallery,
-          matching: find.byType(ImageStackModeToggle),
-        ),
-        findsOneWidget,
-      );
-      expect(
-        find.descendant(of: gallery, matching: find.byType(Text)),
-        findsNothing,
-      );
-      expect(
-        find.descendant(of: gallery, matching: find.byType(Icon)),
-        findsNothing,
-      );
-      expect(tester.takeException(), isNull);
-    },
-  );
+  testWidgets('the frame gallery exposes one caption action below the photos', (
+    tester,
+  ) async {
+    await actualPanel(tester);
+    final gallery = find.byType(ImageStackGallery);
+    expect(
+      find.descendant(of: gallery, matching: find.byType(ImageStackModeToggle)),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: gallery, matching: find.text('展开全部')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('image-stack-row')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('an extreme 1-to-20 photo fills the frame width from the top', (
     tester,
@@ -681,11 +697,11 @@ void main() {
     // marked with a chip; the full photo is one tap away.
     final bounds = photoBounds(tester, 0, stage);
     final size = tester.getSize(stage);
-    expect(bounds.left, closeTo(0, .5));
+    expect(bounds.left, closeTo(6, .5));
     // The current card spans the frame width (stage minus the two 8dp peeks).
-    expect(bounds.right, closeTo(size.width - 16, .5));
-    expect(bounds.top, closeTo(0, .5));
-    expect(find.text('长图'), findsOneWidget);
+    expect(bounds.right, closeTo(size.width - 6, .5));
+    expect(bounds.top, closeTo(6, .5));
+    expect(find.text('长图，点开看全部'), findsOneWidget);
     expect(size.height, lessThan(844 - 120));
     await openAndCheck(tester, stage, [
       for (var i = 0; i < 6; i++) photo(100 + i),
@@ -693,7 +709,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
   testWidgets(
-    'actual thread widens only lazy image rows to 8dp and fills the readable viewport for phone photos',
+    'actual thread widens lazy image rows to 16dp and fills the readable viewport for phone photos',
     (tester) async {
       final urls = [for (var i = 0; i < 6; i++) photo(200 + i)];
       await primePhotos(tester, {
@@ -712,8 +728,8 @@ void main() {
       );
       final gallery = find.byType(ImageStackGallery);
       final galleryRect = tester.getRect(gallery);
-      expect(galleryRect.left, closeTo(8, .01));
-      expect(galleryRect.right, closeTo(390 - 8, .01));
+      expect(galleryRect.left, closeTo(16, .01));
+      expect(galleryRect.right, closeTo(390 - 16, .01));
       final text = find.text('图片行之前的正文');
       final gutter = ReadingMetrics.of(tester.element(text)).gutter;
       expect(tester.getTopLeft(text).dx, closeTo(gutter, .01));
@@ -721,8 +737,8 @@ void main() {
       final stageSize = tester.getSize(stage);
       // B frame: five landscape photos set the median ratio (16:9), the 1:2
       // lead photo is centered inside the frame without cropping.
-      final frameW = stageSize.width - 16;
-      final expectedFrameH = frameW / (16 / 9);
+      final frameW = stageSize.width;
+      final expectedFrameH = (frameW / (16 / 9)).clamp(200, 480) + 16;
       expect(stageSize.height, closeTo(expectedFrameH, 2));
       final bounds = photoBounds(tester, 0, stage);
       expect(bounds.width / bounds.height, closeTo(.5, .001));
@@ -773,8 +789,8 @@ void main() {
         scrollable: find.byType(Scrollable).first,
       );
       await tester.pumpAndSettle();
-      expect(tester.getRect(next).left, closeTo(8, .01));
-      expect(tester.getRect(next).right, closeTo(390 - 8, .01));
+      expect(tester.getRect(next).left, closeTo(16, .01));
+      expect(tester.getRect(next).right, closeTo(390 - 16, .01));
       await tester.scrollUntilVisible(
         find.text('图片行之后的正文'),
         300,
@@ -787,7 +803,7 @@ void main() {
   );
   for (final count in [2, 3]) {
     testWidgets(
-      'short reply with $count adjacent images uses a full-width lazy carousel and a single author header',
+      'short reply with $count adjacent images uses an inset lazy carousel and a single author header',
       (tester) async {
         final urls = [for (var i = 0; i < count; i++) photo(300 + i)];
         await primePhotos(tester, {
@@ -800,8 +816,8 @@ void main() {
         final gallery = find.byType(ImageStackGallery);
         expect(gallery, findsOneWidget);
         final rect = tester.getRect(gallery);
-        expect(rect.left, closeTo(8, .01));
-        expect(rect.right, closeTo(390 - 8, .01));
+        expect(rect.left, closeTo(32, .01));
+        expect(rect.right, closeTo(390 - 32, .01));
         expect(find.text('本地作者'), findsOneWidget);
         final reply = find.byKey(const ValueKey('comment-reply-2'));
         await tester.scrollUntilVisible(

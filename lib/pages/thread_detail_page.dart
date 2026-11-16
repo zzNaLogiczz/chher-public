@@ -1,6 +1,8 @@
 /// 连续楼层阅读：沿站点分页顺序追加，保留提醒的真实落地页与楼层定位。
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart' show CupertinoIcons;
 import '../ui/reading_settings_sheet.dart';
@@ -11,8 +13,10 @@ import '../ui/feedback.dart';
 import '../core/app_log.dart';
 import '../design/tokens.dart';
 import '../design/reading.dart';
+import '../design/feedback.dart';
+import '../design/thread_page_tokens.dart';
+import '../design/scroll_progress.dart';
 import '../ui/press.dart';
-import 'package:motor/motor.dart';
 import '../design/motion.dart';
 import '../ui/reading_bar.dart';
 import '../ui/favorite_action.dart';
@@ -21,6 +25,7 @@ import '../ui/chrome_button.dart';
 import '../ui/nav_bar.dart';
 import '../di.dart';
 import '../models/models.dart';
+import '../models/poll.dart';
 import '../models/image_stack_group.dart';
 import '../models/post_interaction.dart';
 import '../data/post_interaction_repository.dart';
@@ -28,19 +33,24 @@ import '../data/user_block_index.dart';
 import '../data/blocked_post_projection.dart';
 import '../ui/user_block_action.dart';
 import '../widgets/post_action_menu.dart';
+import '../widgets/comment_row_interaction.dart';
 import '../widgets/post_interaction_sheet.dart';
 import '../attachments/attachment_controller.dart';
 import '../widgets/composer_sheet.dart';
 import 'source_page_drawer.dart';
 import '../widgets/expressive_controls.dart';
 import '../widgets/post_card.dart';
+import '../widgets/connected_thread_poll.dart';
+import '../widgets/reading_list_end.dart';
 import '../widgets/post_feedback.dart';
 import '../widgets/state_view.dart';
 import '../data/thread_conversation_index.dart';
 import '../data/forum_repository.dart';
+import '../network/chh_client.dart' show ChhClient, ThreadReadCancelled;
 import '../widgets/password_sheet.dart';
 import '../data/thread_read_index.dart';
 import '../widgets/thread_comment_widgets.dart';
+import '../widgets/anchored_reading_list.dart';
 
 typedef ThreadPageLoader =
     Future<ThreadDetail> Function(int page, String? authorUid, bool refresh);
@@ -58,6 +68,9 @@ class ThreadDetailPage extends StatefulWidget {
   final int tid;
   final String title;
   final int initialPage;
+
+  /// 首屏就绪后限速补齐的页数，包含落地页；后续仍按阅读进度追加。
+  final int preloadPages;
   final int? fid;
   final int? seenReplies;
   final String? gotoUrl;
@@ -80,6 +93,7 @@ class ThreadDetailPage extends StatefulWidget {
     required this.tid,
     required this.title,
     this.initialPage = 1,
+    this.preloadPages = 30,
     this.fid,
     this.seenReplies,
     this.gotoUrl,
@@ -99,19 +113,26 @@ class ThreadDetailPage extends StatefulWidget {
 }
 
 class _ThreadDetailPageState extends State<ThreadDetailPage>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   final _scroll = ScrollController();
   final _readListKey = GlobalKey();
+  String? _centerEntryKey;
 
   /// 顶栏渐隐与居中小标题跟随的滚动距离
   final _navOffset = ValueNotifier<double>(0);
+  final _readingProgress = ValueNotifier<double>(0);
+  final _titleKey = GlobalKey();
+  double _titleAt = 140;
+  late final _barProgress = ScrollDeltaProgress(
+    vsync: this,
+    travel: ThreadPageTokens.readingBarTravel,
+  );
 
   /// 评论区标题是否已滚到顶栏下方:决定阅读工具栏圆钮是"评论数"还是"回到顶部"
   final _inComments = ValueNotifier<bool>(false);
   final _commentsKey = GlobalKey();
 
   /// "回到顶部 / 跳到评论"的弹簧滚动;手指一碰列表就停
-  late final SingleMotionController _scrollSpring;
   bool _springing = false;
   final _collapsedTitle = ValueNotifier<bool>(false);
   final _focusKey = GlobalKey();
@@ -119,7 +140,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
   late bool _focusOpeningFeedback = widget.focusOpeningFeedback;
   late final _focusHighlight = AnimationController(
     vsync: this,
-    duration: AppMotion.noticeHighlightDuration,
+    duration: ThreadPageTokens.focusDuration,
     value: 1,
   );
   final _pages = <int, ThreadDetail>{};
@@ -132,6 +153,77 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
   String? _openingAuthor;
   bool _loading = true;
   bool _hasNext = false;
+  Timer? _preloadTimer;
+  bool _prefetching = false;
+  Completer<void>? _appendCompletion;
+  ValueNotifier<bool>? _navigationGesture;
+  Completer<void>? _navigationIdle;
+  bool _routeCurrent = true;
+  int _preloadEndPage = 0;
+
+  bool get _navigationBusy => _navigationGesture?.value ?? false;
+
+  bool get _canPreload =>
+      mounted &&
+      _routeCurrent &&
+      !_navigationBusy &&
+      (WidgetsBinding.instance.lifecycleState == null ||
+          WidgetsBinding.instance.lifecycleState ==
+              AppLifecycleState.resumed) &&
+      !_loading &&
+      _pendingMode == null &&
+      !_composerOpen &&
+      !_postActionOpen &&
+      _unlocking.isEmpty &&
+      _error == null &&
+      _tailError == null &&
+      _hasNext &&
+      _pages.isNotEmpty &&
+      _lastPage < _preloadEndPage;
+
+  void _schedulePreload() {
+    if (!_canPreload || _expandingRoot != null) {
+      _preloadTimer?.cancel();
+      _preloadTimer = null;
+      return;
+    }
+    if (_prefetching || _preloadTimer != null) return;
+    final cached =
+        widget.loadPage == null &&
+        _repository.hasCachedThread(
+          widget.tid,
+          page: _lastPage + 1,
+          authorUid: _authorUid,
+        );
+    _preloadTimer = Timer(
+      cached ? Duration.zero : ChhClient.defaultThreadRequestInterval,
+      () {
+        _preloadTimer = null;
+        if (_canPreload && _expandingRoot == null) _append(background: true);
+      },
+    );
+  }
+
+  void _navigationGestureChanged() {
+    if (!_navigationBusy) {
+      _navigationIdle?.complete();
+      _navigationIdle = null;
+    }
+    _schedulePreload();
+  }
+
+  Future<void> _waitForNavigationIdle(int generation) async {
+    // Keep an arrived page without rebuilding the reading tree under a drag.
+    while (mounted && generation == _generation && _navigationBusy) {
+      await (_navigationIdle ??= Completer<void>()).future;
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _schedulePreload();
+  }
+
   bool _markedRead = false;
   bool _focusDone = false;
   bool _composerOpen = false;
@@ -168,7 +260,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
   );
   late final _commentsOpacity = CurvedAnimation(
     parent: _commentsFade,
-    curve: Curves.easeOut,
+    curve: Curves.linear,
   );
   Object? _error;
   Object? _tailError;
@@ -188,6 +280,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
   bool _pauseHiddenAppend = false;
   final _pinnedRoots = <int>{};
   final _visibleReplies = <int, int>{};
+  final _heldReplies = <int, ValueNotifier<bool>>{};
   int? _expandingRoot;
   final _revealingEntries = <String>{};
   late final _replyReveal =
@@ -225,6 +318,14 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    _routeCurrent = ModalRoute.isCurrentOf(context) ?? true;
+    final gesture = Navigator.maybeOf(context)?.userGestureInProgressNotifier;
+    if (_navigationGesture != gesture) {
+      _navigationGesture?.removeListener(_navigationGestureChanged);
+      _navigationGesture = gesture;
+      gesture?.addListener(_navigationGestureChanged);
+    }
+    _navigationGestureChanged();
     final prefs = ReadingScope.maybeOf(context);
     if (!_preferencesApplied && (prefs?.ready ?? true)) {
       _preferencesApplied = true;
@@ -349,6 +450,11 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     for (var i = 0; i < _entries.length; i++) {
       _entryIndices[_entries[i].key] = i + 1;
     }
+    if (_centerEntryKey != null &&
+        !_entryIndices.containsKey(_centerEntryKey)) {
+      _centerEntryKey = null;
+      if (_scroll.hasClients) _scroll.position.correctPixels(0);
+    }
   }
 
   void _addPostEntries(Post post, {bool nested = false}) {
@@ -395,6 +501,10 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
           group == null ? _ThreadEntryKind.block : _ThreadEntryKind.imageStack,
           block: block,
           imageStack: group,
+          siteLinks: segment.siteLinks,
+          linksGrouped: segment.linksGrouped,
+          linkGroupStart: segment.linkGroupStart,
+          linkGroupEnd: segment.linkGroupEnd,
           firstContent: firstContent,
           blockIndex: segment.blockIndex,
           gallery: gallery,
@@ -415,12 +525,13 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
   @override
   void initState() {
     super.initState();
-    // 即使首屏加载失败或中途退出,也必须在可用的生命周期里创建 ticker。
-    _scrollSpring = SingleMotionController(
-      motion: AppMotion.reveal,
-      vsync: this,
-      initialValue: 0,
-    )..addListener(_followSpring);
+    // Create tickers while the element is active, including early load failures.
+    _commentsFade;
+    _commentsOpacity;
+    _replyReveal;
+    _replyRevealCurve;
+    _focusHighlight;
+    WidgetsBinding.instance.addObserver(this);
     _scroll.addListener(_handleScroll);
     _sessionLoggedIn = chhSession.loggedIn;
     _sessionUid = chhSession.badges.uid;
@@ -439,6 +550,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     _sessionUid = loggedIn ? (uid ?? _sessionUid) : null;
     if (!changed || !mounted) return;
     _generation++;
+    _prefetching = false;
     _authorEpoch++;
     _update(() {
       _pages.clear();
@@ -471,10 +583,22 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
 
   void _handleScroll() {
     if (_scroll.hasClients) {
-      final collapsed = _scroll.offset > 140;
+      final collapsed = _scroll.offset >= _titleAt;
+      final position = _scroll.position;
+      _readingProgress.value =
+          position.maxScrollExtent <= position.minScrollExtent
+          ? 0
+          : ((position.pixels - position.minScrollExtent) /
+                    (position.maxScrollExtent - position.minScrollExtent))
+                .clamp(0.0, 1.0);
+      if (position.extentAfter <= 1 ||
+          position.pixels <= position.minScrollExtent) {
+        _barProgress.show();
+      }
       if (_collapsedTitle.value != collapsed) _collapsedTitle.value = collapsed;
-      _navOffset.value = _scroll.offset;
+      _navOffset.value = position.pixels - position.minScrollExtent;
       _syncInComments();
+      _scheduleReadingGeometry();
       // 末尾留白已完全滚出屏幕:收回不会移动当前内容
       if (_tailSlack > 0 && _scroll.position.extentAfter > _tailSlack + 1) {
         _update(() => _tailSlack = 0);
@@ -485,78 +609,133 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
 
   // 评论区标题被滚到顶栏下方即算进入评论区;标题已被回收时保持上一次的判断
   void _syncInComments() {
-    final box = _commentsKey.currentContext?.findRenderObject() as RenderBox?;
-    final barBottom = MediaQuery.paddingOf(context).top + NavOverlay.barHeight;
-    if (box != null && box.attached) {
-      // 记下标题抵达顶栏时的滚动位置,标题被回收后仍能判断
-      _commentsAt =
-          _scroll.offset + box.localToGlobal(Offset.zero).dy - barBottom;
-    }
     final at = _commentsAt;
     if (at == null) return;
     // 内容不够长时标题到不了顶栏;滚到页面底部也算进入评论区
     final position = _scroll.position;
     final atEnd =
-        position.pixels > 0 && position.pixels >= position.maxScrollExtent - 1;
-    final inside = _scroll.offset >= at - 1 || atEnd;
+        position.extentBefore > 0 &&
+        position.pixels >= position.maxScrollExtent - 1;
+    final inside =
+        _scroll.offset >= at - ThreadPageTokens.commentHeadingGap - 1 || atEnd;
     if (_inComments.value != inside) _inComments.value = inside;
+  }
+
+  bool _geometryScheduled = false;
+  void _scheduleReadingGeometry() {
+    if (_geometryScheduled) return;
+    _geometryScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _geometryScheduled = false;
+      if (!mounted || !_scroll.hasClients) return;
+      final barBottom =
+          MediaQuery.paddingOf(context).top + NavOverlay.barHeight;
+      final title = _titleKey.currentContext?.findRenderObject() as RenderBox?;
+      if (title != null && title.attached && title.hasSize) {
+        _titleAt =
+            _scroll.offset +
+            title.localToGlobal(Offset(0, title.size.height)).dy -
+            barBottom;
+      }
+      final comments =
+          _commentsKey.currentContext?.findRenderObject() as RenderBox?;
+      if (comments != null && comments.attached && comments.hasSize) {
+        _commentsAt =
+            _scroll.offset + comments.localToGlobal(Offset.zero).dy - barBottom;
+      }
+      _collapsedTitle.value = _scroll.offset >= _titleAt;
+      final position = _scroll.position;
+      _readingProgress.value =
+          position.maxScrollExtent <= position.minScrollExtent
+          ? 0
+          : ((position.pixels - position.minScrollExtent) /
+                    (position.maxScrollExtent - position.minScrollExtent))
+                .clamp(0.0, 1.0);
+      _syncInComments();
+    });
   }
 
   double? _commentsAt;
 
-  void _followSpring() {
-    if (_springing && _scroll.hasClients) {
-      final position = _scroll.position;
-      _scroll.jumpTo(
-        _scrollSpring.value.clamp(
-          position.minScrollExtent,
-          position.maxScrollExtent,
-        ),
-      );
-    }
-  }
+  int _scrollGeneration = 0;
 
-  void _springScrollTo(double target) {
+  Future<void> _springScrollTo(double target) async {
     if (!_scroll.hasClients) return;
-    if (MediaQuery.disableAnimationsOf(context)) {
-      _scroll.jumpTo(target);
-      return;
-    }
+    final generation = ++_scrollGeneration;
     _springing = true;
-    _scrollSpring.value = _scroll.offset;
-    _scrollSpring.animateTo(target).whenComplete(() => _springing = false);
+    await AppMotion.scrollTo(
+      _scroll.position,
+      target,
+      reduced: MediaQuery.disableAnimationsOf(context),
+    );
+    if (mounted && generation == _scrollGeneration) _springing = false;
   }
 
   void _stopSpring() {
-    if (!_springing) return;
+    if (!_springing || !_scroll.hasClients) return;
+    _scrollGeneration++;
     _springing = false;
-    _scrollSpring.stop();
+    _scroll.jumpTo(_scroll.offset);
   }
 
-  void _backToTop() => _springScrollTo(0);
+  Future<void> _backToTop() async {
+    if (!_scroll.hasClients) return;
+    if (_centerEntryKey == null) return _springScrollTo(0);
+    _stopSpring();
+    final generation = ++_scrollGeneration;
+    _springing = true;
+    final reduced = MediaQuery.disableAnimationsOf(context);
+    _update(() {
+      _centerEntryKey = null;
+      _titleAt = 140;
+      _commentsAt = null;
+      // Rebase at the known first row instead of guessing a negative extent.
+      _scroll.position.correctPixels(
+        reduced ? 0 : _scroll.position.viewportDimension,
+      );
+    });
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted || generation != _scrollGeneration) return;
+    await _springScrollTo(0);
+  }
 
-  /// 跳到评论区:标题尚未构建时先按屏高逐步前移,直到标题出现再对齐到顶栏下方
+  /// 未挂载的评论标题直接成为惰性视口的锚点，只构建目标前一屏。
   Future<void> _showComments() async {
     if (!_scroll.hasClients) return;
-    for (var i = 0; i < 40 && _commentsKey.currentContext == null; i++) {
-      final position = _scroll.position;
-      if (position.pixels >= position.maxScrollExtent) break;
-      _scroll.jumpTo(
-        (position.pixels + position.viewportDimension).clamp(
-          0,
-          position.maxScrollExtent,
-        ),
-      );
+    final barBottom = MediaQuery.paddingOf(context).top + NavOverlay.barHeight;
+    if (_commentsKey.currentContext == null) {
+      if (!_entryIndices.containsKey(_ThreadReadEntry.headingKey)) return;
+      _stopSpring();
+      _scroll.jumpTo(_scroll.offset);
+      final generation = ++_scrollGeneration;
+      _springing = true;
+      final reduced = MediaQuery.disableAnimationsOf(context);
+      final target = -barBottom - ThreadPageTokens.commentHeadingGap;
+      _update(() {
+        _centerEntryKey = _ThreadReadEntry.headingKey;
+        _titleAt = double.negativeInfinity;
+        _commentsAt = -barBottom;
+        _scroll.position.correctPixels(
+          reduced ? target : target - _scroll.position.viewportDimension,
+        );
+      });
       await WidgetsBinding.instance.endOfFrame;
-      if (!mounted) return;
+      if (!mounted || generation != _scrollGeneration) return;
+      await _springScrollTo(target);
+      return;
     }
     final box = _commentsKey.currentContext?.findRenderObject() as RenderBox?;
-    if (box == null || !mounted) return;
-    final barBottom = MediaQuery.paddingOf(context).top + NavOverlay.barHeight;
-    final delta = box.localToGlobal(Offset.zero).dy - barBottom - 8;
+    if (box == null) return;
+    final delta =
+        box.localToGlobal(Offset.zero).dy -
+        barBottom -
+        ThreadPageTokens.commentHeadingGap;
     final position = _scroll.position;
-    _springScrollTo(
-      (position.pixels + delta).clamp(0, position.maxScrollExtent),
+    await _springScrollTo(
+      (position.pixels + delta).clamp(
+        position.minScrollExtent,
+        position.maxScrollExtent,
+      ),
     );
   }
 
@@ -621,17 +800,24 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     final epoch = ++_authorEpoch;
     // 丢弃进行中的翻页,旧方式的回包不能混进新内容
     _generation++;
+    _prefetching = false;
     _update(() {
       _pendingMode = ThreadViewMode.author;
       _loading = false;
     });
-    _fadeComments(to: .4);
+    _fadeComments(to: CommentModeTokens.pendingOpacity);
     try {
       // 通知可能落在中段,只取首屏确认楼主,不把当前回复作者当作楼主
-      final owner = _openingAuthor ?? await _lookupOpeningAuthor();
+      final owner =
+          _openingAuthor ??
+          await _lookupOpeningAuthor(() => mounted && epoch == _authorEpoch);
       if (!mounted || epoch != _authorEpoch) return;
       if (owner == null) throw StateError('opening author unknown');
-      final detail = await _readAs(owner, 1);
+      final detail = await _readAs(
+        owner,
+        1,
+        shouldContinue: () => mounted && epoch == _authorEpoch,
+      );
       if (!mounted || epoch != _authorEpoch) return;
       final snapshot = _ReadSnapshot(Map.of(_pages), _hasNext, _loadedDetail);
       _update(() {
@@ -650,8 +836,8 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     }
   }
 
-  Future<String?> _lookupOpeningAuthor() async {
-    final first = await _readAs(null, 1);
+  Future<String?> _lookupOpeningAuthor(bool Function() shouldContinue) async {
+    final first = await _readAs(null, 1, shouldContinue: shouldContinue);
     return _openingAuthor ??= first.posts
         .where((p) => postIsOpening(p))
         .firstOrNull
@@ -663,6 +849,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     final snapshot = _beforeAuthor;
     final epoch = ++_authorEpoch;
     _generation++;
+    _prefetching = false;
     if (snapshot != null) {
       _update(() {
         _authorUid = null;
@@ -677,9 +864,13 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
       _pendingMode = threaded ? ThreadViewMode.threaded : ThreadViewMode.floors;
       _loading = false;
     });
-    _fadeComments(to: .4);
+    _fadeComments(to: CommentModeTokens.pendingOpacity);
     try {
-      final detail = await _readAs(null, 1);
+      final detail = await _readAs(
+        null,
+        1,
+        shouldContinue: () => mounted && epoch == _authorEpoch,
+      );
       if (!mounted || epoch != _authorEpoch) return;
       _update(() {
         _authorUid = null;
@@ -721,9 +912,9 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
       if (attempt >= 40) return;
       _scroll.jumpTo(
         attempt == 0
-            ? 0
+            ? position.minScrollExtent
             : (position.pixels + position.viewportDimension).clamp(
-                0,
+                position.minScrollExtent,
                 position.maxScrollExtent,
               ),
       );
@@ -741,21 +932,22 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted || !_scroll.hasClients) return;
         final max = _scroll.position.maxScrollExtent;
-        _scroll.jumpTo(target.clamp(0, max));
+        _scroll.jumpTo(target.clamp(_scroll.position.minScrollExtent, max));
       });
       return;
     }
     if ((target - position.pixels).abs() > .5) {
-      _scroll.jumpTo(target.clamp(0, position.maxScrollExtent));
+      _scroll.jumpTo(
+        target.clamp(position.minScrollExtent, position.maxScrollExtent),
+      );
     }
   }
 
-  /// 评论区透明度:读取中淡化,内容替换后从 0 淡入;减少动态效果时直接到位
+  /// 替换到达后只淡入新内容；减少动态效果保留 150ms 透明度过渡。
   void _fadeComments({double? from, required double to}) {
-    if (MediaQuery.disableAnimationsOf(context)) {
-      _commentsFade.value = to;
-      return;
-    }
+    _commentsFade.duration = MediaQuery.disableAnimationsOf(context)
+        ? AppMotion.reducedFade
+        : AppMotion.fade;
     if (from != null) _commentsFade.value = from;
     _commentsFade.animateTo(to);
   }
@@ -763,6 +955,8 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
   /// 用一次完整读取替换已读楼层(首次进入、刷新、切换只看楼主)
   void _resetPages(ThreadDetail detail) {
     _generation++;
+    _prefetching = false;
+    _preloadEndPage = detail.page.current + widget.preloadPages - 1;
     _pages.clear();
     _postPages.clear();
     _pinnedRoots.clear();
@@ -783,6 +977,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     _pages
       ..clear()
       ..addAll(snapshot.pages);
+    _preloadEndPage = _firstPage + widget.preloadPages - 1;
     _loadedDetail = snapshot.loadedDetail;
     _hasNext = snapshot.hasNext;
     _loading = false;
@@ -791,13 +986,22 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     _beforeError = null;
   }
 
-  Future<ThreadDetail> _read(int page, {bool refresh = false}) =>
-      _readAs(_authorUid, page, refresh: refresh);
+  Future<ThreadDetail> _read(
+    int page, {
+    bool refresh = false,
+    bool Function()? shouldContinue,
+  }) => _readAs(
+    _authorUid,
+    page,
+    refresh: refresh,
+    shouldContinue: shouldContinue,
+  );
 
   Future<ThreadDetail> _readAs(
     String? author,
     int page, {
     bool refresh = false,
+    bool Function()? shouldContinue,
   }) =>
       widget.loadPage?.call(page, author, refresh) ??
       _repository.thread(
@@ -805,6 +1009,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
         page: page,
         authorUid: author,
         refresh: refresh,
+        shouldContinue: shouldContinue,
       );
 
   bool get _openingIsBlocked =>
@@ -816,7 +1021,12 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     _update(_rebuildReadIndex);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && offset != null && _scroll.hasClients) {
-        _scroll.jumpTo(offset.clamp(0.0, _scroll.position.maxScrollExtent));
+        _scroll.jumpTo(
+          offset.clamp(
+            _scroll.position.minScrollExtent,
+            _scroll.position.maxScrollExtent,
+          ),
+        );
       }
     });
   }
@@ -826,7 +1036,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
       (p) => postIsOpening(p) && _blocked(p),
     );
     return Scaffold(
-      backgroundColor: t.bg,
+      backgroundColor: t.grouped,
       body: Stack(
         children: [
           Center(
@@ -865,7 +1075,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
             inlineTitle: '帖子',
             collapseAt: 1,
             scrollOffset: _navOffset,
-            background: t.bg,
+            background: t.grouped,
           ),
         ],
       ),
@@ -889,7 +1099,12 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && offset != null && _scroll.hasClients) {
-        _scroll.jumpTo(offset.clamp(0.0, _scroll.position.maxScrollExtent));
+        _scroll.jumpTo(
+          offset.clamp(
+            _scroll.position.minScrollExtent,
+            _scroll.position.maxScrollExtent,
+          ),
+        );
       }
     });
   }
@@ -949,10 +1164,19 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
         AppToast.show(context, '登录信息读取中，请稍后再试');
         return;
       }
+      final supplement = action == PostMenuAction.supplement;
+      if (supplement &&
+          (post.authorUid == null || post.authorUid != chhSession.badges.uid)) {
+        return;
+      }
       final rating = action == PostMenuAction.rating;
       final result = await showPostInteractionSheet(
         context,
-        kind: rating ? PostInteractionKind.rating : PostInteractionKind.comment,
+        kind: supplement
+            ? PostInteractionKind.supplement
+            : rating
+            ? PostInteractionKind.rating
+            : PostInteractionKind.comment,
         tid: widget.tid,
         post: post,
         repository: _interactions,
@@ -960,7 +1184,11 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
             chhSession.loggedIn ? chhSession.badges.uid : null,
         sessionChanges: chhSession,
         sessionRevision: () => chhSession.identityRevision,
-        pageUrl: rating ? post.actions.ratingUrl : post.actions.commentUrl,
+        pageUrl: supplement
+            ? post.actions.supplementUrl
+            : rating
+            ? post.actions.ratingUrl
+            : post.actions.commentUrl,
         initialRatingForm: rating ? checkedRating : null,
         onCheckResult: () => _refreshPostPage(post),
       );
@@ -969,7 +1197,14 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
         try {
           await _refreshPostPage(post);
           if (mounted) {
-            AppToast.show(context, rating ? '评分成功' : '点评已发表');
+            AppToast.show(
+              context,
+              supplement
+                  ? '已补充'
+                  : rating
+                  ? '评分成功'
+                  : '点评已发表',
+            );
           }
         } catch (_) {
           if (mounted) AppToast.show(context, '已提交，内容刷新失败，请刷新核对');
@@ -1025,7 +1260,12 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
       // 局部替换只更新条目；展开数量、查看方式与其他已读页均保留。
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted && offset != null && _scroll.hasClients) {
-          _scroll.jumpTo(offset.clamp(0.0, _scroll.position.maxScrollExtent));
+          _scroll.jumpTo(
+            offset.clamp(
+              _scroll.position.minScrollExtent,
+              _scroll.position.maxScrollExtent,
+            ),
+          );
         }
       });
     } catch (_) {
@@ -1053,7 +1293,20 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
   }
 
   void _remember(ThreadDetail detail) {
-    _loadedDetail = detail;
+    // 后续页可能省略统计；仅用实际返回的计数更新已经读到的数据。
+    _loadedDetail = ThreadDetail(
+      tid: detail.tid,
+      cookiePrefix: detail.cookiePrefix,
+      fid: detail.fid,
+      forumName: detail.forumName,
+      title: detail.title,
+      posts: detail.posts,
+      viewCount: detail.viewCount ?? _loadedDetail?.viewCount,
+      replyCount: detail.replyCount ?? _loadedDetail?.replyCount,
+      favoriteCount: detail.favoriteCount ?? _loadedDetail?.favoriteCount,
+      poll: detail.poll ?? _loadedDetail?.poll,
+      page: detail.page,
+    );
     _pages[detail.page.current] = detail;
     _rebuildReadIndex();
     // 只有真正的首楼才能确定楼主；提醒落地页的首条回复不是楼主。
@@ -1067,6 +1320,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     bool refresh = false,
   }) async {
     final generation = ++_generation;
+    _prefetching = false;
     _update(() {
       _loading = true;
       _error = null;
@@ -1076,9 +1330,18 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     try {
       final goto = useGoto ? widget.gotoUrl : null;
       final detail = goto == null
-          ? await _read(page ?? widget.initialPage, refresh: refresh)
+          ? await _read(
+              page ?? widget.initialPage,
+              refresh: refresh,
+              shouldContinue: () => mounted && generation == _generation,
+            )
           : await (widget.loadGoto?.call(goto) ??
-                _repository.threadAtUrl(goto, tid: widget.tid));
+                _repository.threadAtUrl(
+                  goto,
+                  tid: widget.tid,
+                  refresh: refresh,
+                  shouldContinue: () => mounted && generation == _generation,
+                ));
       if (!mounted || generation != _generation) return;
       _update(() {
         // 主动刷新后,进入只看楼主前的旧楼层不再可信
@@ -1109,7 +1372,11 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
   }
 
   void _considerAppend() {
-    if (!_scroll.hasClients ||
+    if (!mounted) return;
+    _schedulePreload();
+    if (!_routeCurrent ||
+        _navigationBusy ||
+        !_scroll.hasClients ||
         _expandingRoot != null ||
         _pendingMode != null ||
         _composerOpen ||
@@ -1125,8 +1392,14 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     if (_scroll.position.extentAfter < 650) _append();
   }
 
-  Future<void> _append({bool retry = false, bool fromExpansion = false}) async {
+  Future<void> _append({
+    bool retry = false,
+    bool fromExpansion = false,
+    bool background = false,
+  }) async {
     if (_loading ||
+        _prefetching ||
+        _navigationBusy ||
         !_hasNext ||
         _pages.isEmpty ||
         (_tailError != null && !retry)) {
@@ -1135,13 +1408,27 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     final generation = _generation;
     final target = _lastPage + 1;
     final previousRoots = _index.roots.length;
-    _update(() {
-      _loading = true;
-      _tailError = null;
-    });
+    final completion = Completer<void>();
+    _appendCompletion = completion;
+    _prefetching = background;
+    if (!background) {
+      _update(() {
+        _loading = true;
+        _tailError = null;
+      });
+    }
     try {
-      final detail = await _read(target, refresh: retry);
+      final detail = await _read(
+        target,
+        refresh: retry,
+        shouldContinue: () =>
+            mounted &&
+            generation == _generation &&
+            (!background || _canPreload),
+      );
+      await _waitForNavigationIdle(generation);
       if (!mounted || generation != _generation) return;
+      if (background && !_canPreload) return;
       final advanced =
           detail.page.current == target &&
           detail.posts.any((p) => !_knownPids.contains(p.pid));
@@ -1149,18 +1436,78 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
         // 越界静默回第一页时不重复追加，也不进入无限请求循环。
         if (advanced) _remember(detail);
         _hasNext = advanced && detail.page.hasNext;
-        _pauseHiddenAppend =
-            fromExpansion || (_grouped && _index.roots.length <= previousRoots);
+        if (!background) {
+          _pauseHiddenAppend =
+              fromExpansion ||
+              (_grouped && _index.roots.length <= previousRoots);
+        }
         _loading = false;
       });
       WidgetsBinding.instance.addPostFrameCallback((_) => _considerAppend());
+    } on ThreadReadCancelled {
+      if (!background && mounted && generation == _generation) {
+        _update(() => _loading = false);
+      }
     } catch (error) {
+      await _waitForNavigationIdle(generation);
       if (!mounted || generation != _generation) return;
       _update(() {
         _loading = false;
         _tailError = error;
       });
+    } finally {
+      completion.complete();
+      if (identical(_appendCompletion, completion)) _appendCompletion = null;
+      if (mounted && generation == _generation) {
+        _prefetching = false;
+        _schedulePreload();
+      }
     }
+  }
+
+  // Read only mounted lazy rows. Source counts and estimated scroll extents
+  // cannot tell us the height of newly inserted paragraphs or images.
+  List<({String key, double y, double height})> _mountedReadingRows() {
+    final rows = <({String key, double y, double height})>[];
+    void visit(Element element) {
+      final key = element.widget.key;
+      if (key is _ThreadRowKey) {
+        RenderObject? box;
+        void content(Element child) {
+          if (child.widget.key == ValueKey(key.value) ||
+              child.widget.key == _focusKey) {
+            box = child.findRenderObject();
+          } else {
+            child.visitChildElements(content);
+          }
+        }
+
+        element.visitChildElements(content);
+        final measured = box ?? element.findRenderObject();
+        if (measured is RenderBox && measured.attached && measured.hasSize) {
+          rows.add((
+            key: key.value,
+            y: measured.localToGlobal(Offset.zero).dy,
+            height: measured.size.height,
+          ));
+        }
+        return;
+      }
+      element.visitChildElements(visit);
+    }
+
+    _readListKey.currentContext?.visitChildElements(visit);
+    return rows;
+  }
+
+  ({String key, double y})? _readingAnchor() {
+    final top = MediaQuery.paddingOf(context).top + NavOverlay.barHeight;
+    for (final row in _mountedReadingRows()) {
+      if (row.y + row.height > top && row.height > 0) {
+        return (key: row.key, y: row.y);
+      }
+    }
+    return null;
   }
 
   Future<void> _loadBefore() async {
@@ -1168,25 +1515,35 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     final target = _firstPage - 1;
     final generation = _generation;
     final retry = _beforeError != null;
-    final oldMax = _scroll.hasClients ? _scroll.position.maxScrollExtent : 0.0;
-    final oldOffset = _scroll.hasClients ? _scroll.offset : 0.0;
     _update(() {
       _loading = true;
       _beforeError = null;
     });
     try {
-      final detail = await _read(target, refresh: retry);
+      final detail = await _read(
+        target,
+        refresh: retry,
+        shouldContinue: () => mounted && generation == _generation,
+      );
       if (!mounted || generation != _generation) return;
+      final anchor = _readingAnchor();
       _update(() {
-        if (detail.page.current == target) _remember(detail);
+        if (detail.page.current == target) {
+          _remember(detail);
+          if (anchor != null && _entryIndices.containsKey(anchor.key)) {
+            _centerEntryKey = anchor.key;
+            // The new origin and offset reach layout together, before paint.
+            final firstReply =
+                _entryIndices[anchor.key] ==
+                (_entryIndices[_ThreadReadEntry.headingKey] ?? -2) + 1;
+            _scroll.position.correctPixels(
+              -anchor.y + (firstReply ? ThreadPageTokens.cardInset : 0),
+            );
+            _titleAt = double.negativeInfinity;
+            _commentsAt = double.negativeInfinity;
+          }
+        }
         _loading = false;
-      });
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted || !_scroll.hasClients) return;
-        final delta = _scroll.position.maxScrollExtent - oldMax;
-        _scroll.jumpTo(
-          (oldOffset + delta).clamp(0.0, _scroll.position.maxScrollExtent),
-        );
       });
     } catch (error) {
       if (!mounted || generation != _generation) return;
@@ -1195,6 +1552,31 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
         _beforeError = error;
       });
     }
+  }
+
+  ThreadPoll? _pollSource;
+  ThreadPoll? _updatedPoll;
+  int? _pollRevision;
+
+  Widget? _pollFor(Post post) {
+    if (!postIsOpening(post) || post.lock != null) return null;
+    final poll = _pages[1]?.poll;
+    if (poll == null) return null;
+    final revision = chhSession.identityRevision;
+    if (!identical(_pollSource, poll) || _pollRevision != revision) {
+      _pollSource = poll;
+      _updatedPoll = null;
+      _pollRevision = revision;
+    }
+    return ConnectedThreadPoll(
+      key: ValueKey('poll-${widget.tid}'),
+      poll: _updatedPoll ?? poll,
+      onUpdated: (fresh) {
+        if (identical(_pollSource, poll) && _pollRevision == revision) {
+          _updatedPoll = fresh;
+        }
+      },
+    );
   }
 
   bool get _focusOnFeedback {
@@ -1255,14 +1637,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
       final context =
           (_focusOnFeedback ? _feedbackKey : _focusKey).currentContext;
       if (context != null && context.mounted) {
-        await Scrollable.ensureVisible(
-          context,
-          duration: MediaQuery.disableAnimationsOf(context)
-              ? Duration.zero
-              : AppMotion.revealDuration,
-          curve: AppMotion.revealCurve,
-          alignment: .14,
-        );
+        await AppMotion.revealInScroll(context, alignment: .14);
         if (!mounted ||
             generation != _generation ||
             targetPid != _focusTargetPid) {
@@ -1272,10 +1647,16 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
         _focusHighlight.forward(from: 0);
         return;
       }
-      final max = _scroll.position.maxScrollExtent;
+      final position = _scroll.position;
       // 逐步靠近目标，懒列表构建后再精确定位。
-      final estimate = max * (index + 1) / (_entries.length + 1);
-      _scroll.jumpTo(estimate.clamp(0.0, max));
+      final estimate =
+          position.minScrollExtent +
+          (position.maxScrollExtent - position.minScrollExtent) *
+              (index + 1) /
+              (_entries.length + 1);
+      _scroll.jumpTo(
+        estimate.clamp(position.minScrollExtent, position.maxScrollExtent),
+      );
     }
     AppLog.w('FOCUS', 'pid=$_focusTargetPid 无法精确定位');
   }
@@ -1316,7 +1697,14 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     // Read at most one source page per click. Cache surplus replies for the
     // next click; sparse pages must not trigger an unbounded whole-thread scan.
     if (_conversationReplies(rootPid).length < target && _hasNext) {
-      await _append(retry: _tailError != null, fromExpansion: true);
+      final pending = _prefetching ? _appendCompletion : null;
+      if (pending != null) {
+        // An explicit expansion adopts the page already being prefetched.
+        // Do not drop the tap or fetch a second page for the same click.
+        await pending.future;
+      } else {
+        await _append(retry: _tailError != null, fromExpansion: true);
+      }
     }
     if (!mounted ||
         generation != _generation ||
@@ -1358,15 +1746,15 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
         : _tailError != null
         ? '回复加载失败，点击重试'
         : remaining > 0
-        ? (visible == 0 ? '展开 $remaining 条回复' : '展开更多回复（$remaining）')
+        ? '展开 $remaining 条回复'
         : '继续加载回复';
     final content = finished
         ? const SizedBox.shrink()
         : Padding(
             padding: EdgeInsets.fromLTRB(
-              metrics.gutter + metrics.avatar + 10,
+              metrics.commentGutter + metrics.avatar + 10,
               0,
-              metrics.gutter,
+              metrics.commentGutter,
               metrics.postVPad,
             ),
             child: Align(
@@ -1383,15 +1771,16 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
                 child: Container(
                   height: 30,
                   padding: const EdgeInsets.symmetric(horizontal: 11),
-                  decoration: BoxDecoration(
-                    color: t.accentFill,
-                    borderRadius: BorderRadius.circular(
-                      ThreadMetrics.pillRadius,
-                    ),
-                  ),
+
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      Container(
+                        width: ThreadPageTokens.expansionLineWidth,
+                        height: ThreadPageTokens.expansionLineHeight,
+                        color: t.text3,
+                      ),
+                      const SizedBox(width: 8),
                       Flexible(
                         child: Text(
                           label,
@@ -1400,12 +1789,12 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
                           style: TextStyle(
                             fontSize: ThreadMetrics.metaSize,
                             fontWeight: FontWeight.w600,
-                            color: t.accent,
+                            color: t.text2,
                           ),
                         ),
                       ),
                       const SizedBox(width: 5),
-                      Icon(AppIcons.down, size: 13, color: t.accent),
+                      Icon(AppIcons.down, size: 13, color: t.text2),
                     ],
                   ),
                 ),
@@ -1504,9 +1893,14 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
       context,
       draftKey: draftKey,
       attachments: images,
-      quoteOf: quoted == null
-          ? null
-          : '${quoted.author}${quoted.floorIsKnown ? ' #${quoted.floor}' : ''}',
+      quoteOf: quoted?.author,
+      quoteText:
+          quoted != null &&
+              quoted.content.whereType<TextBlock>().any(
+                (block) => block.text.trim().isNotEmpty,
+              )
+          ? threadReplySummary(quoted)
+          : null,
       onSubmit: (message) =>
           widget.submitReply?.call(
             tid: widget.tid,
@@ -1558,6 +1952,11 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
 
   @override
   void dispose() {
+    _preloadTimer?.cancel();
+    _navigationGesture?.removeListener(_navigationGestureChanged);
+    _navigationIdle?.complete();
+    _navigationIdle = null;
+    WidgetsBinding.instance.removeObserver(this);
     for (final images in _replyImages.values) {
       images.dispose();
     }
@@ -1565,11 +1964,15 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     _authorEpoch++;
     chhSession.removeListener(_sessionChanged);
     _blocks.removeListener(_blocksChanged);
+    for (final hold in _heldReplies.values) {
+      hold.dispose();
+    }
+    _barProgress.dispose();
+    _readingProgress.dispose();
     _scroll.dispose();
     _collapsedTitle.dispose();
     _navOffset.dispose();
     _inComments.dispose();
-    _scrollSpring.dispose();
     _commentsOpacity.dispose();
     _commentsFade.dispose();
     _replyRevealCurve.dispose();
@@ -1584,15 +1987,15 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     final metrics = ReadingMetrics.of(context);
     final top = MediaQuery.paddingOf(context).top;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && _scroll.hasClients) _syncInComments();
+      if (mounted && _scroll.hasClients) _handleScroll();
     });
     if (_openingIsBlocked) return _blockedOpening(t);
-    return Scaffold(
+    final page = Scaffold(
       extendBody: true,
-      backgroundColor: t.bg,
+      backgroundColor: t.grouped,
       body: Builder(
         builder: (bodyContext) {
-          // Capture extendBody's real reading-bar insets before ListView removes
+          // Capture extendBody's real reading-bar insets before the viewport removes
           // edge padding. Only image rows restore these for viewport sizing.
           final readerInsets = MediaQuery.paddingOf(bodyContext);
           return Stack(
@@ -1608,6 +2011,32 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
                             _loadInitial(page: _firstPage, refresh: true),
                         child: NotificationListener<ScrollNotification>(
                           onNotification: (notification) {
+                            if (notification.depth == 0) {
+                              final reduced = MediaQuery.disableAnimationsOf(
+                                context,
+                              );
+                              if (notification is ScrollStartNotification) {
+                                _barProgress.stop();
+                              }
+                              if (notification is ScrollUpdateNotification &&
+                                  !_springing) {
+                                final delta = notification.scrollDelta ?? 0;
+                                if (notification.metrics.extentAfter <= 1 ||
+                                    delta < 0) {
+                                  _barProgress.show();
+                                } else if (notification.metrics.extentBefore >
+                                    0) {
+                                  _barProgress.drag(delta, reduced: reduced);
+                                }
+                              }
+                              if (notification is ScrollEndNotification) {
+                                if (notification.metrics.extentAfter <= 1) {
+                                  _barProgress.show();
+                                } else {
+                                  _barProgress.settle(reduced: reduced);
+                                }
+                              }
+                            }
                             if (notification.depth == 0 &&
                                 notification is ScrollStartNotification &&
                                 notification.dragDetails != null) {
@@ -1630,14 +2059,10 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
                                 MediaQuery.textScalerOf(context),
                               ),
                             ),
-                            child: ListView.builder(
+                            child: AnchoredReadingList(
                               key: _readListKey,
                               controller: _scroll,
-                              physics: const AlwaysScrollableScrollPhysics(),
-                              padding: EdgeInsets.only(
-                                top: top + NavOverlay.barHeight,
-                                bottom: 120,
-                              ),
+                              centerIndex: _entryIndices[_centerEntryKey] ?? 0,
                               itemCount: _entries.length + 2,
                               findChildIndexCallback: (key) {
                                 if (key == _focusKey) {
@@ -1652,16 +2077,29 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
                               },
                               itemBuilder: (context, index) {
                                 final metrics = ReadingMetrics.of(context);
-                                if (index == 0) return _heading(t);
+                                if (index == 0) {
+                                  return Padding(
+                                    padding: EdgeInsets.only(
+                                      top: top + NavOverlay.barHeight,
+                                    ),
+                                    child: _heading(t),
+                                  );
+                                }
                                 // 标题之后的内容随查看方式切换淡化/淡入
                                 final heading =
                                     _entryIndices[_ThreadReadEntry
                                         .headingKey] ??
                                     _entries.length + 1;
                                 if (index == _entries.length + 1) {
-                                  return FadeTransition(
+                                  return ContentFade(
+                                    background: t.grouped,
                                     opacity: _commentsOpacity,
-                                    child: _tail(t),
+                                    child: Padding(
+                                      padding: const EdgeInsets.only(
+                                        bottom: 120,
+                                      ),
+                                      child: _tail(t),
+                                    ),
                                   );
                                 }
                                 final entry = _entries[index - 1];
@@ -1680,6 +2118,16 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
                                   _openComposer(post);
                                 }
 
+                                final previousPost = index > 1
+                                    ? _entries[index - 2].post
+                                    : null;
+                                final followsOpening =
+                                    previousPost != null &&
+                                    postIsOpening(previousPost);
+                                final openingHasFeedback =
+                                    followsOpening &&
+                                    (previousPost.rating?.isEmpty == false ||
+                                        previousPost.comments.isNotEmpty);
                                 final card = switch (entry.kind) {
                                   _ThreadEntryKind.blocked => Padding(
                                     padding: EdgeInsets.fromLTRB(
@@ -1696,6 +2144,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
                                     ),
                                   ),
                                   _ThreadEntryKind.whole => PostCard(
+                                    pollCard: _pollFor(post),
                                     post: post,
                                     isOpening: postIsOpening(post),
                                     commentStyle:
@@ -1708,6 +2157,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
                                         _openPostActions(originalPost),
                                     onUnlock: () => _unlockPost(post),
                                     replyContext: _referenceContext(post),
+                                    onOpenReference: _openReference,
                                   ),
                                   _ThreadEntryKind.header => PostCard.header(
                                     post: post,
@@ -1721,6 +2171,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
                                         _openPostActions(originalPost),
                                     onUnlock: () => _unlockPost(post),
                                     replyContext: _referenceContext(post),
+                                    onOpenReference: _openReference,
                                   ),
                                   _ThreadEntryKind.block ||
                                   _ThreadEntryKind.imageStack => PostCard.block(
@@ -1735,13 +2186,20 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
                                     isAuthor: author,
                                     contentBlock: entry.block,
                                     imageStack: entry.imageStack,
+                                    siteLinks: entry.siteLinks,
+                                    linksGrouped: entry.linksGrouped,
+                                    linkGroupStart: entry.linkGroupStart,
+                                    linkGroupEnd: entry.linkGroupEnd,
+                                    onOpenReference: _openReference,
                                     paragraphGapBefore:
                                         !entry.firstContent &&
-                                        entry.imageStack == null,
+                                        entry.imageStack == null &&
+                                        entry.linkGroupStart,
                                     gallery: entry.gallery,
                                     galleryIndex: entry.imageIndex,
                                   ),
                                   _ThreadEntryKind.footer => PostCard.footer(
+                                    pollCard: _pollFor(post),
                                     feedbackKey:
                                         _isFocusEntry(entry) && _focusOnFeedback
                                         ? _feedbackKey
@@ -1761,18 +2219,64 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
                                     key: _commentsKey,
                                     padding: EdgeInsets.fromLTRB(
                                       metrics.gutter,
-                                      metrics.postVPad + 8,
+                                      followsOpening
+                                          ? ThreadPageTokens
+                                                    .openingCommentsGap -
+                                                metrics.postVPad -
+                                                (openingHasFeedback
+                                                    ? FeedbackMetrics.bottom
+                                                    : 0)
+                                          : metrics.postVPad +
+                                                ThreadPageTokens
+                                                    .commentHeadingGap,
                                       metrics.gutter,
                                       8,
                                     ),
-                                    child: ThreadCommentHeading(
-                                      loadedCount: _shownReplyCount,
-                                      complete:
-                                          _index.sourceComplete &&
-                                          !_orderedPosts.any(_blocked),
-                                      mode: _shownMode,
-                                      busy: _pendingMode != null,
-                                      onModeChanged: _setViewMode,
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.stretch,
+                                      children: [
+                                        if (_firstPage > 1)
+                                          Align(
+                                            alignment: Alignment.center,
+                                            child: Padding(
+                                              padding: const EdgeInsets.only(
+                                                bottom: 16,
+                                              ),
+                                              child: DecoratedBox(
+                                                decoration: BoxDecoration(
+                                                  color: t.surface,
+                                                  borderRadius:
+                                                      BorderRadius.circular(
+                                                        AppRadii.full,
+                                                      ),
+                                                ),
+                                                child: AppButton(
+                                                  label: _beforeError == null
+                                                      ? '查看前面的回复'
+                                                      : '加载失败，重试',
+                                                  variant:
+                                                      AppButtonVariant.plain,
+                                                  icon: AppIcons.up,
+                                                  onPressed: _loading
+                                                      ? null
+                                                      : _loadBefore,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ThreadCommentHeading(
+                                          loadedCount: _shownReplyCount,
+                                          totalCount: _loadedDetail?.replyCount,
+                                          complete:
+                                              _index.sourceComplete &&
+                                              !_orderedPosts.any(_blocked),
+                                          mode: _shownMode,
+                                          showAuthor: _openingAuthor != null,
+                                          busy: _pendingMode != null,
+                                          onModeChanged: _setViewMode,
+                                        ),
+                                      ],
                                     ),
                                   ),
                                   _ThreadEntryKind.replies => _replyExpansion(
@@ -1793,10 +2297,9 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
                                     ? Container(
                                         margin: EdgeInsets.only(
                                           left:
-                                              metrics.gutter +
-                                              metrics.avatar +
-                                              10,
-                                          right: metrics.gutter - 8,
+                                              metrics.commentGutter +
+                                              metrics.avatar,
+                                          right: metrics.commentGutter,
                                         ),
                                         // Keep the visible gutter unchanged while
                                         // letting reply hit slop reach this inset.
@@ -1809,7 +2312,9 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
                                     : imageCard;
                                 final content = !focused
                                     ? ColoredBox(
-                                        color: t.bg,
+                                        color: index > heading
+                                            ? t.surface
+                                            : t.grouped,
                                         child: cardContent,
                                       )
                                     : AnimatedBuilder(
@@ -1817,23 +2322,21 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
                                         child: cardContent,
                                         builder: (context, child) {
                                           final strength =
-                                              AppMotion.noticeHighlight(
-                                                _focusHighlight.value,
-                                                reduced:
-                                                    MediaQuery.disableAnimationsOf(
-                                                      context,
-                                                    ),
-                                              );
+                                              (1 - _focusHighlight.value);
                                           return PostFeedbackHighlight(
                                             strength: strength,
                                             child: ColoredBox(
                                               color: _focusOnFeedback
-                                                  ? t.bg
+                                                  ? (index > heading
+                                                        ? t.surface
+                                                        : t.grouped)
                                                   : Color.lerp(
-                                                      t.bg,
+                                                      index > heading
+                                                          ? t.surface
+                                                          : t.grouped,
                                                       Color.alphaBlend(
                                                         t.accentFill,
-                                                        t.bg,
+                                                        t.grouped,
                                                       ),
                                                       strength,
                                                     )!,
@@ -1854,40 +2357,12 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
                                   crossAxisAlignment:
                                       CrossAxisAlignment.stretch,
                                   children: [
-                                    if (entry.kind ==
-                                        _ThreadEntryKind.commentsHeading)
-                                      ColoredBox(
-                                        color: t.threadSectionBand,
-                                        child: SizedBox(
-                                          height: metrics.sectionBand,
-                                        ),
-                                      ),
-                                    // 紧跟评论区标题的第一条不画分隔线,分段控件已隔开
-                                    if (entry.isStart &&
-                                        !entry.nested &&
-                                        entry.kind !=
-                                            _ThreadEntryKind.commentsHeading &&
-                                        index > 1 &&
-                                        index != heading + 1)
-                                      Padding(
-                                        padding: EdgeInsets.only(
-                                          left:
-                                              metrics.gutter +
-                                              metrics.avatar +
-                                              10,
-                                          right: metrics.gutter,
-                                        ),
-                                        child: Divider(
-                                          height: 1,
-                                          thickness: AppSpace.hairline,
-                                          color: t.separator,
-                                        ),
-                                      ),
                                     if (entry.nested)
                                       SizeTransition(
                                         sizeFactor: reveal,
                                         alignment: Alignment.topCenter,
-                                        child: FadeTransition(
+                                        child: ContentFade(
+                                          background: t.surface,
                                           opacity: reveal,
                                           child: content,
                                         ),
@@ -1896,13 +2371,56 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
                                       content,
                                   ],
                                 );
-                                return index > heading
-                                    ? FadeTransition(
-                                        key: _ThreadRowKey(entry.key),
-                                        opacity: _commentsOpacity,
-                                        child: row,
-                                      )
-                                    : row;
+                                if (index <= heading) return row;
+                                final first = index == heading + 1;
+                                final last = index == _entries.length;
+                                return Padding(
+                                  key: _ThreadRowKey(entry.key),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: ThreadPageTokens.cardMargin,
+                                  ),
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.vertical(
+                                      top: first
+                                          ? const Radius.circular(
+                                              ThreadPageTokens.cardRadius,
+                                            )
+                                          : Radius.zero,
+                                      bottom: last
+                                          ? const Radius.circular(
+                                              ThreadPageTokens.cardRadius,
+                                            )
+                                          : Radius.zero,
+                                    ),
+                                    clipBehavior: Clip.hardEdge,
+                                    child: ColoredBox(
+                                      color: t.surface,
+                                      child: Padding(
+                                        padding: EdgeInsets.only(
+                                          top: first
+                                              ? ThreadPageTokens.cardInset
+                                              : 0,
+                                          bottom: last
+                                              ? ThreadPageTokens.cardInset
+                                              : 0,
+                                        ),
+                                        child: ContentFade(
+                                          background: t.surface,
+                                          opacity: _commentsOpacity,
+                                          child: CommentRowInteraction(
+                                            highlight: _heldReplies.putIfAbsent(
+                                              post.pid,
+                                              () => ValueNotifier(false),
+                                            ),
+                                            onLongPress: () =>
+                                                _openPostActions(originalPost),
+                                            child: row,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                );
                               },
                             ),
                           ),
@@ -1945,8 +2463,10 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
                     ],
                     inlineTitle: _loadedDetail?.title ?? widget.title,
                     scrollOffset: _navOffset,
-                    collapseAt: 140,
-                    background: t.bg,
+                    collapseAt: _titleAt,
+                    titleVisible: _collapsedTitle,
+                    readingProgress: _readingProgress,
+                    background: t.grouped,
                   ),
                 ),
               ),
@@ -1954,7 +2474,25 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
           );
         },
       ),
-      bottomNavigationBar: _pages.isEmpty ? null : _toolbar(),
+      bottomNavigationBar: _pages.isEmpty
+          ? null
+          : ValueListenableBuilder<double>(
+              valueListenable: _barProgress,
+              child: _toolbar(),
+              builder: (context, progress, child) => IgnorePointer(
+                ignoring: progress >= 1,
+                child: FractionalTranslation(
+                  key: const ValueKey('thread-reading-bar-position'),
+                  translation: Offset(0, progress),
+                  child: child,
+                ),
+              ),
+            ),
+    );
+    return ReadingBarAnchor(
+      hiddenProgress: _barProgress,
+      bottomPadding: MediaQuery.paddingOf(context).bottom,
+      child: page,
     );
   }
 
@@ -1989,55 +2527,54 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (_eyebrow.isNotEmpty) ...[
-            Container(
-              height: 26,
-              padding: const EdgeInsets.symmetric(horizontal: 9),
-              decoration: BoxDecoration(
-                color: t.accentFill,
-                borderRadius: BorderRadius.circular(ThreadMetrics.forumRadius),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Flexible(
-                    child: Text(
-                      _eyebrow,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: ThreadMetrics.metaSize,
-                        color: t.accent,
-                        fontWeight: FontWeight.w600,
-                      ),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Flexible(
+                  child: Text(
+                    _eyebrow,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: ThreadMetrics.metaSize,
+                      color: t.accent,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
-                  const SizedBox(width: 4),
-                  Icon(AppIcons.forward, size: 11, color: t.accent),
-                ],
-              ),
+                ),
+                const SizedBox(width: 4),
+                Icon(
+                  AppIcons.forward,
+                  size: ThreadMetrics.metaSize,
+                  color: t.accent,
+                ),
+              ],
             ),
             const SizedBox(height: 9),
           ],
           Text(
             _loadedDetail?.title ?? widget.title,
+            key: _titleKey,
             style: TextStyle(
-              fontSize: _firstPage == 1
-                  ? metrics.titleSize
-                  : AppType.sizeTitle2,
-              height: 1.36,
+              fontSize: ThreadPageTokens.titleSize,
+              height: ThreadPageTokens.titleHeight,
               fontWeight: FontWeight.w700,
               color: t.text,
               letterSpacing: -.4,
             ),
           ),
-          if (_firstPage > 1)
+          if (_loadedDetail?.viewCount != null ||
+              _loadedDetail?.replyCount != null)
             Padding(
-              padding: const EdgeInsets.only(top: 12),
-              child: AppButton(
-                label: _beforeError == null ? '查看前面的讨论' : '前文未加载，轻点重试',
-                variant: AppButtonVariant.plain,
-                icon: AppIcons.up,
-                onPressed: _loading ? null : _loadBefore,
+              padding: const EdgeInsets.only(top: 10),
+              child: Text(
+                [
+                  if (_loadedDetail?.viewCount != null)
+                    '${_loadedDetail!.viewCount} 查看',
+                  if (_loadedDetail?.replyCount != null)
+                    '${_loadedDetail!.replyCount} 回复',
+                ].join('　'),
+                style: AppType.footnote.copyWith(color: t.text3),
               ),
             ),
           if (_error != null)
@@ -2073,11 +2610,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     padding: EdgeInsets.fromLTRB(24, 24, 24, 8 + _tailSlack),
     child: Center(
       child: _loading
-          ? SizedBox(
-              height: 22,
-              width: 22,
-              child: CircularProgressIndicator(strokeWidth: 2, color: t.accent),
-            )
+          ? const ReadingListEnd(loading: true)
           : _tailError != null
           ? Column(
               mainAxisSize: MainAxisSize.min,
@@ -2096,12 +2629,43 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
                 ),
               ],
             )
-          : Text(
-              _hasNext ? '继续向下阅读' : '已读到这里',
-              style: TextStyle(fontSize: AppType.sizeFootnote, color: t.text3),
-            ),
+          : _hasNext
+          ? const SizedBox(height: 22)
+          : const ReadingListEnd(),
     ),
   );
+
+  Future<void> _refreshFavoriteCount() async {
+    final generation = _generation;
+    try {
+      final fresh = await _readAs(null, 1, refresh: true);
+      if (!mounted ||
+          generation != _generation ||
+          fresh.tid != widget.tid ||
+          fresh.favoriteCount == null) {
+        return;
+      }
+      final detail = _loadedDetail;
+      if (detail == null) return;
+      _update(
+        () => _loadedDetail = ThreadDetail(
+          tid: detail.tid,
+          cookiePrefix: detail.cookiePrefix,
+          fid: detail.fid,
+          forumName: detail.forumName,
+          title: detail.title,
+          posts: detail.posts,
+          viewCount: detail.viewCount,
+          replyCount: detail.replyCount,
+          favoriteCount: fresh.favoriteCount,
+          poll: detail.poll,
+          page: detail.page,
+        ),
+      );
+    } catch (_) {
+      // A count refresh must not turn a confirmed favorite into a failed action.
+    }
+  }
 
   /// 底部阅读工具栏:"写回复…"输入胶囊 + 评论数 / 回到顶部圆钮
   Widget _toolbar() => ValueListenableBuilder<bool>(
@@ -2112,14 +2676,17 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
         targetId: widget.tid,
         title: _loadedDetail?.title ?? widget.title,
       ),
+      onChanged: _refreshFavoriteCount,
       builder: (context, favorited, busy, toggle) => ReadingBar(
         placeholder: '写回复…',
+        threadStyle: true,
         onCompose: () => _openComposer(null),
-        count: _shownReplyCount,
+        count: _loadedDetail?.replyCount,
         inComments: inComments,
         onShowComments: _showComments,
         onBackToTop: _backToTop,
         favorited: favorited,
+        favoriteCount: _loadedDetail?.favoriteCount,
         favoriteBusy: busy,
         onToggleFavorite: toggle,
       ),
@@ -2143,6 +2710,10 @@ class _ThreadReadEntry {
   final _ThreadEntryKind kind;
   final ContentBlock? block;
   final ImageStackGroup? imageStack;
+  final List<SiteLinkBlock>? siteLinks;
+  final bool linksGrouped;
+  final bool linkGroupStart;
+  final bool linkGroupEnd;
   final int blockIndex;
   final List<String> gallery;
   final int imageIndex;
@@ -2153,6 +2724,10 @@ class _ThreadReadEntry {
     this.kind, {
     this.block,
     this.imageStack,
+    this.siteLinks,
+    this.linksGrouped = false,
+    this.linkGroupStart = true,
+    this.linkGroupEnd = true,
     this.blockIndex = -1,
     this.gallery = const [],
     this.imageIndex = 0,
@@ -2191,6 +2766,10 @@ class _ReadSnapshot {
         fid: detail.fid,
         forumName: detail.forumName,
         title: detail.title,
+        viewCount: detail.viewCount,
+        replyCount: detail.replyCount,
+        favoriteCount: detail.favoriteCount,
+        poll: detail.poll,
         posts: [for (final p in detail.posts) p.pid == post.pid ? post : p],
         page: detail.page,
       );

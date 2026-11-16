@@ -6,7 +6,17 @@
 /// 热门降级为帖子流上的筛选。
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import '../data/editorial_cover_cache.dart';
+import '../data/featured_cover_prefetch.dart';
+import '../data/portal_repository.dart';
+import '../data/forum_repository.dart';
+import '../data/thread_read_index.dart';
+import '../design/motion.dart';
+import '../widgets/shelf_scroll_physics.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
 import '../ui/app_button.dart';
 import '../design/typography.dart';
@@ -19,13 +29,12 @@ import '../models/models.dart';
 import '../widgets/search_entry_route.dart';
 import '../widgets/editorial_cover.dart';
 import '../widgets/editorial_article_route.dart';
-import '../widgets/lac_scaffold.dart';
-import '../widgets/large_title_scaffold.dart';
+import '../widgets/lacquer_tab_scaffold.dart';
 import '../widgets/sliver_paged_list.dart';
+import '../widgets/expressive_controls.dart';
 import '../ui/plain_rows.dart';
 import '../ui/press.dart';
 import '../ui/chrome_button.dart';
-import '../design/icons.dart';
 import '../widgets/net_image.dart';
 import '../ui/cards.dart';
 import '../ui/section_header.dart';
@@ -39,7 +48,15 @@ import 'thread_detail_page.dart';
 const int _newsForumFid = 317;
 
 class FeedPage extends StatefulWidget {
-  const FeedPage({super.key});
+  final PortalRepository? portalRepository;
+  final ForumRepository? forumRepository;
+  final EditorialCoverCache? coverCache;
+  const FeedPage({
+    super.key,
+    this.portalRepository,
+    this.forumRepository,
+    this.coverCache,
+  });
 
   @override
   State<FeedPage> createState() => _FeedPageState();
@@ -49,12 +66,67 @@ class _FeedPageState extends State<FeedPage> {
   /// 帖子流排序:最新 / 热门
   String _view = 'new';
 
-  late Future<PortalHighlights> _highlights = portalRepo.highlights();
+  PortalRepository get _portal => widget.portalRepository ?? portalRepo;
+  ForumRepository get _forum => widget.forumRepository ?? forumRepo;
+  late Future<PortalHighlights> _highlights = _portal.highlights();
+  PortalHighlights? _lastHighlights;
 
   final _listKey = GlobalKey<SliverPagedListState<ThreadSummary>>();
 
-  // 纸面列表挂在 NestedScrollView 的内层滚动上;兜底控制器只在缺失时创建一次
-  ScrollController? _fallbackScroll;
+  final _scroll = ScrollController();
+  final _scrollOffset = ValueNotifier<double>(0);
+  final _discussionAnchor = GlobalKey();
+  late final _prefetch = FeaturedCoverPrefetch(
+    repository: _portal,
+    cache: widget.coverCache ?? editorialCoverCache,
+    imageSize: _imageSize,
+  );
+
+  Future<Size?> _imageSize(String url) async {
+    if (!mounted) return null;
+    final stream = boundedNetworkImage(
+      url,
+      boundedImageDecodeWidth(
+        MediaQuery.sizeOf(context).width,
+        MediaQuery.devicePixelRatioOf(context),
+      ),
+    ).resolve(createLocalImageConfiguration(context));
+    final result = Completer<Size?>();
+    late ImageStreamListener listener;
+    listener = ImageStreamListener(
+      (info, _) {
+        if (!result.isCompleted) {
+          result.complete(
+            Size(info.image.width.toDouble(), info.image.height.toDouble()),
+          );
+        }
+        info.dispose();
+      },
+      onError: (Object _, StackTrace? stack) {
+        if (!result.isCompleted) result.complete(null);
+      },
+    );
+    stream.addListener(listener);
+    try {
+      return await result.future.timeout(
+        const Duration(seconds: 20),
+        onTimeout: () => null,
+      );
+    } finally {
+      stream.removeListener(listener);
+    }
+  }
+
+  Future<void> _refresh() async {
+    final highlights = _portal.highlights(refresh: true);
+    setState(() {
+      _highlights = highlights;
+    });
+    await Future.wait([
+      highlights,
+      if (_listKey.currentState != null) _listKey.currentState!.refresh(),
+    ]);
+  }
 
   String _today() {
     final now = DateTime.now();
@@ -83,69 +155,75 @@ class _FeedPageState extends State<FeedPage> {
         ),
       ),
     );
-    final content = RefreshIndicator(
-      onRefresh: () async {
-        setState(() => _highlights = portalRepo.highlights(refresh: true));
-        await _listKey.currentState?.refresh();
-      },
-      child: CustomScrollView(
-        primary: true,
-        slivers: [
-          SliverToBoxAdapter(child: _highlightsSection()),
-          SliverToBoxAdapter(child: _discussionHeader()),
-          SliverPagedList<ThreadSummary>(
-            key: _listKey,
-            controller:
-                PrimaryScrollController.maybeOf(context) ??
-                (_fallbackScroll ??= ScrollController()),
-            itemKey: (thread) => thread.tid,
-            loader: (page, {bool refresh = false}) async {
-              final r = await forumRepo.guide(
-                view: _view,
-                page: page,
-                refresh: refresh,
-              );
-              return Paged(items: r.threads, page: r.page);
-            },
-            // 行级监听:一次 markRead 只重建对应一行
-            itemBuilder: (context, item) => ReadStateBuilder(
-              tid: item.tid,
-              replies: item.replies,
-              builder: (context, state) => ThreadRow(
-                thread: item,
-                readState: state,
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => ThreadDetailPage(
-                      tid: item.tid,
-                      seenReplies: item.replies,
-                      title: item.title,
-                      fid: item.forumFid,
+    return LacquerTabScaffold(
+      title: '精选',
+      eyebrow: _today(),
+      actions: [searchButton],
+      controller: _scroll,
+      scrollOffset: _scrollOffset,
+      onRefresh: _refresh,
+      seamOverlap: HomeTokens.featureOverlap,
+      discussionAnchor: _discussionAnchor,
+      compactAccessory: _sortControl(onLac: !misty),
+      slivers: [
+        SliverToBoxAdapter(child: _highlightsSection()),
+        SliverToBoxAdapter(child: _discussionHeader()),
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(
+            HomeTokens.inset,
+            0,
+            HomeTokens.inset,
+            16,
+          ),
+          sliver: DecoratedSliver(
+            decoration: BoxDecoration(
+              color: AppTokens.of(context).surface,
+              borderRadius: BorderRadius.circular(HomeTokens.cardRadius),
+            ),
+            sliver: SliverPadding(
+              padding: const EdgeInsets.all(HomeTokens.cardPadding),
+              sliver: SliverPagedList<ThreadSummary>(
+                key: _listKey,
+                controller: _scroll,
+                itemKey: (thread) => thread.tid,
+                itemRevision: (thread) => (
+                  thread.title,
+                  thread.author,
+                  thread.forumName,
+                  ThreadRow.displayTime(thread),
+                  thread.replies,
+                ),
+                loader: (page, {bool refresh = false}) async {
+                  final r = await _forum.guide(
+                    view: _view,
+                    page: page,
+                    refresh: refresh,
+                  );
+                  return Paged(items: r.threads, page: r.page);
+                },
+                itemBuilder: (context, item) => ReadStateBuilder(
+                  tid: item.tid,
+                  replies: item.replies,
+                  builder: (context, state) => _DiscussionRow(
+                    thread: item,
+                    readState: state,
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => ThreadDetailPage(
+                          tid: item.tid,
+                          seenReplies: item.replies,
+                          title: item.title,
+                          fid: item.forumFid,
+                        ),
+                      ),
                     ),
                   ),
                 ),
               ),
             ),
           ),
-        ],
-      ),
-    );
-    if (misty) {
-      // 薄雾白:搜索圆钮与大标题同行(1.0.7 版式),内容直接在纸面
-      return LargeTitleScaffold(
-        title: '精选',
-        eyebrow: _today(),
-        showBack: false,
-        titleAccessory: searchButton,
-        body: content,
-      );
-    }
-    // 一级页漆面骨架:日期眉题与标题住进漆面,内容在纸面上
-    return LacScaffold(
-      title: '精选',
-      eyebrow: _today(),
-      actions: [searchButton],
-      body: content,
+        ),
+      ],
     );
   }
 
@@ -154,7 +232,9 @@ class _FeedPageState extends State<FeedPage> {
       future: _highlights,
       builder: (context, snap) {
         final t = AppTokens.of(context);
-        if (snap.connectionState != ConnectionState.done) {
+        final h = snap.data ?? _lastHighlights;
+        if (snap.hasData) _lastHighlights = snap.data;
+        if (h == null && snap.connectionState != ConnectionState.done) {
           return Padding(
             padding: const EdgeInsets.fromLTRB(
               AppSpace.screen,
@@ -163,7 +243,10 @@ class _FeedPageState extends State<FeedPage> {
               16,
             ),
             child: Container(
-              height: 400,
+              key: const ValueKey('feed-highlights-skeleton'),
+              height: HomeTokens.featureHeight(
+                MediaQuery.sizeOf(context).width,
+              ),
               decoration: ShapeDecoration(
                 color: t.fill,
                 shape: appShape(AppRadii.lg),
@@ -171,8 +254,7 @@ class _FeedPageState extends State<FeedPage> {
             ),
           );
         }
-        final h = snap.data ?? PortalHighlights.empty;
-        if (h.isEmpty) {
+        if (h == null || h.isEmpty) {
           return Padding(
             padding: const EdgeInsets.all(AppSpace.screen),
             child: Row(
@@ -190,7 +272,7 @@ class _FeedPageState extends State<FeedPage> {
                   label: '重试',
                   variant: AppButtonVariant.plain,
                   onPressed: () => setState(() {
-                    _highlights = portalRepo.highlights(refresh: true);
+                    _highlights = _portal.highlights(refresh: true);
                   }),
                 ),
               ],
@@ -213,42 +295,73 @@ class _FeedPageState extends State<FeedPage> {
         final moreReviews = h.reviews
             .where((a) => a.aid != feature?.aid)
             .toList();
+        if (feature != null) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) unawaited(_prefetch.fetch(feature.aid));
+          });
+        }
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             if (feature != null)
               Padding(
                 padding: const EdgeInsets.fromLTRB(
-                  AppSpace.screen,
-                  8,
-                  AppSpace.screen,
+                  HomeTokens.inset,
+                  0,
+                  HomeTokens.inset,
                   0,
                 ),
-                child: _EditorialCard(
-                  article: feature,
-                  heroTag: 'feed-feature-${feature.aid}',
-                  height: (MediaQuery.sizeOf(context).width * 1.1).clamp(
-                    360.0,
-                    480.0,
-                  ),
-                  eyebrow: '本期精选',
-                  fit: BoxFit.contain,
-                  onTap: () => _openArticle(
-                    feature,
+                child: _articleArrival(
+                  feature,
+                  _EditorialCard(
+                    article: feature,
+                    scrollOffset: _scrollOffset,
                     heroTag: 'feed-feature-${feature.aid}',
+                    height: HomeTokens.featureHeight(
+                      MediaQuery.sizeOf(context).width,
+                    ),
                     eyebrow: '本期精选',
-                    coverFit: BoxFit.contain,
+                    fit: BoxFit.contain,
+                    onTap: () => _openArticle(
+                      feature,
+                      heroTag: 'feed-feature-${feature.aid}',
+                      eyebrow: '本期精选',
+                      coverFit: BoxFit.contain,
+                    ),
                   ),
                 ),
               ),
             if (shelf.isNotEmpty) _editorialShelf(shelf),
             if (moreReviews.isNotEmpty) _reviewSection(moreReviews),
             if (h.news.isNotEmpty) _newsSection(h.news),
+            if (snap.hasError)
+              AppButton(
+                label: '未能刷新，轻点重试',
+                variant: AppButtonVariant.plain,
+                onPressed: () => setState(() {
+                  _highlights = _portal.highlights(refresh: true);
+                }),
+              ),
           ],
         );
       },
     );
   }
+
+  Widget _articleArrival(PortalArticle article, Widget child) =>
+      ExpressivePageReveal(
+        key: ValueKey(article.aid),
+        active: true,
+        animateOnMount: true,
+        revision: (
+          article.aid,
+          article.title,
+          article.coverUrl,
+          article.summary,
+          article.categoryName,
+        ),
+        child: child,
+      );
 
   Widget _editorialShelf(List<PortalArticle> articles) => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -265,23 +378,36 @@ class _FeedPageState extends State<FeedPage> {
         height: ShelfCard.heightFor(MediaQuery.textScalerOf(context)),
         child: ListView.separated(
           scrollDirection: Axis.horizontal,
+          physics: ShelfScrollPhysics(
+            reducedMotion: MediaQuery.disableAnimationsOf(context),
+            itemExtent: ShelfCard.width + HomeTokens.shelfGap,
+          ),
           clipBehavior: Clip.none,
-          padding: const EdgeInsets.symmetric(horizontal: AppSpace.screen),
+          padding: const EdgeInsets.symmetric(horizontal: HomeTokens.inset),
           itemCount: articles.length,
-          separatorBuilder: (_, _) => const SizedBox(width: 12),
+          findItemIndexCallback: (key) {
+            if (key is! ValueKey<int>) return null;
+            final index = articles.indexWhere((a) => a.aid == key.value);
+            return index < 0 ? null : index;
+          },
+          separatorBuilder: (_, _) =>
+              const SizedBox(width: HomeTokens.shelfGap),
           itemBuilder: (context, i) {
             final a = articles[i];
             final tag = 'feed-shelf-${a.aid}';
             return Align(
+              key: ValueKey(a.aid),
               alignment: Alignment.topCenter,
-              child: ShelfCard(
-                title: a.title,
-                source: '灵感与日常',
-                onTap: () => _openArticle(a, heroTag: tag),
-                image: EditorialCover(
-                  article: a,
-                  heroTag: tag,
-                  showText: false,
+              child: _articleArrival(
+                a,
+                ShelfCard(
+                  title: a.title,
+                  onTap: () => _openArticle(a, heroTag: tag),
+                  image: EditorialCover(
+                    article: a,
+                    heroTag: tag,
+                    showText: false,
+                  ),
                 ),
               ),
             );
@@ -304,16 +430,92 @@ class _FeedPageState extends State<FeedPage> {
           ),
         ),
       ),
-      // 快讯本身没有图,平铺的文字行就是合适的形态
-      for (final n in news.take(4))
-        NewsRow(
-          title: n.title,
-          onTap: () => Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (_) => ThreadDetailPage(tid: n.tid, title: n.title),
-            ),
-          ),
-        ),
+      LayoutBuilder(
+        builder: (context, constraints) {
+          var style = DefaultTextStyle.of(context).style.merge(
+            AppType.subhead.copyWith(color: AppTokens.of(context).text),
+          );
+          if (MediaQuery.boldTextOf(context)) {
+            style = style.merge(const TextStyle(fontWeight: FontWeight.bold));
+          }
+          var capsule = false;
+          if (news.length == 1) {
+            final painter =
+                TextPainter(
+                  text: TextSpan(text: news.single.title, style: style),
+                  textDirection: Directionality.of(context),
+                  textScaler: MediaQuery.textScalerOf(context),
+                  locale: Localizations.maybeLocaleOf(context),
+                  maxLines: 1,
+                )..layout(
+                  maxWidth:
+                      (constraints.maxWidth -
+                              2 *
+                                  (HomeTokens.inset +
+                                      HomeTokens.cardPadding +
+                                      HomeTokens.rowInset) -
+                              HomeTokens.newsDot -
+                              12)
+                          .clamp(0.0, double.infinity),
+                );
+            capsule =
+                !painter.didExceedMaxLines &&
+                painter.height <=
+                    AppSizes.singleLineHeight - 2 * HomeTokens.cardPadding;
+            painter.dispose();
+          }
+          return _card([
+            for (final n in news.take(4))
+              ExpressivePageReveal(
+                key: ValueKey(n.tid),
+                active: true,
+                animateOnMount: true,
+                revision: (n.tid, n.title),
+                child: _CardRow(
+                  capsule: capsule,
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          ThreadDetailPage(tid: n.tid, title: n.title),
+                    ),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: capsule
+                        ? CrossAxisAlignment.center
+                        : CrossAxisAlignment.start,
+                    children: [
+                      Padding(
+                        padding: EdgeInsets.only(
+                          top: capsule ? 0 : 8,
+                          right: 12,
+                        ),
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: AppTokens.of(
+                              context,
+                            ).accent.withValues(alpha: .35),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const SizedBox.square(
+                            dimension: HomeTokens.newsDot,
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        child: Text(
+                          n.title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: style,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ], capsule: capsule);
+        },
+      ),
     ],
   );
 
@@ -329,23 +531,78 @@ class _FeedPageState extends State<FeedPage> {
           ),
         ),
       ),
-      for (final a in reviews.take(3))
-        ArticleRow(
-          title: a.title,
-          eyebrow: a.categoryName,
-          // 只用门户已给出的封面,没有就不留缩略图位
-          thumbnail: (a.coverUrl?.isNotEmpty ?? false)
-              ? NetImage(url: a.coverUrl!, width: 88, height: 60)
-              : null,
-          onTap: () => _openArticle(a),
-        ),
+      _card([
+        for (final a in reviews.take(3))
+          _articleArrival(
+            a,
+            _CardRow(
+              onTap: () => _openArticle(a),
+              child: Row(
+                children: [
+                  if (a.coverUrl?.isNotEmpty ?? false) ...[
+                    AppClip(
+                      radius: AppRadii.sm,
+                      child: NetImage(url: a.coverUrl!, width: 76, height: 52),
+                    ),
+                    const SizedBox(width: 12),
+                  ],
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (a.categoryName?.isNotEmpty ?? false)
+                          Text(
+                            a.categoryName!,
+                            style: AppType.footnote.copyWith(
+                              color: AppTokens.of(context).text3,
+                            ),
+                          ),
+                        Text(
+                          a.title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppType.subhead.copyWith(
+                            color: AppTokens.of(context).text,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+      ]),
     ],
+  );
+
+  Widget _card(List<Widget> rows, {bool capsule = false}) => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: HomeTokens.inset),
+    child: DecoratedBox(
+      decoration: capsule
+          ? ShapeDecoration(
+              color: AppTokens.of(context).surface,
+              shape: appShape(AppRadii.full),
+              shadows: HomeTokens.cardShadow(AppTokens.of(context)),
+            )
+          : BoxDecoration(
+              color: AppTokens.of(context).surface,
+              borderRadius: BorderRadius.circular(HomeTokens.cardRadius),
+              boxShadow: HomeTokens.cardShadow(AppTokens.of(context)),
+            ),
+      child: Padding(
+        padding: EdgeInsets.all(capsule ? 0 : HomeTokens.cardPadding),
+        child: Column(children: rows),
+      ),
+    ),
   );
 
   /// 讨论区标题行。热门不再占一级入口,只是这里的排序。
   Widget _discussionHeader() {
     final t = AppTokens.of(context);
     return Padding(
+      key: _discussionAnchor,
       padding: const EdgeInsets.fromLTRB(
         AppSpace.screen,
         AppSpace.section,
@@ -354,35 +611,40 @@ class _FeedPageState extends State<FeedPage> {
       ),
       child: Row(
         children: [
-          Text(
-            '社区讨论',
-            style: TextStyle(
-              fontSize: AppType.sizeTitle2,
-              fontWeight: FontWeight.w700,
-              letterSpacing: -0.4,
-              color: t.text,
+          Expanded(
+            child: Text(
+              '社区讨论',
+              style: TextStyle(
+                fontSize: AppType.sizeTitle2,
+                fontWeight: FontWeight.w700,
+                letterSpacing: -0.4,
+                color: t.text,
+              ),
             ),
           ),
-          const Spacer(),
-          AppSegmented<String>(
-            compact: true,
-            fallbackTitle: '排序',
-            options: const [
-              PickerOption(value: 'new', label: '最新'),
-              PickerOption(value: 'hot', label: '热门'),
-            ],
-            value: _view,
-            onChanged: _setSort,
-          ),
+          const SizedBox(width: 8),
+          Flexible(child: _sortControl()),
         ],
       ),
     );
   }
 
+  Widget _sortControl({bool onLac = false}) => AppSegmented<String>(
+    compact: true,
+    onLac: onLac,
+    fallbackTitle: '排序',
+    options: const [
+      PickerOption(value: 'new', label: '最新'),
+      PickerOption(value: 'hot', label: '热门'),
+    ],
+    value: _view,
+    onChanged: _setSort,
+  );
+
   void _setSort(String value) {
     if (_view == value) return;
     setState(() => _view = value);
-    _listKey.currentState?.refresh(clear: true);
+    _listKey.currentState?.refresh();
   }
 
   void _openArticle(
@@ -409,6 +671,7 @@ class _FeedPageState extends State<FeedPage> {
 
 class _EditorialCard extends StatelessWidget {
   final PortalArticle article;
+  final ValueListenable<double>? scrollOffset;
   final String heroTag;
   final double height;
   final String? eyebrow;
@@ -416,6 +679,7 @@ class _EditorialCard extends StatelessWidget {
   final VoidCallback onTap;
   const _EditorialCard({
     required this.article,
+    this.scrollOffset,
     required this.heroTag,
     required this.height,
     required this.onTap,
@@ -434,7 +698,7 @@ class _EditorialCard extends StatelessWidget {
         child: DecoratedBox(
           decoration: ShapeDecoration(
             shape: appShape(AppRadii.lg),
-            shadows: t.shadowE2,
+            shadows: HomeTokens.floatingShadow(t),
           ),
           child: SizedBox(
             height: height,
@@ -442,12 +706,146 @@ class _EditorialCard extends StatelessWidget {
               radius: AppRadii.lg,
               child: EditorialCover(
                 article: article,
+                scrollOffset: scrollOffset,
                 heroTag: heroTag,
                 fit: fit,
                 eyebrow: eyebrow,
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CardRow extends StatelessWidget {
+  final Widget child;
+  final VoidCallback onTap;
+  final bool capsule;
+  const _CardRow({
+    required this.child,
+    required this.onTap,
+    this.capsule = false,
+  });
+  @override
+  Widget build(BuildContext context) => capsule
+      ? PressHighlight(
+          onTap: onTap,
+          paintInset: const EdgeInsets.all(HomeTokens.cardPadding),
+          borderRadius: BorderRadius.circular(AppRadii.full),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(
+              minHeight: AppSizes.singleLineHeight - 2 * HomeTokens.cardPadding,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: HomeTokens.rowInset,
+              ),
+              child: child,
+            ),
+          ),
+        )
+      : AppClip(
+          radius: HomeTokens.rowRadius,
+          child: PressHighlight(
+            onTap: onTap,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: HomeTokens.rowInset,
+                vertical: 12,
+              ),
+              child: child,
+            ),
+          ),
+        );
+}
+
+class _DiscussionRow extends StatelessWidget {
+  final ThreadSummary thread;
+  final ThreadReadState readState;
+  final VoidCallback onTap;
+  const _DiscussionRow({
+    required this.thread,
+    required this.readState,
+    required this.onTap,
+  });
+  @override
+  Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
+    final metadata = [
+      thread.forumName,
+      thread.author,
+      ThreadRow.displayTime(thread),
+    ].whereType<String>().where((s) => s.isNotEmpty).toList();
+    final fresh = readState is ThreadReadNewReplies
+        ? (readState as ThreadReadNewReplies).count
+        : null;
+    return _CardRow(
+      onTap: onTap,
+      child: Semantics(
+        label: readSemanticsLabel(readState),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TweenAnimationBuilder<Color?>(
+              tween: ColorTween(end: readTitleColor(t, readState)),
+              duration: MediaQuery.disableAnimationsOf(context)
+                  ? AppMotion.reducedFade
+                  : AppMotion.fade,
+              builder: (_, color, _) => Text(
+                thread.title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: AppType.headline.copyWith(
+                  fontSize: HomeTokens.rowTitleSize,
+                  color: color,
+                  fontWeight: readState is ThreadReadSeen
+                      ? FontWeight.w500
+                      : FontWeight.w600,
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Wrap(
+                    spacing: 10,
+                    runSpacing: 4,
+                    children: [
+                      for (final item in metadata)
+                        Text(
+                          item,
+                          style: AppType.footnote.copyWith(color: t.text3),
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Semantics(
+                  label: fresh == null
+                      ? '${thread.replies} 回复'
+                      : '有 $fresh 条新回复，共 ${thread.replies} 回复',
+                  excludeSemantics: true,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(AppIcons.tabMessages, size: 14, color: t.text3),
+                      const SizedBox(width: 4),
+                      Text(
+                        fresh == null ? '${thread.replies}' : '+$fresh',
+                        style: AppType.footnote.copyWith(
+                          color: fresh == null ? t.text3 : t.accent,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ],
         ),
       ),
     );

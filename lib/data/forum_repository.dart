@@ -18,6 +18,8 @@ import '../parser/thread_list_parser.dart';
 import '../parser/background_parser.dart';
 
 class ForumRepository {
+  // Keep const repositories and let discarded clients release their parsed pages.
+  static final _parsedThreads = Expando<_ParsedThreadPages>();
   final ChhClient client;
   final ChhSession? session;
   const ForumRepository(this.client, {this.session});
@@ -125,20 +127,31 @@ class ForumRepository {
     return parseThreadTypes(html);
   }
 
+  /// 缓存页可直接追加，无需等待下一次预加载时机。
+  bool hasCachedThread(int tid, {int page = 1, String? authorUid}) =>
+      client.hasCachedHtml(
+        authorUid == null
+            ? ChhUrls.thread(tid, page: page)
+            : ChhUrls.threadByAuthor(tid, authorUid, page: page),
+      );
+
   /// 帖子详情。authorUid 非空即「只看作者」,页面结构与常规详情页全同构。
   Future<ThreadDetail> thread(
     int tid, {
     int page = 1,
     String? authorUid,
     bool refresh = false,
+    bool Function()? shouldContinue,
   }) async {
     final url = authorUid == null
         ? ChhUrls.thread(tid, page: page)
         : ChhUrls.threadByAuthor(tid, authorUid, page: page);
-    return parseThreadAsync(
-      await client.getHtml(url, refresh: refresh),
+    return _readThread(
+      url,
       tid: tid,
       fallbackPage: page,
+      refresh: refresh,
+      shouldContinue: shouldContinue,
     );
   }
 
@@ -149,10 +162,53 @@ class ForumRepository {
   Future<ThreadDetail> threadAtUrl(
     String url, {
     required int tid,
-    bool refresh = true,
+    bool refresh = false,
+    bool Function()? shouldContinue,
+  }) => _readThread(
+    Uri.parse(url),
+    tid: tid,
+    fallbackPage: 1,
+    refresh: refresh,
+    shouldContinue: shouldContinue,
+  );
+
+  Future<ThreadDetail> _readThread(
+    Uri url, {
+    required int tid,
+    required int fallbackPage,
+    required bool refresh,
+    bool Function()? shouldContinue,
   }) async {
-    final html = await client.getHtml(Uri.parse(url), refresh: refresh);
-    return parseThreadAsync(html, tid: tid, fallbackPage: 1);
+    final generation = client.cacheGeneration;
+    final source = await client.getHtml(
+      url,
+      refresh: refresh,
+      shouldContinue: shouldContinue,
+    );
+    if (shouldContinue?.call() == false) throw const ThreadReadCancelled();
+    // An old in-flight response must neither read nor replace the new session's cache.
+    if (generation != client.cacheGeneration) {
+      return parseThreadAsync(source, tid: tid, fallbackPage: fallbackPage);
+    }
+    var cache = _parsedThreads[client];
+    if (cache == null || cache.generation != generation) {
+      _parsedThreads[client] = cache = _ParsedThreadPages(generation);
+    }
+    final key = (url, tid, fallbackPage);
+    final previous = cache.pages.remove(key);
+    if (!refresh && previous != null && previous.$1 == source) {
+      cache.pages[key] = previous;
+      return previous.$2;
+    }
+    final detail = await parseThreadAsync(
+      source,
+      tid: tid,
+      fallbackPage: fallbackPage,
+    );
+    if (generation == client.cacheGeneration) {
+      cache.remember(key, source, detail);
+    }
+    return detail;
   }
 
   /// 导读流。view=new / hot 游客可用,view=my 需登录,否则站点返回登录提示页。
@@ -195,5 +251,25 @@ class ForumRepository {
     return parseTagThreads(
       await client.getHtml(ChhUrls.tag(id), refresh: refresh),
     );
+  }
+}
+
+class _ParsedThreadPages {
+  _ParsedThreadPages(this.generation);
+  final int generation;
+  final pages = <(Uri, int, int), (String, ThreadDetail)>{};
+
+  void remember((Uri, int, int) key, String source, ThreadDetail detail) {
+    if (source.length * 2 > (32 << 20)) return;
+    pages.remove(key);
+    pages[key] = (source, detail);
+    var sourceBytes = pages.values.fold(
+      0,
+      (sum, entry) => sum + entry.$1.length * 2,
+    );
+    // Bound both ordinary 30-page reads and unusually large source documents.
+    while (pages.length > 32 || sourceBytes > (32 << 20)) {
+      sourceBytes -= pages.remove(pages.keys.first)!.$1.length * 2;
+    }
   }
 }

@@ -3,6 +3,11 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:motor/motor.dart';
+import '../design/scroll_progress.dart';
+import '../design/forum_tokens.dart';
+import '../design/tokens.dart';
+import '../design/typography.dart';
+import '../ui/press.dart';
 import '../design/icons.dart';
 import '../design/motion.dart';
 import '../ui/app_button.dart';
@@ -39,15 +44,18 @@ class ForumThreadsPage extends StatefulWidget {
   State<ForumThreadsPage> createState() => _ForumThreadsPageState();
 }
 
-class _ForumThreadsPageState extends State<ForumThreadsPage> {
+class _ForumThreadsPageState extends State<ForumThreadsPage>
+    with SingleTickerProviderStateMixin {
   static final Map<int, ThreadSort> _sortMemory = {};
   late ThreadSort _sort;
-  bool _sortPickerOpen = false;
   bool _typePickerOpen = false;
-  final _composeVisible = ValueNotifier<bool>(true);
-  double _dragDistance = 0;
+  late final _composeProgress = ScrollDeltaProgress(
+    vsync: this,
+    travel: ForumTokens.fabTravel,
+  );
   List<ThreadType> _types = const [];
   int _typeid = 0;
+  String _lastTypeLabel = '';
   int _revision = 0;
   ForumRepository get _repository => widget.repository ?? forumRepo;
 
@@ -56,6 +64,14 @@ class _ForumThreadsPageState extends State<ForumThreadsPage> {
     super.initState();
     _sort = _sortMemory[widget.fid] ?? ThreadSort.fallback;
     _loadTypes();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _composeProgress.settle(reduced: true);
+    }
   }
 
   Future<void> _loadTypes() async {
@@ -74,22 +90,6 @@ class _ForumThreadsPageState extends State<ForumThreadsPage> {
     }
   }
 
-  Future<void> _pickSort() async {
-    if (_sortPickerOpen) return;
-    _sortPickerOpen = true;
-    final picked = await showPickerSheet<ThreadSort>(
-      context,
-      title: '排序方式',
-      options: [
-        for (final sort in ThreadSort.values)
-          PickerOption(value: sort, label: sort.label),
-      ],
-      value: _sort,
-    );
-    _sortPickerOpen = false;
-    if (mounted && picked != null) _selectSort(picked.value);
-  }
-
   Future<void> _pickType(List<PickerOption<int>> options) async {
     if (_typePickerOpen) return;
     _typePickerOpen = true;
@@ -98,38 +98,48 @@ class _ForumThreadsPageState extends State<ForumThreadsPage> {
       title: '选择分类',
       options: options,
       value: _typeid,
+      columns: 3,
+      immediateSelection: true,
     );
     _typePickerOpen = false;
     if (!mounted || picked == null || picked.value == _typeid) return;
-    setState(() => _typeid = picked.value);
-    _composeVisible.value = true;
+    setState(() {
+      _typeid = picked.value;
+      if (_typeid != 0) {
+        _lastTypeLabel = options
+            .firstWhere((option) => option.value == _typeid)
+            .label;
+      }
+    });
+    _composeProgress.show();
   }
 
   void _selectSort(ThreadSort sort) {
     if (sort == _sort) return;
     setState(() => _sort = sort);
     _sortMemory[widget.fid] = sort;
-    _composeVisible.value = true;
+    _composeProgress.show();
   }
 
   bool _trackScroll(ScrollNotification notification) {
     if (notification.metrics.axis != Axis.vertical) return false;
-    if (notification is ScrollUpdateNotification &&
-        notification.dragDetails != null) {
-      final delta = notification.scrollDelta ?? 0;
-      if (delta.sign != _dragDistance.sign) _dragDistance = 0;
-      _dragDistance += delta;
-      if (_dragDistance.abs() >= 6) {
-        final visible = _dragDistance < 0 || notification.metrics.pixels < 40;
-        if (_composeVisible.value != visible) _composeVisible.value = visible;
-      }
+    final reduced = MediaQuery.disableAnimationsOf(context);
+    if (notification is ScrollStartNotification) _composeProgress.stop();
+    if (notification is ScrollUpdateNotification) {
+      _composeProgress.drag(notification.scrollDelta ?? 0, reduced: reduced);
+    }
+    if (notification is ScrollEndNotification) {
+      _composeProgress.settle(
+        velocity: -(notification.dragDetails?.primaryVelocity ?? 0),
+        reduced: reduced,
+      );
     }
     return false;
   }
 
   @override
   void dispose() {
-    _composeVisible.dispose();
+    _composeProgress.dispose();
     super.dispose();
   }
 
@@ -153,83 +163,148 @@ class _ForumThreadsPageState extends State<ForumThreadsPage> {
     final now = DateTime.now();
     final sort = _sort;
     final typeid = _typeid;
-    return BrowseScaffold(
-      title: widget.title,
-      actions: [
-        FavoriteActionBuilder(
-          target: FavoriteTarget(
-            type: FavoriteType.forum,
-            targetId: widget.fid,
-            title: widget.title,
-          ),
-          builder: (context, favorited, busy, toggle) => ChromeGroup(
-            items: [
-              if (hasCategories)
+    final selectedType = _typeid == 0
+        ? null
+        : _types.where((type) => type.typeid == _typeid).firstOrNull;
+    return NotificationListener<ScrollNotification>(
+      onNotification: _trackScroll,
+      child: BrowseScaffold(
+        surface: AppSurface.grouped,
+        title: widget.title,
+        actions: [
+          FavoriteActionBuilder(
+            target: FavoriteTarget(
+              type: FavoriteType.forum,
+              targetId: widget.fid,
+              title: widget.title,
+            ),
+            builder: (context, favorited, busy, toggle) => ChromeGroup(
+              items: [
                 ChromeGroupItem(
                   tooltip: '分类筛选',
                   icon: AppIcons.filter,
                   selected: typeid != 0,
-                  onPressed: () => _pickType(options),
+                  dot: typeid != 0,
+                  onPressed: hasCategories ? () => _pickType(options) : null,
                 ),
-              ChromeGroupItem(
-                tooltip: '排序',
-                icon: AppIcons.sort,
-                selected: sort != ThreadSort.fallback,
-                onPressed: _pickSort,
-              ),
-              ChromeGroupItem(
-                tooltip: '搜索帖子',
-                icon: AppIcons.search,
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const SearchPage()),
+                ChromeGroupItem(
+                  tooltip: '搜索帖子',
+                  icon: AppIcons.search,
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const SearchPage()),
+                  ),
+                ),
+                ChromeGroupItem(
+                  tooltip: favorited ? '取消收藏版块' : '收藏版块',
+                  icon: favorited ? AppIcons.bookmarkFilled : AppIcons.bookmark,
+                  selected: favorited,
+                  onPressed: busy ? null : toggle,
+                ),
+              ],
+            ),
+          ),
+        ],
+        header: SingleMotionBuilder(
+          value: selectedType == null ? 0.0 : 1.0,
+          motion: AppMotion.of(context, AppMotion.reveal),
+          active: !MediaQuery.disableAnimationsOf(context),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppSpace.screen),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: PressScale(
+                key: const ValueKey('forum-filter-clear'),
+                onTap: selectedType == null
+                    ? null
+                    : () {
+                        setState(() => _typeid = 0);
+                        _composeProgress.show();
+                      },
+                semanticLabel: '清除分类',
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(minHeight: 44),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Flexible(
+                        child: Text(
+                          selectedType?.name ?? _lastTypeLabel,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppType.footnote.copyWith(
+                            color: AppTokens.of(context).accent,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Icon(
+                        AppIcons.close,
+                        size: 14,
+                        color: AppTokens.of(context).accent,
+                      ),
+                    ],
+                  ),
                 ),
               ),
-              ChromeGroupItem(
-                tooltip: favorited ? '取消收藏版块' : '收藏版块',
-                icon: favorited ? AppIcons.bookmarkFilled : AppIcons.bookmark,
-                selected: favorited,
-                onPressed: busy ? null : toggle,
-              ),
-            ],
+            ),
           ),
-        ),
-      ],
-      floatingActionButton: ValueListenableBuilder<bool>(
-        valueListenable: _composeVisible,
-        child: Tooltip(
-          message: '发主题',
-          child: AppButton(
-            label: '发帖',
-            icon: AppIcons.compose,
-            onPressed: _openNewThread,
-          ),
-        ),
-        builder: (context, visible, child) => IgnorePointer(
-          ignoring: !visible,
-          child: ExcludeSemantics(
-            excluding: !visible,
-            child: SingleMotionBuilder(
-              value: visible ? 1.0 : 0.0,
-              motion: AppMotion.of(context, AppMotion.reveal),
-              active: !MediaQuery.disableAnimationsOf(context),
-              child: child,
-              builder: (context, progress, child) => Opacity(
-                key: const ValueKey('forum-compose-visibility'),
-                opacity: progress.clamp(0.0, 1.0),
-                child: Transform.translate(
-                  offset: Offset(0, 80 * (1 - progress.clamp(0.0, 1.0))),
+          builder: (context, value, child) => ClipRect(
+            child: Align(
+              alignment: Alignment.topCenter,
+              heightFactor: value.clamp(0.0, 1.0),
+              child: ExcludeSemantics(
+                excluding: selectedType == null,
+                child: IgnorePointer(
+                  ignoring: selectedType == null,
                   child: child,
                 ),
               ),
             ),
           ),
         ),
-      ),
-      body: NotificationListener<ScrollNotification>(
-        onNotification: _trackScroll,
-        child: BrowseThreadList(
-          key: ValueKey('${widget.fid}-$_typeid-${_sort.name}-$_revision'),
+        floatingActionButton: ValueListenableBuilder<double>(
+          valueListenable: _composeProgress,
+          child: Tooltip(
+            message: '发主题',
+            child: AppButton(
+              label: '发帖',
+              icon: AppIcons.compose,
+              onPressed: _openNewThread,
+            ),
+          ),
+          builder: (context, progress, child) => IgnorePointer(
+            ignoring: progress == 1,
+            child: ExcludeSemantics(
+              excluding: progress == 1,
+              child: Transform.translate(
+                key: const ValueKey('forum-compose-visibility'),
+                offset: Offset(0, ForumTokens.fabTravel * progress),
+                child: child,
+              ),
+            ),
+          ),
+        ),
+        body: BrowseThreadList(
+          key: PageStorageKey('forum-list-${widget.fid}'),
+          queryKey: (widget.fid, _typeid, _sort, _revision),
+          groupCards: true,
+          sectionAction: Tooltip(
+            message: '排序',
+            child: PickerButton<ThreadSort>(
+              sheetTitle: '排序方式',
+              options: [
+                for (final value in ThreadSort.values)
+                  PickerOption(value: value, label: value.label),
+              ],
+              value: _sort,
+              onChanged: _selectSort,
+              sheetColumns: 1,
+              labelStyle: AppType.footnote.copyWith(
+                color: AppTokens.of(context).text2,
+              ),
+            ),
+          ),
           loader: (page, {bool refresh = false}) async {
             final result = await _repository.threadList(
               widget.fid,
@@ -262,9 +337,10 @@ class _ForumThreadsPageState extends State<ForumThreadsPage> {
             replies: thread.replies,
             builder: (context, state) => ThreadRow(
               thread: thread,
+              forumStyle: true,
               readState: state,
               eyebrow: thread.typeName,
-              showCategory: _typeid == 0,
+              showCategory: typeid == 0,
               timeLabel: ThreadListTime.of(thread, sort, now: now).label ?? '',
               onTap: () => Navigator.push(
                 context,

@@ -1,4 +1,4 @@
-/// 页面底部固定操作区:surface 底 + 顶部 0.5px 分隔线,避开底部安全区
+/// 页面底部固定操作区:surface 底与留白,避开底部安全区
 library;
 
 import 'package:flutter/material.dart';
@@ -13,12 +13,7 @@ class BottomBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
     return DecoratedBox(
-      decoration: BoxDecoration(
-        color: t.surface,
-        border: Border(
-          top: BorderSide(color: t.separator, width: AppSpace.hairline),
-        ),
-      ),
+      decoration: BoxDecoration(color: t.surface),
       child: SafeArea(
         top: false,
         child: ConstrainedBox(

@@ -16,8 +16,8 @@ import 'package:chh_app/ui/nav_bar.dart';
 import 'package:chh_app/pages/log_page.dart';
 import 'package:chh_app/pages/settings_page.dart';
 import 'package:chh_app/ui/app_button.dart';
-import 'package:chh_app/ui/plain_rows.dart';
-import 'package:chh_app/ui/picker.dart';
+import 'package:chh_app/ui/press.dart';
+import 'package:chh_app/ui/sheet_scaffold.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -159,70 +159,140 @@ void main() {
           await tester.pumpAndSettle();
           await tester.tap(trigger);
           await tester.pumpAndSettle();
-          final dialog = find.byType(AlertDialog);
-          final material = tester.widget<Material>(
-            find.descendant(of: dialog, matching: find.byType(Material)).first,
-          );
+          final isSheet = kind != 'logs';
+          final dialog = isSheet
+              ? find.byType(AppSheetSurface)
+              : find.byType(AlertDialog);
+          final Color surface;
+          if (isSheet) {
+            final decoration =
+                tester
+                        .widget<DecoratedBox>(
+                          find
+                              .descendant(
+                                of: dialog,
+                                matching: find.byType(DecoratedBox),
+                              )
+                              .first,
+                        )
+                        .decoration
+                    as ShapeDecoration;
+            surface = decoration.color!;
+            expect(surface, AppTokens.of(tester.element(dialog)).surface);
+          } else {
+            surface = tester
+                .widget<Material>(
+                  find
+                      .descendant(of: dialog, matching: find.byType(Material))
+                      .first,
+                )
+                .color!;
+            expect(
+              surface,
+              brightness == Brightness.dark ? Radix.slate2Dark : Radix.whiteA12,
+            );
+          }
           expect(
-            material.color,
-            brightness == Brightness.dark ? Radix.slate2Dark : Radix.whiteA12,
-          );
-          expect(
-            material.color!.a,
+            surface.a,
             1,
-            reason: 'Actual M3 dialog surface must obscure the underlying page',
+            reason: 'The confirmation surface obscures the underlying page',
           );
           final title = find.text(switch (kind) {
             'cache' => '清除图片缓存？',
             'logout' => '退出当前账号？',
             _ => '清空运行日志？',
           });
-          final style = DefaultTextStyle.of(tester.element(title)).style;
-          expect(style.fontSize, 17);
-          expect(style.fontWeight, FontWeight.w600);
-          expect(
-            _contrast(style.color!, material.color!),
-            greaterThanOrEqualTo(4.5),
-          );
+          final style = isSheet
+              ? tester.widget<Text>(title).style!
+              : DefaultTextStyle.of(tester.element(title)).style;
+          expect(style.fontSize, isSheet ? 18 : 17);
+          expect(style.fontWeight, isSheet ? FontWeight.w700 : FontWeight.w600);
+          expect(_contrast(style.color!, surface), greaterThanOrEqualTo(4.5));
           final rect = tester.getRect(dialog);
-          expect(rect.left, greaterThanOrEqualTo(0));
-          expect(rect.right, lessThanOrEqualTo(tester.view.physicalSize.width));
-          for (final element
-              in find
-                  .descendant(of: dialog, matching: find.byType(AppButton))
-                  .evaluate()) {
-            final button = element.widget as AppButton;
-            final text = find.descendant(
-              of: find.byWidget(button),
-              matching: find.text(button.label),
+          expect(rect.left, greaterThanOrEqualTo(isSheet ? 8 : 0));
+          expect(
+            rect.right,
+            lessThanOrEqualTo(
+              tester.view.physicalSize.width - (isSheet ? 8 : 0),
+            ),
+          );
+          if (isSheet) {
+            final buttons = find.descendant(
+              of: dialog,
+              matching: find.byType(PressScale),
             );
-            final paragraph = tester.renderObject<RenderParagraph>(text);
-            expect(paragraph.didExceedMaxLines, isFalse);
-            expect(
-              tester.getSize(find.byWidget(button)).shortestSide,
-              greaterThanOrEqualTo(44),
-            );
-            expect(
-              _contrast(
-                tester.widget<Text>(text).style!.color!,
-                material.color!,
-              ),
-              greaterThanOrEqualTo(4.5),
-            );
-            if (button.label != '取消') {
-              expect(
-                button.variant,
-                kind == 'cache'
-                    ? AppButtonVariant.plain
-                    : AppButtonVariant.destructive,
+            expect(buttons, findsNWidgets(2));
+            for (final element in buttons.evaluate()) {
+              final button = find.byWidget(element.widget);
+              final text = find.descendant(
+                of: button,
+                matching: find.byType(Text),
               );
+              final decoration =
+                  tester
+                          .widget<DecoratedBox>(
+                            find
+                                .descendant(
+                                  of: button,
+                                  matching: find.byWidgetPredicate(
+                                    (widget) =>
+                                        widget is DecoratedBox &&
+                                        widget.decoration is BoxDecoration &&
+                                        (widget.decoration as BoxDecoration)
+                                                .color !=
+                                            null,
+                                  ),
+                                )
+                                .first,
+                          )
+                          .decoration
+                      as BoxDecoration;
+              final background = Color.alphaBlend(decoration.color!, surface);
+              expect(
+                tester.renderObject<RenderParagraph>(text).didExceedMaxLines,
+                isFalse,
+              );
+              expect(
+                tester.getSize(button).shortestSide,
+                greaterThanOrEqualTo(44),
+              );
+              expect(
+                _contrast(tester.widget<Text>(text).style!.color!, background),
+                greaterThanOrEqualTo(4.5),
+              );
+            }
+          } else {
+            for (final element
+                in find
+                    .descendant(of: dialog, matching: find.byType(AppButton))
+                    .evaluate()) {
+              final button = element.widget as AppButton;
+              final text = find.descendant(
+                of: find.byWidget(button),
+                matching: find.text(button.label),
+              );
+              expect(
+                tester.renderObject<RenderParagraph>(text).didExceedMaxLines,
+                isFalse,
+              );
+              expect(
+                tester.getSize(find.byWidget(button)).shortestSide,
+                greaterThanOrEqualTo(44),
+              );
+              expect(
+                _contrast(tester.widget<Text>(text).style!.color!, surface),
+                greaterThanOrEqualTo(4.5),
+              );
+              if (button.label != '取消') {
+                expect(button.variant, AppButtonVariant.destructive);
+              }
             }
           }
           expect(tester.takeException(), isNull);
           await _shot(tester, '$kind-${brightness.name}-$scale');
           await tester.tap(find.text('取消'));
           await tester.pumpAndSettle();
-          expect(find.byType(AlertDialog), findsNothing);
+          expect(dialog, findsNothing);
           expect(chhSession.loggedIn, isTrue);
         });
       }
@@ -231,7 +301,7 @@ void main() {
 
   for (final scale in [1.0, 2.0]) {
     testWidgets(
-      'nested directory keeps lazy rendering and collapse coordination scale $scale',
+      'directory keeps lazy rendering and collapse coordination scale $scale',
       (tester) async {
         tester.view.physicalSize = Size(scale == 2 ? 320 : 390, 844);
         tester.view.devicePixelRatio = 1;
@@ -258,27 +328,21 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
-        expect(find.byType(PlainRow).evaluate().length, lessThan(40));
-        expect(find.byType(PlainRow).evaluate().length, greaterThan(0));
+        expect(find.textContaining('版块 ').evaluate().length, lessThan(40));
+        expect(find.textContaining('版块 ').evaluate().length, greaterThan(0));
         final results = find.byType(CustomScrollView).last;
         await tester.drag(results, const Offset(0, -650));
         await tester.pumpAndSettle();
-        final nested = tester.state<NestedScrollViewState>(
-          find.byType(NestedScrollView),
-        );
-        expect(
-          nested.outerController.offset,
-          greaterThan(0),
-          reason: 'Results retain nested title collapse coordination',
-        );
-        // 朱漆红 v2:目录无本地搜索;漆面滚走后内联小标题接管,回顶可交互
-        final picker = find.byType(PickerButton<int>);
-        nested.outerController.jumpTo(0);
-        await tester.pumpAndSettle();
+        final scroll = tester.widget<CustomScrollView>(results).controller!;
+        expect(scroll.offset, greaterThan(0));
+        final picker = find.byKey(const ValueKey('forum-directory-jump'));
         expect(picker.hitTestable(), findsOneWidget);
+        scroll.jumpTo(0);
+        await tester.pumpAndSettle();
+        expect(picker.hitTestable(), findsNothing);
         expect(find.text('版块 0'), findsOneWidget);
-        expect(find.byType(PlainRow).evaluate().length, lessThan(40));
-        expect(find.byType(PlainRow).evaluate().length, greaterThan(0));
+        expect(find.textContaining('版块 ').evaluate().length, lessThan(40));
+        expect(find.textContaining('版块 ').evaluate().length, greaterThan(0));
         expect(loads, 1);
         expect(tester.takeException(), isNull);
         await tester.drag(results, const Offset(0, 1000));
@@ -289,7 +353,7 @@ void main() {
   }
   for (final scale in [1.0, 2.0]) {
     testWidgets(
-      'home forum picker rides the title row and nav stays steady on collapse scale $scale',
+      'home forum section picker stays in compact bar on collapse scale $scale',
       (tester) async {
         tester.view.devicePixelRatio = 1;
         tester.view.physicalSize = Size(scale == 2 ? 320 : 390, 844);
@@ -331,55 +395,22 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
-        final nested = tester.state<NestedScrollViewState>(
-          find.byType(NestedScrollView),
-        );
-        final picker = find.byType(PickerButton<int>);
-        final nav = find.byType(NavOverlay);
-        final bar = find.descendant(
-          of: nav,
-          matching: find.byWidgetPredicate(
-            (widget) =>
-                widget is Positioned && widget.height == NavOverlay.barHeight,
-          ),
-        );
-        // 漆面顶栏条本身固定;分区筛选住大标题行右侧(朱漆红 v2)
-        void expectBarSteady() {
-          final barRect = tester.getRect(bar);
-          expect(barRect.top, 32);
-          expect(barRect.height, NavOverlay.barHeight);
-          expect(
-            tester.getRect(nav).bottom,
-            closeTo(barRect.bottom + NavOverlay.fadeBand, .01),
-          );
-        }
-
-        void expectPickerBelowNav({bool hitTest = true}) {
-          expectBarSteady();
-          expect(
-            tester.getRect(picker).top,
-            greaterThanOrEqualTo(tester.getRect(bar).bottom),
-            reason:
-                'The picker must not paint behind the actual navigation bar',
-          );
-          if (hitTest) {
-            expect(picker.hitTestable(), findsOneWidget);
-          }
-        }
-
-        expect(nested.outerController.offset, 0);
-        expectPickerBelowNav();
-        // 分区筛选随标题行住漆面,不下沉进 mast 区
-        expect(
-          tester.getRect(picker).top,
-          lessThan(tester.getRect(find.byType(LargeTitleHeader)).bottom),
-          reason: 'Picker rides the title row accessory',
-        );
-        expect(find.byType(AppBottomNavigation), findsOneWidget);
-        expect(find.byType(PlainRow).evaluate().length, lessThan(40));
-        expect(find.byType(PlainRow).evaluate().length, greaterThan(0));
-        await _shot(tester, 'home-forum-initial-$scale');
         final results = find.byType(CustomScrollView).last;
+        final scroll = tester.widget<CustomScrollView>(results).controller!;
+        final picker = find.byKey(const ValueKey('forum-directory-jump'));
+        void expectBarSteady() {
+          final rect = tester.getRect(picker);
+          expect(rect.top, greaterThanOrEqualTo(32));
+          expect(rect.bottom, lessThanOrEqualTo(32 + NavOverlay.barHeight));
+        }
+
+        expect(scroll.offset, 0);
+        expectBarSteady();
+        expect(picker.hitTestable(), findsNothing);
+        expect(find.byType(AppBottomNavigation), findsOneWidget);
+        expect(find.textContaining('版块 ').evaluate().length, lessThan(40));
+        expect(find.textContaining('版块 ').evaluate().length, greaterThan(0));
+        await _shot(tester, 'home-forum-initial-$scale');
         for (var i = 0; i < 4; i++) {
           final drag = await tester.startGesture(tester.getCenter(results));
           for (var step = 0; step < 4; step++) {
@@ -391,29 +422,16 @@ void main() {
           await tester.pumpAndSettle();
           expectBarSteady();
         }
-        expect(
-          nested.outerController.offset,
-          closeTo(nested.outerController.position.maxScrollExtent, .01),
-        );
-        expect(nested.outerController.offset, greaterThan(0));
-        // 漆面滚走后内联小标题接管顶栏
-        expect(
-          tester.widget<Opacity>(find.byKey(NavOverlay.inlineTitleKey)).opacity,
-          closeTo(1, .01),
-        );
+        expect(scroll.offset, greaterThan(0));
+        expect(picker.hitTestable(), findsOneWidget);
         await _shot(tester, 'home-forum-collapsed-$scale');
-        nested.outerController.jumpTo(0);
-        await tester.pumpAndSettle();
-        expectPickerBelowNav();
         await tester.tap(picker);
         await tester.pumpAndSettle();
-        await tester.tap(find.byKey(const ValueKey('picker-option-1')));
-        await tester.pump(const Duration(milliseconds: 250));
+        await tester.tap(find.byKey(const ValueKey('picker-option-0')));
         await tester.pumpAndSettle();
-        expect(tester.widget<PickerButton<int>>(picker).value, 0);
+        expect(find.text('版块 0'), findsOneWidget);
         expect(loads, 1);
-        nested.innerController.jumpTo(0);
-        nested.outerController.jumpTo(0);
+        scroll.jumpTo(0);
         await tester.pumpAndSettle();
         await tester.drag(results, const Offset(0, 500));
         await tester.pumpAndSettle();
@@ -423,8 +441,8 @@ void main() {
           reason:
               'One actual pull refresh issues exactly one extra catalog load',
         );
-        expect(tester.widget<PickerButton<int>>(picker).value, 0);
-        expectPickerBelowNav();
+        expectBarSteady();
+        expect(picker.hitTestable(), findsNothing);
         expect(tester.takeException(), isNull);
       },
     );

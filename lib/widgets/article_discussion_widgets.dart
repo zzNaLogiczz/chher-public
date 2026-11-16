@@ -1,24 +1,25 @@
 /// Discussion-specific surfaces: local motion only, no scroll-driven effects.
 library;
 
-import '../design/motion.dart';
 import '../design/typography.dart';
 import 'package:flutter/material.dart';
 import '../design/reading.dart';
-import 'package:motor/motor.dart';
 
 import '../design/tokens.dart';
-import '../ui/app_button.dart';
+import '../ui/quote.dart';
 import '../ui/hit_slop.dart';
 import '../ui/press.dart';
 import '../pages/user_drawer.dart';
 import 'post_card.dart' show CommentMetaRow;
 import '../models/article_discussion.dart';
 import '../models/models.dart';
+import '../models/quote_presentation.dart';
 import 'article_image.dart';
 import 'avatar_image.dart';
 import 'rich_content_text.dart';
 import 'content_link_block.dart';
+import 'site_link_card.dart';
+import '../models/image_stack_group.dart';
 
 enum ArticleCommentPart { complete, header, footer }
 
@@ -85,7 +86,11 @@ class ArticleCommentTile extends StatelessWidget {
             _profileLink(
               context,
               key: ValueKey('article-comment-avatar-${comment.cid}'),
-              child: AvatarImage(url: comment.avatarUrl, size: avatar),
+              child: AvatarImage(
+                name: comment.author,
+                url: comment.avatarUrl,
+                size: avatar,
+              ),
             ),
             const SizedBox(width: 10),
             Expanded(
@@ -138,14 +143,8 @@ class ArticleCommentTile extends StatelessWidget {
                   const SizedBox(height: 4),
                   if (part == ArticleCommentPart.complete)
                     DiscussionCommentContent(
-                      blocks: hideQuotes
-                          ? comment.content
-                                .where(
-                                  (block) =>
-                                      block is! QuoteBlock || block.isNotice,
-                                )
-                                .toList()
-                          : comment.content,
+                      blocks: comment.content,
+                      hideQuotes: hideQuotes,
                       fallback: comment.text,
                       prefix: replyToAuthor == null
                           ? null
@@ -189,6 +188,7 @@ class ArticleCommentTile extends StatelessWidget {
 class DiscussionCommentContent extends StatelessWidget {
   final List<ContentBlock> blocks;
   final String fallback;
+  final bool hideQuotes;
 
   /// 写在正文最前面的"回复 X："
   final String? prefix;
@@ -197,6 +197,7 @@ class DiscussionCommentContent extends StatelessWidget {
     super.key,
     required this.blocks,
     this.fallback = '',
+    this.hideQuotes = false,
     this.prefix,
   });
 
@@ -222,12 +223,21 @@ class DiscussionCommentContent extends StatelessWidget {
           // 没有文字段落(只有图片等)时,回复对象单独一行
           else if (prefix != null && firstText < 0)
             Text(prefix!, style: style),
-          for (var i = 0; i < blocks.length; i++)
-            DiscussionCommentBlock(
-              block: blocks[i],
-              last: i == blocks.length - 1,
-              prefix: i == firstText ? prefix : null,
-            ),
+          for (final segment in groupPostImages(blocks, groupImages: false))
+            if (!(hideQuotes &&
+                segment.block is QuoteBlock &&
+                !(segment.block as QuoteBlock).isNotice))
+              DiscussionCommentBlock(
+                block: segment.block!,
+                siteLinks: segment.siteLinks,
+                linksGrouped: segment.linksGrouped,
+                linkGroupStart: segment.linkGroupStart,
+                linkGroupEnd: segment.linkGroupEnd,
+                last:
+                    segment.blockIndex + (segment.siteLinks?.length ?? 1) ==
+                    blocks.length,
+                prefix: segment.blockIndex == firstText ? prefix : null,
+              ),
         ],
       ),
     );
@@ -237,11 +247,19 @@ class DiscussionCommentContent extends StatelessWidget {
 /// One independently laid-out paragraph, image, quote or link in a comment.
 class DiscussionCommentBlock extends StatelessWidget {
   final ContentBlock block;
+  final List<SiteLinkBlock>? siteLinks;
+  final bool linksGrouped;
+  final bool linkGroupStart;
+  final bool linkGroupEnd;
   final bool last;
   final String? prefix;
   const DiscussionCommentBlock({
     super.key,
     required this.block,
+    this.siteLinks,
+    this.linksGrouped = false,
+    this.linkGroupStart = true,
+    this.linkGroupEnd = true,
     this.last = false,
     this.prefix,
   });
@@ -283,8 +301,18 @@ class DiscussionCommentBlock extends StatelessWidget {
         child: DiscussionQuote(quote: block as QuoteBlock),
       ),
       SiteLinkBlock() || BilibiliBlock() => Padding(
-        padding: EdgeInsets.only(bottom: metrics.paragraphGap),
-        child: ContentLinkBlockView(block: block),
+        padding: EdgeInsets.only(
+          bottom: linkGroupEnd ? metrics.paragraphGap : 0,
+        ),
+        child: siteLinks != null
+            ? SiteLinkGroupCard(
+                blocks: siteLinks!,
+                compact: true,
+                grouped: linksGrouped,
+                first: linkGroupStart,
+                last: linkGroupEnd,
+              )
+            : ContentLinkBlockView(block: block, compact: true),
       ),
     };
   }
@@ -295,114 +323,58 @@ TextBlock _prefixed(TextBlock block, String prefix) => TextBlock(
   nodes: block.hasInline ? [InlineText(prefix), ...block.nodes] : const [],
 );
 
-class DiscussionQuote extends StatefulWidget {
+class DiscussionQuote extends StatelessWidget {
   final QuoteBlock quote;
   const DiscussionQuote({super.key, required this.quote});
-  @override
-  State<DiscussionQuote> createState() => _DiscussionQuoteState();
-}
 
-class _DiscussionQuoteState extends State<DiscussionQuote> {
-  bool _expanded = false;
-  bool _opened = false;
   String _plain(List<ContentBlock> blocks) => blocks
       .map(
         (b) => switch (b) {
           TextBlock(:final text) => text,
           QuoteBlock(:final children) => _plain(children),
           ImageBlock() => '引用图片',
-          // 引用里的链接只保留文字,不会产生卡片
           SiteLinkBlock() || BilibiliBlock() => '',
         },
       )
       .join('\n');
 
+  bool _hasMedia(List<ContentBlock> blocks) => blocks.any(
+    (b) => switch (b) {
+      TextBlock(:final hasInline) => hasInline,
+      QuoteBlock(:final children) => _hasMedia(children),
+      _ => true,
+    },
+  );
+
   @override
   Widget build(BuildContext context) {
-    final t = AppTokens.of(context);
+    final display = quoteForDisplay(quote);
     final metrics = ReadingMetrics.of(context);
-    // 与帖子引用同一种样式:左侧细线,不用灰框(规格 §6.13)
+    final theme = Theme.of(context);
+    final t = AppTokens.of(context);
     return MediaQuery(
       data: MediaQuery.of(context).copyWith(
         textScaler: metrics.textScaler(MediaQuery.textScalerOf(context)),
       ),
-      child: Container(
+      child: QuoteView(
         key: const ValueKey('discussion-quote'),
-        padding: const EdgeInsets.fromLTRB(12, 2, 0, 4),
-        decoration: BoxDecoration(
-          border: Border(left: BorderSide(color: t.fill2, width: 3)),
+        author: display.source ?? '',
+        text: _plain(display.children),
+        bodyStyle: TextStyle(
+          fontSize: metrics.commentSize,
+          height: metrics.commentHeight,
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    widget.quote.source?.isNotEmpty == true
-                        ? widget.quote.source!
-                        : '引用评论',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: AppType.sizeFootnote,
-                      color: t.text2,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
+        expandedContent: _hasMedia(display.children)
+            ? Theme(
+                data: theme.copyWith(
+                  extensions: [
+                    ...theme.extensions.values.where((e) => e is! AppTokens),
+                    t.copyWith(text: t.text2),
+                  ],
                 ),
-                AppButton(
-                  label: _expanded ? '收起引用' : '展开引用',
-                  variant: AppButtonVariant.plain,
-                  small: true,
-                  onPressed: () => setState(() {
-                    _expanded = !_expanded;
-                    _opened = true;
-                  }),
-                ),
-              ],
-            ),
-            SingleMotionBuilder(
-              value: _expanded ? 1 : 0,
-              active: !MediaQuery.disableAnimationsOf(context),
-              motion: AppMotion.of(context, AppMotion.reveal),
-              child: _opened
-                  ? DiscussionCommentContent(blocks: widget.quote.children)
-                  : const SizedBox.shrink(),
-              builder: (context, progress, full) => Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  ClipRect(
-                    child: Align(
-                      alignment: Alignment.topLeft,
-                      heightFactor: (1 - progress).clamp(0, 1),
-                      child: Text(
-                        _plain(widget.quote.children),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: metrics.commentSize,
-                          height: metrics.commentHeight,
-                          color: t.text2,
-                        ),
-                      ),
-                    ),
-                  ),
-                  ClipRect(
-                    child: Align(
-                      alignment: Alignment.topLeft,
-                      heightFactor: progress.clamp(0, 1),
-                      child: ExcludeSemantics(
-                        excluding: !_expanded,
-                        child: full,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
+                child: DiscussionCommentContent(blocks: display.children),
+              )
+            : null,
       ),
     );
   }

@@ -2,6 +2,11 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
+import 'package:flutter/physics.dart';
+import '../design/image_tokens.dart';
+import '../attachments/image_save.dart';
+import '../ui/feedback.dart';
 import '../design/icons.dart';
 import '../ui/press.dart';
 import '../design/motion.dart';
@@ -80,60 +85,187 @@ class _ImageTile extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
-    final t = AppTokens.of(context);
-    return Semantics(
-      button: true,
-      label: '查看第 ${index + 1} 张图片',
-      child: PressHighlight(
-        onTap: () => Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => ImageViewerPage(urls: all, initialIndex: index),
-          ),
+  Widget build(BuildContext context) => InlineImageViewer(
+    url: url,
+    gallery: all,
+    initialIndex: index,
+    natural: natural,
+  );
+}
+
+/// The source and destination share one provider, including its decode size.
+class InlineImageViewer extends StatefulWidget {
+  const InlineImageViewer({
+    super.key,
+    required this.url,
+    required this.gallery,
+    this.initialIndex = 0,
+    this.natural = true,
+  });
+
+  final String url;
+  final List<String> gallery;
+  final int initialIndex;
+  final bool natural;
+
+  @override
+  State<InlineImageViewer> createState() => _InlineImageViewerState();
+}
+
+class _InlineImageViewerState extends State<InlineImageViewer> {
+  final _heroTag = Object();
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final t = AppTokens.of(context);
+      final provider = boundedNetworkImage(
+        widget.url,
+        boundedImageDecodeWidth(
+          constraints.maxWidth,
+          MediaQuery.devicePixelRatioOf(context),
         ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(natural ? 12 : 8),
-          child: natural
-              ? ArticleImage(url: url)
-              : LayoutBuilder(
-                  builder: (context, constraints) => Image(
-                    image: boundedNetworkImage(
-                      url,
-                      boundedImageDecodeWidth(
-                        constraints.maxWidth,
-                        MediaQuery.devicePixelRatioOf(context),
+      );
+      final gallery = widget.gallery.isEmpty ? [widget.url] : widget.gallery;
+      final index = widget.initialIndex.clamp(0, gallery.length - 1);
+      return PressScale(
+        scale: AppPressScale.content,
+        semanticLabel: '查看第 ${index + 1} 张图片',
+        onTap: () => openImageViewer(
+          context,
+          urls: gallery,
+          initialIndex: index,
+          heroTag: _heroTag,
+          previewImage: provider,
+        ),
+        child: HeroMode(
+          enabled: !MediaQuery.disableAnimationsOf(context),
+          child: Hero(
+            tag: _heroTag,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(
+                widget.natural ? ImageTokens.radius : AppRadii.xs,
+              ),
+              child: widget.natural
+                  ? ArticleImage(url: widget.url, imageProvider: provider)
+                  : Image(
+                      image: provider,
+                      fit: BoxFit.cover,
+                      gaplessPlayback: true,
+                      frameBuilder: (context, child, frame, synchronous) =>
+                          synchronous || frame != null
+                          ? child
+                          : ColoredBox(color: t.fill),
+                      errorBuilder: (context, _, _) => ColoredBox(
+                        color: t.fill,
+                        child: Center(
+                          child: Icon(AppIcons.image, color: t.text3),
+                        ),
                       ),
                     ),
-                    fit: BoxFit.cover,
-                    gaplessPlayback: true,
-                    frameBuilder: (context, child, frame, synchronous) =>
-                        synchronous || frame != null
-                        ? child
-                        : Container(color: t.fill),
-                    errorBuilder: (context, _, _) => Container(
-                      color: t.fill,
-                      alignment: Alignment.center,
-                      child: Icon(AppIcons.image, size: 22, color: t.text3),
-                    ),
-                  ),
-                ),
+            ),
+          ),
         ),
+      );
+    },
+  );
+}
+
+Future<void> openImageViewer(
+  BuildContext context, {
+  required List<String> urls,
+  int initialIndex = 0,
+  Object? heroTag,
+  Object Function(int)? heroTagForIndex,
+  ImageProvider<Object>? previewImage,
+  ImageProvider<Object> Function(int)? previewImageForIndex,
+  ValueChanged<int>? onPageChanged,
+}) async {
+  if (urls.isEmpty) return;
+  await Navigator.of(context).push<void>(
+    _ImageViewerRoute(
+      reduced: MediaQuery.disableAnimationsOf(context),
+      builder: (_) => ImageViewerPage(
+        urls: urls,
+        initialIndex: initialIndex,
+        heroTag: heroTag,
+        heroTagForIndex: heroTagForIndex,
+        previewImage: previewImage,
+        previewImageForIndex: previewImageForIndex,
+        onPageChanged: onPageChanged,
       ),
-    );
-  }
+    ),
+  );
+}
+
+class _ViewerPagePhysics extends PageScrollPhysics {
+  const _ViewerPagePhysics({super.parent});
+
+  @override
+  _ViewerPagePhysics applyTo(ScrollPhysics? ancestor) =>
+      _ViewerPagePhysics(parent: buildParent(ancestor));
+
+  @override
+  SpringDescription get spring => AppMotion.sheet.description;
+}
+
+class _ImageViewerRoute extends PageRouteBuilder<void> {
+  _ImageViewerRoute({required WidgetBuilder builder, required this.reduced})
+    : super(
+        opaque: false,
+        allowSnapshotting: false,
+        barrierColor: Colors.transparent,
+        transitionDuration: reduced
+            ? AppMotion.reducedFade
+            : AppMotion.sheetDuration,
+        reverseTransitionDuration: reduced
+            ? AppMotion.reducedFade
+            : AppMotion.sheetDuration,
+        pageBuilder: (context, _, _) =>
+            SizedBox.expand(child: builder(context)),
+        transitionsBuilder: (context, animation, _, child) => child,
+      );
+
+  final bool reduced;
+  double? releaseVelocity;
+
+  @override
+  Simulation? createSimulation({required bool forward}) => reduced
+      ? null
+      : SpringSimulation(
+          forward ? AppMotion.hero : AppMotion.sheet.description,
+          controller!.value,
+          forward ? 1 : 0,
+          releaseVelocity ?? controller!.velocity,
+          snapToEnd: true,
+        );
 }
 
 class ImageViewerPage extends StatefulWidget {
   final List<String> urls;
   final int initialIndex;
-  const ImageViewerPage({super.key, required this.urls, this.initialIndex = 0});
+  final Object? heroTag;
+  final ImageProvider<Object>? previewImage;
+  final Object Function(int)? heroTagForIndex;
+  final ImageProvider<Object> Function(int)? previewImageForIndex;
+  final ValueChanged<int>? onPageChanged;
+  const ImageViewerPage({
+    super.key,
+    required this.urls,
+    this.initialIndex = 0,
+    this.heroTag,
+    this.previewImage,
+    this.heroTagForIndex,
+    this.previewImageForIndex,
+    this.onPageChanged,
+  });
 
   @override
   State<ImageViewerPage> createState() => _ImageViewerPageState();
 }
 
 class _ImageViewerPageState extends State<ImageViewerPage>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late final _controller = PageController(initialPage: _index);
   late int _index = widget.urls.isEmpty
       ? 0
@@ -143,14 +275,27 @@ class _ImageViewerPageState extends State<ImageViewerPage>
     vsync: this,
     duration: AppMotion.revealDuration,
   );
+  late final _dismiss = AnimationController.unbounded(vsync: this);
+  late final _pageMotion = AnimationController.unbounded(vsync: this);
+  final _pointers = <int>{};
+  Offset? _dragStart;
+  Offset? _lastPosition;
+  VelocityTracker? _velocity;
+  bool _dragging = false;
+  bool _closing = false;
   Animation<Matrix4>? _zoomAnimation;
+  double _zoomStartScale = 1, _zoomEndScale = 1;
   Offset _tapPosition = Offset.zero;
   bool _zoomed = false;
   bool _fullResolutionRequested = false;
+  bool _saving = false;
 
   @override
   void initState() {
     super.initState();
+    _pageMotion.addListener(() {
+      if (_controller.hasClients) _controller.jumpTo(_pageMotion.value);
+    });
     _zoom.addListener(() {
       final animation = _zoomAnimation;
       if (animation != null) _transform.value = animation.value;
@@ -163,10 +308,18 @@ class _ImageViewerPageState extends State<ImageViewerPage>
         : (Matrix4.identity()
             ..translateByDouble(-_tapPosition.dx, -_tapPosition.dy, 0, 1)
             ..scaleByDouble(2, 2, 1, 1));
+    final startScale = _transform.value.getMaxScaleOnAxis();
+    final endScale = target.getMaxScaleOnAxis();
+    final distance = endScale - startScale;
+    final velocity = distance.abs() < .001
+        ? 0.0
+        : _zoom.velocity * (_zoomEndScale - _zoomStartScale) / distance;
+    _zoomStartScale = startScale;
+    _zoomEndScale = endScale;
     _zoomAnimation = Matrix4Tween(
       begin: _transform.value,
       end: target,
-    ).animate(CurvedAnimation(parent: _zoom, curve: Curves.easeOutCubic));
+    ).animate(_zoom);
     setState(() {
       _zoomed = !_zoomed;
       _fullResolutionRequested = _zoomed;
@@ -174,12 +327,94 @@ class _ImageViewerPageState extends State<ImageViewerPage>
     if (MediaQuery.disableAnimationsOf(context)) {
       _transform.value = target;
     } else {
-      _zoom.forward(from: 0);
+      _zoom.value = 0;
+      AppMotion.settle(
+        _zoom,
+        target: 1,
+        velocity: velocity,
+        motion: AppMotion.select,
+      );
+    }
+  }
+
+  void _pointerDown(PointerDownEvent event) {
+    _pointers.add(event.pointer);
+    _pageMotion.stop();
+    _dismiss.stop();
+    if (_pointers.length != 1 || _zoomed || _closing) {
+      _cancelDrag();
+      return;
+    }
+    _dragStart = _lastPosition = event.position;
+    _velocity = VelocityTracker.withKind(event.kind)
+      ..addPosition(event.timeStamp, event.position);
+  }
+
+  void _pointerMove(PointerMoveEvent event) {
+    final start = _dragStart;
+    if (start == null) return;
+    _velocity?.addPosition(event.timeStamp, event.position);
+    final total = event.position - start;
+    if (!_dragging && total.distance > kTouchSlop) {
+      if (total.dy.abs() <= total.dx.abs() || _zoomed) {
+        _cancelDrag();
+        return;
+      }
+      _dragging = true;
+    }
+    if (_dragging) {
+      _dismiss.value = (_dismiss.value + event.position.dy - _lastPosition!.dy)
+          .clamp(0.0, MediaQuery.sizeOf(context).height);
+      _lastPosition = event.position;
+    }
+  }
+
+  void _pointerUp(PointerEvent event) {
+    _pointers.remove(event.pointer);
+    if (_dragStart == null) return;
+    _velocity?.addPosition(event.timeStamp, event.position);
+    final velocity = _velocity?.getVelocity().pixelsPerSecond.dy ?? 0;
+    final height = MediaQuery.sizeOf(context).height;
+    final dismiss =
+        _dragging &&
+        (_dismiss.value > height * ImageTokens.dismissFraction ||
+            velocity > ImageTokens.dismissVelocity);
+    _dragStart = _lastPosition = null;
+    _dragging = false;
+    if (dismiss && Navigator.of(context).canPop()) {
+      _closing = true;
+      final route = ModalRoute.of(context);
+      if (route is _ImageViewerRoute) {
+        route.releaseVelocity = -velocity / height;
+      }
+      Navigator.of(context).pop();
+    } else {
+      AppMotion.settle(
+        _dismiss,
+        target: 0,
+        velocity: velocity,
+        motion: AppMotion.sheet,
+        reduced: MediaQuery.disableAnimationsOf(context),
+      );
+    }
+  }
+
+  void _cancelDrag() {
+    _dragStart = _lastPosition = null;
+    _dragging = false;
+    if (_dismiss.value != 0) {
+      AppMotion.settle(
+        _dismiss,
+        target: 0,
+        motion: AppMotion.sheet,
+        reduced: MediaQuery.disableAnimationsOf(context),
+      );
     }
   }
 
   void _pageChanged(int index) {
     _zoom.stop();
+    widget.onPageChanged?.call(index);
     _transform.value = Matrix4.identity();
     setState(() {
       _index = index;
@@ -188,22 +423,48 @@ class _ImageViewerPageState extends State<ImageViewerPage>
     });
   }
 
+  void _goTo(int index) {
+    _pageMotion.value = _controller.offset;
+    AppMotion.settle(
+      _pageMotion,
+      target: index * _controller.position.viewportDimension,
+      motion: AppMotion.sheet,
+      reduced: MediaQuery.disableAnimationsOf(context),
+    );
+  }
+
+  Future<void> _save() async {
+    if (_saving || widget.urls.isEmpty) return;
+    final url = widget.urls[_index];
+    setState(() => _saving = true);
+    try {
+      final saved = await saveForumImage(url);
+      if (mounted && saved) AppToast.show(context, '图片已保存');
+    } catch (_) {
+      if (mounted) AppToast.show(context, '保存失败，请重试');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
   @override
   void dispose() {
+    _pageMotion.dispose();
     _controller.dispose();
     _transform.dispose();
     _zoom.dispose();
+    _dismiss.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final foreground = ImageColors.viewerForeground;
-    return Scaffold(
-      backgroundColor: ImageColors.viewerBackground,
+    final page = Scaffold(
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
         systemOverlayStyle: AppSystemUi.lightIcons,
-        backgroundColor: ImageColors.viewerBackground,
+        backgroundColor: Colors.transparent,
         foregroundColor: foreground,
         centerTitle: true,
         leading: ChromeButton(
@@ -212,6 +473,15 @@ class _ImageViewerPageState extends State<ImageViewerPage>
           onImage: true,
           onPressed: () => Navigator.pop(context),
         ),
+        actions: [
+          if (widget.urls.isNotEmpty)
+            ChromeButton(
+              tooltip: _saving ? '正在保存' : '保存图片',
+              icon: AppIcons.update,
+              onImage: true,
+              onPressed: _saving ? null : _save,
+            ),
+        ],
         title: Text(
           widget.urls.isEmpty ? '图片' : '${_index + 1} / ${widget.urls.length}',
           style: TextStyle(fontSize: AppType.sizeFootnote, color: foreground),
@@ -219,66 +489,87 @@ class _ImageViewerPageState extends State<ImageViewerPage>
       ),
       body: widget.urls.isEmpty
           ? const SizedBox.shrink()
-          : PageView.builder(
-              controller: _controller,
-              physics: _zoomed
-                  ? const NeverScrollableScrollPhysics()
-                  : const BouncingScrollPhysics(),
-              itemCount: widget.urls.length,
-              onPageChanged: _pageChanged,
-              itemBuilder: (context, i) => GestureDetector(
-                onDoubleTapDown: (details) =>
-                    _tapPosition = details.localPosition,
-                onDoubleTap: _doubleTap,
-                child: InteractiveViewer(
-                  transformationController: i == _index ? _transform : null,
-                  minScale: 1,
-                  maxScale: 5,
-                  onInteractionStart: (_) => _zoom.stop(),
-                  onInteractionUpdate: (_) {
-                    final scale = _transform.value.getMaxScaleOnAxis();
-                    final zoomed = scale > 1.02;
-                    final needOriginal =
-                        scale > 1.3 && !_fullResolutionRequested;
-                    final releaseOriginal = !zoomed && _fullResolutionRequested;
-                    if (zoomed != _zoomed || needOriginal || releaseOriginal) {
-                      setState(() {
-                        _zoomed = zoomed;
-                        if (needOriginal) _fullResolutionRequested = true;
-                        if (releaseOriginal) _fullResolutionRequested = false;
-                      });
-                    }
-                  },
-                  child: RepaintBoundary(
-                    child: Center(
-                      child: Image(
-                        image: i == _index && _fullResolutionRequested
-                            ? ChhCachedImage(
-                                widget.urls[i],
-                                headers: chhImageHeaders,
-                              )
-                            : boundedNetworkImage(
-                                widget.urls[i],
-                                boundedImageDecodeWidth(
-                                  MediaQuery.sizeOf(context).width,
-                                  MediaQuery.devicePixelRatioOf(context),
-                                ),
-                              ),
-                        fit: BoxFit.contain,
-                        gaplessPlayback: true,
-                        errorBuilder: (context, _, _) => Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(AppIcons.image, size: 30, color: foreground),
-                            const SizedBox(height: 12),
-                            Text(
-                              '图片暂时无法加载',
-                              style: TextStyle(
-                                fontSize: AppType.sizeFootnote,
-                                color: foreground,
+          : _dragged(
+              PageView.builder(
+                controller: _controller,
+                physics: _zoomed
+                    ? const NeverScrollableScrollPhysics()
+                    : const _ViewerPagePhysics(parent: BouncingScrollPhysics()),
+                itemCount: widget.urls.length,
+                onPageChanged: _pageChanged,
+                itemBuilder: (context, i) => GestureDetector(
+                  onDoubleTapDown: (details) =>
+                      _tapPosition = details.localPosition,
+                  onDoubleTap: _doubleTap,
+                  child: InteractiveViewer(
+                    transformationController: i == _index ? _transform : null,
+                    minScale: 1,
+                    maxScale: 5,
+                    onInteractionStart: (_) => _zoom.stop(),
+                    onInteractionUpdate: (_) {
+                      final scale = _transform.value.getMaxScaleOnAxis();
+                      final zoomed = scale > 1.02;
+                      final needOriginal =
+                          scale > 1.3 && !_fullResolutionRequested;
+                      final releaseOriginal =
+                          !zoomed && _fullResolutionRequested;
+                      if (zoomed != _zoomed ||
+                          needOriginal ||
+                          releaseOriginal) {
+                        setState(() {
+                          _zoomed = zoomed;
+                          if (needOriginal) _fullResolutionRequested = true;
+                          if (releaseOriginal) _fullResolutionRequested = false;
+                        });
+                      }
+                    },
+                    child: RepaintBoundary(
+                      child: Center(
+                        child: _hero(
+                          i,
+                          Image(
+                            image: i == _index && _fullResolutionRequested
+                                ? ChhCachedImage(
+                                    widget.urls[i],
+                                    headers: chhImageHeaders,
+                                  )
+                                : i == widget.initialIndex &&
+                                      widget.previewImage != null
+                                ? widget.previewImage!
+                                : widget.previewImageForIndex?.call(i) ??
+                                      boundedNetworkImage(
+                                        widget.urls[i],
+                                        boundedImageDecodeWidth(
+                                          MediaQuery.sizeOf(context).width,
+                                          MediaQuery.devicePixelRatioOf(
+                                            context,
+                                          ),
+                                        ),
+                                      ),
+                            fit: BoxFit.contain,
+                            gaplessPlayback: true,
+                            errorBuilder: (context, _, _) => FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    AppIcons.image,
+                                    size: 30,
+                                    color: foreground,
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Text(
+                                    '图片暂时无法加载',
+                                    style: TextStyle(
+                                      fontSize: AppType.sizeFootnote,
+                                      color: foreground,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
-                          ],
+                          ),
                         ),
                       ),
                     ),
@@ -297,21 +588,14 @@ class _ImageViewerPageState extends State<ImageViewerPage>
                   ChromeButton(
                     tooltip: '上一张',
                     onImage: true,
-                    onPressed: _index > 0
-                        ? () => _controller.previousPage(
-                            duration: MediaQuery.disableAnimationsOf(context)
-                                ? Duration.zero
-                                : AppMotion.revealDuration,
-                            curve: AppMotion.revealCurve,
-                          )
-                        : null,
+                    onPressed: _index > 0 ? () => _goTo(_index - 1) : null,
                     icon: AppIcons.back,
                   ),
                   Expanded(
                     child: AnimatedSwitcher(
                       duration: MediaQuery.disableAnimationsOf(context)
                           ? Duration.zero
-                          : AppMotion.tapDuration,
+                          : AppMotion.fade,
                       child: Text(
                         _zoomed ? '双击还原' : '双击放大',
                         key: ValueKey(_zoomed),
@@ -327,12 +611,7 @@ class _ImageViewerPageState extends State<ImageViewerPage>
                     tooltip: '下一张',
                     onImage: true,
                     onPressed: _index < widget.urls.length - 1
-                        ? () => _controller.nextPage(
-                            duration: MediaQuery.disableAnimationsOf(context)
-                                ? Duration.zero
-                                : AppMotion.revealDuration,
-                            curve: AppMotion.revealCurve,
-                          )
+                        ? () => _goTo(_index + 1)
                         : null,
                     icon: AppIcons.forward,
                   ),
@@ -340,5 +619,61 @@ class _ImageViewerPageState extends State<ImageViewerPage>
               ),
             ),
     );
+    final routeAnimation = ModalRoute.of(context)?.animation;
+    return Listener(
+      onPointerDown: _pointerDown,
+      onPointerMove: _pointerMove,
+      onPointerUp: _pointerUp,
+      onPointerCancel: (event) {
+        _pointers.remove(event.pointer);
+        _cancelDrag();
+      },
+      child: AnimatedBuilder(
+        animation: Listenable.merge([_dismiss, ?routeAnimation]),
+        child: RepaintBoundary(child: page),
+        builder: (context, child) {
+          final opacity =
+              (routeAnimation?.value ?? 1) *
+              (1 - _dismiss.value / MediaQuery.sizeOf(context).height).clamp(
+                0.0,
+                1.0,
+              );
+          return ColoredBox(
+            color: ImageColors.viewerBackground.withValues(
+              alpha: opacity.clamp(0.0, 1.0),
+            ),
+            child: child,
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _dragged(Widget child) => AnimatedBuilder(
+    animation: _dismiss,
+    child: RepaintBoundary(child: child),
+    builder: (context, child) => Transform.translate(
+      key: const ValueKey('image-viewer-drag'),
+      offset: Offset(0, _dismiss.value),
+      child: Transform.scale(
+        key: const ValueKey('image-viewer-drag-scale'),
+        scale: MediaQuery.disableAnimationsOf(context)
+            ? 1
+            : 1 -
+                  ImageTokens.dismissScale *
+                      (_dismiss.value / MediaQuery.sizeOf(context).height)
+                          .clamp(0.0, 1.0),
+        child: child,
+      ),
+    ),
+  );
+
+  Widget _hero(int index, Widget child) {
+    final tag =
+        widget.heroTagForIndex?.call(index) ??
+        (index == widget.initialIndex ? widget.heroTag : null);
+    return tag != null && !MediaQuery.disableAnimationsOf(context)
+        ? Hero(tag: tag, child: child)
+        : child;
   }
 }

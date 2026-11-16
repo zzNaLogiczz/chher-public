@@ -2,11 +2,13 @@
 library;
 
 import 'package:flutter/material.dart';
+import '../models/image_stack_group.dart';
+import '../widgets/reading_list_end.dart';
+import '../widgets/expressive_controls.dart';
 import '../widgets/compact_scaffold.dart';
 import '../design/motion.dart';
 import '../design/reading.dart';
 import '../ui/app_button.dart';
-import '../design/icons.dart';
 import '../ui/bottom_bar.dart';
 import '../design/shapes.dart';
 import '../design/typography.dart';
@@ -74,7 +76,7 @@ class ArticleDiscussionPage extends StatefulWidget {
   }) async {
     final t = AppTokens.of(context);
     await Navigator.of(context).push<void>(
-      ModalSheetRoute<void>(
+      AppSheetRoute<void>(
         builder: (_) => ArticleDiscussionPage._sheet(
           aid: aid,
           title: title,
@@ -83,24 +85,9 @@ class ArticleDiscussionPage extends StatefulWidget {
           isLoggedIn: isLoggedIn,
           onLogin: onLogin,
         ),
-        barrierDismissible: true,
         barrierColor: t.scrim,
         barrierLabel: '关闭讨论',
-        swipeDismissible: true,
-        swipeDismissSensitivity: const SwipeDismissSensitivity(
-          minFlingVelocityRatio: 1.6,
-          dismissalOffset: SheetOffset(.32),
-        ),
-        transitionDuration: MediaQuery.disableAnimationsOf(context)
-            ? Duration.zero
-            : AppMotion.sheetDuration,
-        transitionCurve: AppMotion.sheetCurve,
-        viewportBuilder: (context, child) => SheetViewport(
-          padding: EdgeInsets.only(
-            top: MediaQuery.viewPaddingOf(context).top + 8,
-          ),
-          child: child,
-        ),
+        reduced: MediaQuery.disableAnimationsOf(context),
       ),
     );
   }
@@ -244,10 +231,14 @@ class _ArticleDiscussionPageState extends State<ArticleDiscussionPage>
   /// Keep short comments intact; long bodies share the outer sliver viewport.
   Iterable<_CommentEntry> _splitComment(_CommentEntry entry) sync* {
     final comment = entry.comment;
-    final blocks = _mode == CommentViewMode.threaded && entry.nested
-        ? comment.content.where((b) => b is! QuoteBlock || b.isNotice).toList()
-        : comment.content;
-    if (entry.expander > 0 || blocks.length <= 24) {
+    final hideQuotes = _mode == CommentViewMode.threaded && entry.nested;
+    final blocks = comment.content;
+    if (entry.expander > 0 ||
+        (blocks.length <= 24 &&
+            !groupPostImages(
+              blocks,
+              groupImages: false,
+            ).any((s) => s.linksGrouped))) {
       yield entry;
       return;
     }
@@ -270,14 +261,24 @@ class _ArticleDiscussionPageState extends State<ArticleDiscussionPage>
         blockIndex: -1,
       );
     }
-    for (var i = 0; i < blocks.length; i++) {
+    for (final segment in groupPostImages(blocks, groupImages: false)) {
+      final i = segment.blockIndex;
+      if (hideQuotes &&
+          segment.block is QuoteBlock &&
+          !(segment.block as QuoteBlock).isNotice) {
+        continue;
+      }
       yield _CommentEntry(
         comment,
         nested: entry.nested,
         part: _CommentPart.body,
-        block: blocks[i],
+        block: segment.block,
+        siteLinks: segment.siteLinks,
+        linksGrouped: segment.linksGrouped,
+        linkGroupStart: segment.linkGroupStart,
+        linkGroupEnd: segment.linkGroupEnd,
         blockIndex: i,
-        lastBlock: i == blocks.length - 1,
+        lastBlock: i + (segment.siteLinks?.length ?? 1) == blocks.length,
         prefix: i == firstText ? prefix : null,
       );
     }
@@ -323,11 +324,10 @@ class _ArticleDiscussionPageState extends State<ArticleDiscussionPage>
         controller.positions.length == 1) {
       controller.jumpTo(0);
     }
-    if (MediaQuery.disableAnimationsOf(context)) {
-      _modeFade.value = 1;
-    } else {
-      _modeFade.forward(from: 0);
-    }
+    _modeFade.duration = MediaQuery.disableAnimationsOf(context)
+        ? AppMotion.reducedFade
+        : AppMotion.fade;
+    _modeFade.forward(from: 0);
     // 只看作者可能需要继续读后面的分页才能找到作者的评论
     WidgetsBinding.instance.addPostFrameCallback((_) => _checkLoadMore());
   }
@@ -492,40 +492,52 @@ class _ArticleDiscussionPageState extends State<ArticleDiscussionPage>
     return CompactScaffold(
       title: _heading,
       showBack: Navigator.canPop(context),
-      actions: [
-        if (_discussion?.total != null)
-          Text('${_discussion!.total}', style: TextStyle(color: t.text3)),
-      ],
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          if (_showModes) _modeBar(),
-          Expanded(
-            child: RefreshIndicator(
-              onRefresh: () => _load(1, refresh: true),
-              child: _discussionBody(t),
+      titleWidget: HeaderTrailingRow(
+        trailing: _showModes ? _modeBar() : null,
+        trailingMinWidth: _modeMinimumWidth,
+        leading: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(
+              child: Text(
+                _heading,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppType.headline.copyWith(color: t.text),
+              ),
             ),
-          ),
-        ],
+            if (_discussion?.total != null) ...[
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  '${_discussion!.total}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppType.headline.copyWith(color: t.text3),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+      body: RefreshIndicator(
+        onRefresh: () => _load(1, refresh: true),
+        child: _discussionBody(t),
       ),
       bottomNavigationBar: _composeDock(t),
     );
   }
 
-  /// 与帖子评论区同一个三段控件;认不出作者时只有前两段
-  Widget _modeBar() => Padding(
-    padding: EdgeInsets.fromLTRB(
-      ReadingMetrics.of(context).gutter,
-      0,
-      ReadingMetrics.of(context).gutter,
-      12,
-    ),
-    child: CommentModeBar(
-      mode: _mode,
-      onChanged: _setMode,
-      authorLabel: '只看作者',
-      showAuthor: _discussion?.knowsAuthor ?? false,
-    ),
+  double get _modeMinimumWidth =>
+      CommentModeTokens.inset * 2 +
+      CommentModeTokens.iconSegment *
+          ((_discussion?.knowsAuthor ?? false) ? 3 : 2);
+
+  Widget _modeBar() => CommentModeBar(
+    mode: _mode,
+    onChanged: _setMode,
+    authorLabel: '只看作者',
+    showAuthor: _discussion?.knowsAuthor ?? false,
   );
 
   Widget _discussionBody(AppTokens t) {
@@ -571,15 +583,20 @@ class _ArticleDiscussionPageState extends State<ArticleDiscussionPage>
               itemCount: _entries.length,
               findChildIndexCallback: (key) =>
                   key is ValueKey ? _entryIndexes[key.value] : null,
-              itemBuilder: (context, index) => FadeTransition(
+              itemBuilder: (context, index) => ContentFade(
+                background: t.bg,
                 key: ValueKey(_entries[index].id),
                 opacity: _modeOpacity,
-                child: _entryView(t, index),
+                child: _entryView(index),
               ),
             ),
           ),
           SliverToBoxAdapter(
-            child: FadeTransition(opacity: _modeOpacity, child: _tail(t)),
+            child: ContentFade(
+              opacity: _modeOpacity,
+              background: t.bg,
+              child: _tail(t),
+            ),
           ),
         ],
         const SliverToBoxAdapter(child: SizedBox(height: 24)),
@@ -612,7 +629,7 @@ class _ArticleDiscussionPageState extends State<ArticleDiscussionPage>
     );
   }
 
-  Widget _entryView(AppTokens t, int index) {
+  Widget _entryView(int index) {
     final metrics = ReadingMetrics.of(context);
     final entry = _entries[index];
     final comment = entry.comment;
@@ -627,6 +644,10 @@ class _ArticleDiscussionPageState extends State<ArticleDiscussionPage>
                 'article-comment-block-${comment.cid}-${entry.blockIndex}',
               ),
               block: entry.block!,
+              siteLinks: entry.siteLinks,
+              linksGrouped: entry.linksGrouped,
+              linkGroupStart: entry.linkGroupStart,
+              linkGroupEnd: entry.linkGroupEnd,
               last: entry.lastBlock,
               prefix: entry.prefix,
             ),
@@ -655,26 +676,16 @@ class _ArticleDiscussionPageState extends State<ArticleDiscussionPage>
             padding: EdgeInsets.only(left: metrics.avatar + 10),
             child: tile,
           )
-        : Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              if (index > 0 &&
-                  (entry.part == _CommentPart.tile ||
-                      entry.part == _CommentPart.header))
-                Divider(
-                  height: .5,
-                  thickness: .5,
-                  indent: metrics.avatar + 10,
-                  color: t.separator,
-                ),
-              tile,
-            ],
-          );
+        : tile;
     if (!_revealing.contains(comment.cid) || !entry.animateReveal) return view;
     return SizeTransition(
       sizeFactor: _replyRevealCurve,
       alignment: Alignment.topCenter,
-      child: FadeTransition(opacity: _replyRevealCurve, child: view),
+      child: ContentFade(
+        opacity: _replyRevealCurve,
+        background: AppTokens.of(context).bg,
+        child: view,
+      ),
     );
   }
 
@@ -701,6 +712,7 @@ class _ArticleDiscussionPageState extends State<ArticleDiscussionPage>
 
   Widget _sheetPresentation(AppTokens t) => Sheet(
     controller: _sheet,
+    physics: AppSheetPhysics.of(context, controller: _sheet),
     initialOffset: const SheetOffset(.62),
     snapGrid: const SheetSnapGrid(snaps: [SheetOffset(.62), SheetOffset(1)]),
     scrollConfiguration: const SheetScrollConfiguration(),
@@ -729,20 +741,14 @@ class _ArticleDiscussionPageState extends State<ArticleDiscussionPage>
   /// 头部只有标题与关闭;文章名一行;展开靠拖动,刷新靠下拉
   String get _heading => _forumOnly ? '原帖讨论' : '评论';
 
-  Widget _sheetHeader(AppTokens t) => Column(
-    mainAxisSize: MainAxisSize.min,
-    crossAxisAlignment: CrossAxisAlignment.stretch,
-    children: [
-      SheetHeader(
-        title: _heading,
-        count: _discussion?.total,
-        contextLine: widget.title,
-        closeTooltip: '关闭讨论',
-        grabberKey: const ValueKey('discussion-sheet-grip'),
-      ),
-      // 控件固定在头部,滚到哪里都能切换
-      if (_showModes) _modeBar(),
-    ],
+  Widget _sheetHeader(AppTokens t) => SheetHeader(
+    title: _heading,
+    count: _discussion?.total,
+    contextLine: widget.title,
+    trailing: _showModes ? _modeBar() : null,
+    trailingMinWidth: _modeMinimumWidth,
+    closeTooltip: '关闭讨论',
+    grabberKey: const ValueKey('discussion-sheet-grip'),
   );
 
   /// 底部只有一个 fill 底输入胶囊;原帖讨论时进入论坛原帖回复
@@ -838,19 +844,19 @@ class _ArticleDiscussionPageState extends State<ArticleDiscussionPage>
     if (_loading) {
       return Padding(
         padding: const EdgeInsets.all(24),
-        child: StateView.loading(),
+        child: const Center(child: ReadingListEnd(loading: true)),
       );
     }
     if (!_hasNext) {
       return Padding(
         padding: const EdgeInsets.all(24),
         child: Center(
-          child: Text(
-            _entries.isEmpty && _mode == CommentViewMode.author
-                ? '作者还没有发表评论'
-                : '已显示全部评论',
-            style: TextStyle(fontSize: AppType.sizeFootnote, color: t.text3),
-          ),
+          child: _entries.isEmpty && _mode == CommentViewMode.author
+              ? Text(
+                  '作者还没有发表评论',
+                  style: AppType.footnote.copyWith(color: t.text3),
+                )
+              : const ReadingListEnd(),
         ),
       );
     }
@@ -867,6 +873,10 @@ class _CommentEntry {
   final int expander;
   final _CommentPart part;
   final ContentBlock? block;
+  final List<SiteLinkBlock>? siteLinks;
+  final bool linksGrouped;
+  final bool linkGroupStart;
+  final bool linkGroupEnd;
   final int blockIndex;
   final bool lastBlock;
   final String? prefix;
@@ -879,6 +889,10 @@ class _CommentEntry {
     this.expander = 0,
     this.part = _CommentPart.tile,
     this.block,
+    this.siteLinks,
+    this.linksGrouped = false,
+    this.linkGroupStart = true,
+    this.linkGroupEnd = true,
     this.blockIndex = 0,
     this.lastBlock = false,
     this.prefix,

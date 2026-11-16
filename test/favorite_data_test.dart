@@ -91,9 +91,15 @@ class _Client extends ChhClient {
     Uri url, {
     bool refresh = false,
     bool fallback = true,
+    bool Function()? shouldContinue,
   }) {
     refreshes.add(refresh);
-    return super.getHtml(url, refresh: refresh, fallback: fallback);
+    return super.getHtml(
+      url,
+      refresh: refresh,
+      fallback: fallback,
+      shouldContinue: shouldContinue,
+    );
   }
 }
 

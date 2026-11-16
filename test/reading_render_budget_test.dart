@@ -215,6 +215,21 @@ void main() {
           .toSet();
       expect(decodedWidths, hasLength(1));
       expect(decodedWidths.single, lessThanOrEqualTo(2048));
+      final titleSize = tester
+          .widget<Text>(find.text(article.title))
+          .style!
+          .fontSize;
+      await tester.pump(const Duration(milliseconds: 40));
+      expect(
+        tester.widget<Text>(find.text(article.title)).style!.fontSize,
+        titleSize,
+      );
+      expect(
+        tester
+            .widgetList<AppClip>(find.byType(AppClip))
+            .map((clip) => clip.radius),
+        everyElement(AppRadii.lg),
+      );
       await tester.pumpAndSettle();
       final expandedHero = tester.widget<Hero>(
         find.descendant(

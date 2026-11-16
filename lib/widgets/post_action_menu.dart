@@ -2,6 +2,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../data/post_interaction_repository.dart';
 import '../design/icons.dart';
@@ -11,9 +12,10 @@ import '../design/typography.dart';
 import '../models/models.dart';
 import '../models/post_interaction.dart';
 import '../ui/press.dart';
+import '../ui/feedback.dart';
 import '../ui/sheet_scaffold.dart';
 
-enum PostMenuAction { reply, comment, rating, login, blockUser }
+enum PostMenuAction { reply, comment, rating, supplement, login, blockUser }
 
 enum _RatingState { checking, allowed, login, self, denied, exhausted, failed }
 
@@ -190,6 +192,8 @@ class _PostActionMenuState extends State<_PostActionMenu> {
           mainAxisSize: MainAxisSize.min,
           children: [
             action('回复', AppIcons.reply, PostMenuAction.reply),
+            if (widget.loggedIn && widget.isSelf)
+              action('补充', AppIcons.compose, PostMenuAction.supplement),
             action(
               '点评',
               AppIcons.comments,
@@ -236,6 +240,29 @@ class _PostActionMenuState extends State<_PostActionMenu> {
               enabled:
                   _rating == _RatingState.allowed ||
                   _rating == _RatingState.login,
+            ),
+            _ActionRow(
+              title: '复制文字',
+              icon: AppIcons.copy,
+              onTap: () async {
+                final text = post.content
+                    .whereType<TextBlock>()
+                    .map((block) => block.text)
+                    .join('\n\n')
+                    .trim();
+                if (text.isEmpty) {
+                  AppToast.show(context, '没有可复制的文字');
+                  return;
+                }
+                try {
+                  await Clipboard.setData(ClipboardData(text: text));
+                  if (!context.mounted) return;
+                  AppToast.show(context, '已复制');
+                  Navigator.of(context).pop();
+                } catch (_) {
+                  if (context.mounted) AppToast.show(context, '复制失败，请重试');
+                }
+              },
             ),
             if (!widget.isSelf && post.authorUid?.isNotEmpty == true)
               action(

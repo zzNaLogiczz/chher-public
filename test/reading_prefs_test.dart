@@ -62,6 +62,7 @@ void main() {
         'lineHeight': 'loose',
         'layout': 'compact',
         'imagesExpanded': false,
+        'imagesStackHintSeen': false,
         'commentMode': 'threaded',
       });
       expect(File('${file().path}.tmp').existsSync(), isFalse);
@@ -77,6 +78,7 @@ void main() {
         'lineHeight': 'standard',
         'layout': 'comfy',
         'imagesExpanded': false,
+        'imagesStackHintSeen': false,
         'commentMode': 'threaded',
       });
     });
@@ -164,7 +166,54 @@ void main() {
       await legacy.load();
       expect(legacy.prefs.fontSize, ReadingFontSize.xl);
       expect(legacy.prefs.imagesExpanded, isFalse);
+      expect(legacy.prefs.imagesStackHintSeen, isFalse);
       expect(legacy.prefs.commentMode, CommentViewMode.threaded);
+    });
+
+    test(
+      'image stack hint is claimed once and remains seen after reset',
+      () async {
+        expect(controller.claimImageStackHint(), isFalse);
+        await controller.load();
+        expect(controller.claimImageStackHint(), isTrue);
+        expect(controller.claimImageStackHint(), isFalse);
+        expect(controller.prefs.imagesStackHintSeen, isTrue);
+        expect(controller.prefs.isDefault, isTrue);
+        expect(controller.prefs.copyWith(), controller.prefs);
+        expect(controller.prefs, isNot(const ReadingPrefs()));
+
+        // Queue an ordinary update behind the claim and wait for both writes.
+        await controller.set(controller.prefs.copyWith(imagesExpanded: true));
+        final restored = ReadingPrefsController(
+          directory: () async => directory,
+        );
+        addTearDown(restored.dispose);
+        await restored.load();
+        expect(restored.claimImageStackHint(), isFalse);
+        expect(restored.prefs.imagesExpanded, isTrue);
+        await controller.reset();
+        expect(controller.prefs.isDefault, isTrue);
+        expect(controller.claimImageStackHint(), isFalse);
+        expect(
+          jsonDecode(await file().readAsString())['imagesStackHintSeen'],
+          isTrue,
+        );
+      },
+    );
+
+    test('pending load does not claim or overwrite a stored hint', () async {
+      await controller.load();
+      expect(controller.claimImageStackHint(), isTrue);
+      await controller.set(controller.prefs);
+      final pending = Completer<Directory?>();
+      final delayed = ReadingPrefsController(directory: () => pending.future);
+      addTearDown(delayed.dispose);
+      final loading = delayed.load();
+      expect(delayed.claimImageStackHint(), isFalse);
+      pending.complete(directory);
+      await loading;
+      expect(delayed.claimImageStackHint(), isFalse);
+      expect(delayed.prefs.imagesStackHintSeen, isTrue);
     });
 
     test('unavailable storage preserves in-memory selection', () async {
@@ -202,8 +251,8 @@ void main() {
               metrics.sectionBand,
             ],
             layout == ReadingLayout.comfy
-                ? [20, 12, 32, 24, 36, 10, 24, 12, 8]
-                : [16, 8, 28, 22, 32, 6, 22, 8, 6],
+                ? [20, 12, 32, 24, 40, 10, 24, 12, 8]
+                : [16, 8, 28, 22, 40, 6, 22, 8, 6],
           );
           expect(
             metrics.textScaler(const TextScaler.linear(2)).scale(body),
@@ -309,7 +358,7 @@ void main() {
         tester.widget<Slider>(find.byType(Slider)).onChanged!(4);
         await tester.pumpAndSettle();
         expect(controller.prefs.fontSize, ReadingFontSize.xl);
-        expect(find.text('最大 · 20'), findsOneWidget);
+        expect(find.text('最大 20'), findsOneWidget);
         expect(
           haptics.where(
             (call) =>
@@ -479,7 +528,7 @@ void main() {
       expect(find.byTooltip('查看原页面'), findsOneWidget);
       await tester.tap(find.byTooltip('阅读设置'));
       await tester.pumpAndSettle();
-      expect(find.text('帖子页和文章页通用 · 会叠加系统字体大小'), findsOneWidget);
+      expect(find.text('帖子和文章通用，随系统字号调整'), findsOneWidget);
       expect(find.byType(Slider), findsOneWidget);
     });
 

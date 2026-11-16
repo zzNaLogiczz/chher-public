@@ -68,6 +68,9 @@ void main() {
     await tester.pump(const Duration(milliseconds: 16));
     expect(scaleOf(tester), lessThan(1));
     await g.moveBy(const Offset(0, 30));
+    await tester.pump();
+    expect(scaleOf(tester), 1);
+    expect(tester.binding.transientCallbackCount, 0);
     await g.up();
     await tester.pumpAndSettle();
     expect(taps, 0);
@@ -98,6 +101,75 @@ void main() {
       expect(tintOf(tester).a, 0);
     },
   );
+
+  testWidgets('row slop cancellation clears immediately without fade', (
+    tester,
+  ) async {
+    await tester.pumpWidget(app(PressHighlight(onTap: () {}, child: box)));
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.byType(PressHighlight)),
+    );
+    await tester.pump();
+    expect(tintOf(tester), AppTokens.light.pressed);
+    await gesture.moveBy(const Offset(0, 30));
+    await tester.pump();
+    expect(tintOf(tester).a, 0);
+    expect(tester.binding.transientCallbackCount, 0);
+    await gesture.up();
+  });
+
+  testWidgets('starting ancestor scroll clears held row without fade', (
+    tester,
+  ) async {
+    final scroll = ScrollController();
+    addTearDown(scroll.dispose);
+    await tester.pumpWidget(
+      app(
+        ListView(
+          controller: scroll,
+          children: [
+            PressHighlight(onTap: () {}, child: box),
+            const SizedBox(height: 2000),
+          ],
+        ),
+      ),
+    );
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.byType(PressHighlight)),
+    );
+    await tester.pump();
+    expect(tintOf(tester), AppTokens.light.pressed);
+    final scrolling = scroll.animateTo(
+      100,
+      duration: const Duration(milliseconds: 100),
+      curve: Curves.linear,
+    );
+    await tester.pump();
+    expect(tintOf(tester).a, 0);
+    await gesture.up();
+    await tester.pumpAndSettle();
+    await scrolling;
+  });
+
+  for (final scale in [
+    AppPressScale.control,
+    AppPressScale.card,
+    AppPressScale.content,
+  ]) {
+    testWidgets('press settles at named scale $scale', (tester) async {
+      await tester.pumpWidget(
+        app(PressScale(onTap: () {}, scale: scale, child: box)),
+      );
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byType(PressScale)),
+      );
+      await tester.pumpAndSettle();
+      expect(scaleOf(tester), closeTo(scale, .001));
+      await gesture.up();
+      await tester.pumpAndSettle();
+      expect(tester.binding.transientCallbackCount, 0);
+    });
+  }
 
   testWidgets('reduced motion keeps scale at 1 and still taps', (tester) async {
     var taps = 0;

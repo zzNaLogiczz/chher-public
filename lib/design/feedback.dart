@@ -2,9 +2,9 @@ import 'package:flutter/widgets.dart';
 
 /// Feedback dimensions from the opening-post and reply reference designs.
 abstract final class FeedbackMetrics {
-  static const cardRadius = 16.0;
+  static const cardRadius = 22.0;
   static const floorRadius = 14.0;
-  static const panelRadius = 12.0;
+  static const panelRadius = 14.0;
   static const capsuleHeight = 28.0;
   static const stripHeight = 36.0;
   static const touchTarget = 44.0;
@@ -29,6 +29,15 @@ abstract final class FeedbackMetrics {
   static const floorHeaderVPad = 8.0;
   static const headerGap = 12.0;
   static const rowSize = 13.0;
+  static const reasonSize = 13.5;
+  static const reasonHeight = 1.6;
+  static const reasonTop = 4.0;
+  static const reasonLoadingSize = 12.0;
+  static const reasonLoadingStroke = 1.5;
+  static const reasonLoadingGutter = reasonLoadingSize + smallGap;
+  // The rows sit inside the card's horizontal inset.
+  static const ratingRowRadius = cardRadius - inset;
+  static const compactRatingRowRadius = floorRadius - compactInset;
   static const commentSize = 13.5;
   static const capsuleSize = 12.5;
   static const lineHeight = 1.6;

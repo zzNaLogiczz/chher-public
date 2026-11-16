@@ -287,14 +287,7 @@ class _NewThreadPageState extends State<NewThreadPage> {
           ),
         ),
       ),
-      Padding(
-        padding: const EdgeInsets.symmetric(vertical: 14),
-        child: Divider(
-          thickness: AppSpace.hairline,
-          color: t.separator,
-          height: 1,
-        ),
-      ),
+      const SizedBox(height: AppSpace.section),
       EditorTouchGuard(
         builder: (context, editorFocus, onEditorTap) => TextField(
           focusNode: editorFocus,
@@ -328,7 +321,7 @@ class _NewThreadPageState extends State<NewThreadPage> {
                 padding: const EdgeInsets.all(16),
                 decoration: ShapeDecoration(
                   color: t.warnBg,
-                  shape: appShape(AppRadii.md),
+                  shape: appShape(AppRadii.sm),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,

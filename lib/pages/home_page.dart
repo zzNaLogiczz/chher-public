@@ -9,6 +9,7 @@ import '../di.dart';
 import '../design/tokens.dart';
 import '../core/app_log.dart';
 import '../widgets/app_shell.dart';
+import '../widgets/lacquer_tab_scaffold.dart';
 import '../widgets/launch_splash.dart';
 import '../widgets/state_view.dart';
 import '../update/update_controller.dart';
@@ -30,6 +31,7 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   AppDestination _dest = AppDestination.feed;
   final _visited = <AppDestination, Widget>{};
+  final _feedReselect = ValueNotifier<int>(0);
   bool _sessionReady = false;
   Object? _sessionError;
 
@@ -79,6 +81,7 @@ class _HomePageState extends State<HomePage> {
   @override
   void dispose() {
     _pendingMessageOpen?.cancel();
+    _feedReselect.dispose();
     messageNotifications.openRequests.removeListener(_openMessages);
     super.dispose();
   }
@@ -135,7 +138,14 @@ class _HomePageState extends State<HomePage> {
                           enabled: entry.key == _dest,
                           // 一级目的地保留原位置与绘制缓存；选择反馈由底栏承接，
                           // 不重播整页入场，以免连同状态栏背景一起移开。
-                          child: RepaintBoundary(child: entry.value),
+                          child: RepaintBoundary(
+                            child: entry.key == AppDestination.feed
+                                ? TabReselectScope(
+                                    requests: _feedReselect,
+                                    child: entry.value,
+                                  )
+                                : entry.value,
+                          ),
                         ),
                       ),
                     ),
@@ -182,7 +192,10 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _navigate(AppDestination d) {
-    if (_dest == d) return;
+    if (_dest == d) {
+      if (d == AppDestination.feed) _feedReselect.value++;
+      return;
+    }
     FocusManager.instance.primaryFocus?.unfocus();
     setState(() {
       if (d == AppDestination.messages && chhSession.badges.hasAny) {

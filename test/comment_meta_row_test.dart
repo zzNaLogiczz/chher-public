@@ -268,8 +268,8 @@ void main() {
               addTearDown(tester.view.reset);
               for (final timestamp in [
                 '10-30 12:03',
-                '2026-11-1 12:03',
-                '2026-11-01 12:03:04 / 2026-11-02 13:04:05 / 2026-11-03 14:05:06',
+                '${DateTime.now().year - 1}-11-1 12:03',
+                '${DateTime.now().year - 1}-11-01 12:03:04 / 2025-11-02 13:04:05 / 2025-11-03 14:05:06',
               ]) {
                 var replies = 0;
                 await mount(
@@ -308,7 +308,7 @@ void main() {
                     lessThanOrEqualTo(1),
                     reason: '实际字形底边只允许一物理像素抗锯齿误差',
                   );
-                  expect(controlRect.left - timeRect.right, closeTo(8, .01));
+                  expect(controlRect.left - timeRect.right, closeTo(16, .01));
                 } else {
                   expect(controlRect.top - timeRect.bottom, closeTo(12, .01));
                   expect(
@@ -428,7 +428,7 @@ void main() {
         final feedback = tester.getRect(find.byType(CommentFeedback));
         expect(timeRect.top, greaterThan(feedback.bottom));
         expect(timeRect.left, closeTo(body.left, .01));
-        expect(replyRect.left - timeRect.right, closeTo(8, .01));
+        expect(replyRect.left - timeRect.right, closeTo(16, .01));
         expect(
           textBaseline(tester, find.text('回复')),
           closeTo(textBaseline(tester, time), .01),
@@ -555,7 +555,7 @@ void main() {
                   textBaseline(tester, find.text('回复')),
                   closeTo(textBaseline(tester, time), .01),
                 );
-                expect(replyRect.left - timeRect.right, closeTo(8, .01));
+                expect(replyRect.left - timeRect.right, closeTo(16, .01));
               }
               final target = tester.widget<HitSlopTarget>(
                 find.ancestor(of: reply, matching: find.byType(HitSlopTarget)),

@@ -2,7 +2,7 @@ import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/models/models.dart';
 import 'package:chh_app/pages/thread_detail_page.dart';
 import 'package:chh_app/widgets/post_card.dart';
-import 'package:chh_app/ui/segmented.dart';
+import 'package:chh_app/widgets/comment_mode_bar.dart';
 import 'package:chh_app/ui/favorite_action.dart';
 import 'package:chh_app/widgets/thread_comment_widgets.dart';
 import 'package:flutter/material.dart';
@@ -45,22 +45,26 @@ Future<void> _bottom(WidgetTester tester) async {
 
 Future<void> tapViewMode(WidgetTester tester, String label) async {
   final segment = find.descendant(
-    of: find.byType(AppSegmented<ThreadViewMode>),
-    matching: find.text(label),
+    of: find.byType(CommentModeBar),
+    matching: find.byKey(
+      ValueKey('comment-mode-${['评论', '原楼层', '只看楼主'].indexOf(label)}'),
+    ),
   );
-  await tester.ensureVisible(segment);
+  // Keep the whole heading visible while selecting; aligning only the segment
+  // to the top can put its parent heading above the viewport after reflow.
+  await Scrollable.ensureVisible(tester.element(segment), alignment: .5);
   await tester.pump();
   await tester.tap(segment);
 }
 
 Future<ThreadViewMode> currentViewMode(WidgetTester tester) async {
-  final segmented = find.byType(AppSegmented<ThreadViewMode>);
+  final segmented = find.byType(CommentModeBar);
   await tester.scrollUntilVisible(
     segmented,
     300,
     scrollable: find.byType(Scrollable).first,
   );
-  return tester.widget<AppSegmented<ThreadViewMode>>(segmented).value;
+  return tester.widget<CommentModeBar>(segmented).mode;
 }
 
 void main() {
@@ -69,6 +73,7 @@ void main() {
       await _pump(
         tester,
         ThreadDetailPage(
+          preloadPages: 1,
           tid: 123,
           title: title,
           loadPage: (_, _, _) async => _page(1),
@@ -88,6 +93,7 @@ void main() {
     await _pump(
       tester,
       ThreadDetailPage(
+        preloadPages: 1,
         tid: 123,
         title: '连续讨论',
         loadPage: (page, _, _) async {
@@ -119,6 +125,7 @@ void main() {
     await _pump(
       tester,
       ThreadDetailPage(
+        preloadPages: 1,
         tid: 123,
         title: '连续讨论',
         loadPage: (page, _, _) async {
@@ -150,6 +157,7 @@ void main() {
     await _pump(
       tester,
       ThreadDetailPage(
+        preloadPages: 1,
         tid: 123,
         title: '连续讨论',
         loadPage: (page, _, _) async {
@@ -174,6 +182,7 @@ void main() {
       await _pump(
         tester,
         ThreadDetailPage(
+          preloadPages: 1,
           tid: 123,
           title: '通知进入',
           initialPage: 2,
@@ -223,6 +232,7 @@ void main() {
       await _pump(
         tester,
         ThreadDetailPage(
+          preloadPages: 1,
           tid: 123,
           title: '主楼提醒',
           focusPid: feedback == 'no-pid' ? null : 1001,
@@ -266,6 +276,7 @@ void main() {
       await _pump(
         tester,
         ThreadDetailPage(
+          preloadPages: 1,
           tid: 123,
           title: '中段进入',
           initialPage: 4,
@@ -277,7 +288,10 @@ void main() {
           },
         ),
       );
-      await tapViewMode(tester, '只看楼主');
+      expect(find.byKey(const ValueKey('comment-mode-2')), findsNothing);
+      tester
+          .widget<ThreadCommentHeading>(find.byType(ThreadCommentHeading))
+          .onModeChanged(ThreadViewMode.author);
       await tester.pumpAndSettle();
       expect(reads, [(4, null), (1, null), (1, 'opening-author')]);
       expect(await currentViewMode(tester), ThreadViewMode.author);

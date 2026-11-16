@@ -413,7 +413,6 @@ class _ReviewEntry extends StatelessWidget {
         color: t.surface,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppRadii.lg),
-          side: BorderSide(color: t.separator, width: AppSpace.hairline),
         ),
         clipBehavior: Clip.antiAlias,
         child: PressHighlight(

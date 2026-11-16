@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 
 import '../core/link_target.dart';
 import '../design/icons.dart';
+import '../design/link_card_tokens.dart';
 import '../design/tokens.dart';
 import '../models/models.dart';
 import 'link_opener.dart';
@@ -17,8 +18,16 @@ import 'net_image.dart';
 class RichContentText extends StatefulWidget {
   final TextBlock block;
   final TextStyle? style;
+  final String? prefix;
+  final TextStyle? prefixStyle;
 
-  const RichContentText({super.key, required this.block, this.style});
+  const RichContentText({
+    super.key,
+    required this.block,
+    this.style,
+    this.prefix,
+    this.prefixStyle,
+  });
 
   @override
   State<RichContentText> createState() => _RichContentTextState();
@@ -50,13 +59,25 @@ class _RichContentTextState extends State<RichContentText> {
     final style = widget.style;
     _releaseRecognizers();
     if (!block.hasInline) {
-      return SelectableText(block.text, style: style);
+      return widget.prefix == null
+          ? SelectableText(block.text, style: style)
+          : SelectableText.rich(
+              TextSpan(
+                children: [
+                  TextSpan(text: widget.prefix, style: widget.prefixStyle),
+                  TextSpan(text: block.text),
+                ],
+              ),
+              style: style,
+            );
     }
 
     final t = AppTokens.of(context);
     return Text.rich(
       TextSpan(
         children: [
+          if (widget.prefix != null)
+            TextSpan(text: widget.prefix, style: widget.prefixStyle),
           for (final node in block.nodes)
             ...switch (node) {
               InlineText(:final text) => [TextSpan(text: text)],
@@ -107,7 +128,7 @@ class _RichContentTextState extends State<RichContentText> {
           color: t.text,
           fontWeight: FontWeight.w500,
           decoration: TextDecoration.underline,
-          decorationColor: t.linkLine,
+          decorationColor: LinkCardTokens.externalUnderline(t),
           decorationThickness: 1.2,
         ),
       ),

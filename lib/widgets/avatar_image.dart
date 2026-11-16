@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 
+import '../data/image_disk_cache.dart';
 import '../design/brand.dart';
+import '../design/motion.dart';
 import '../design/icons.dart';
 import '../design/tokens.dart';
 import '../ui/feedback.dart';
@@ -8,16 +11,20 @@ import '../ui/press.dart';
 import 'cached_net_image.dart';
 import 'net_image.dart';
 
-/// 头像加载和失败时使用品牌图标；个人主页可按地址单独刷新。
+/// 头像加载和失败时显示应用标志；个人主页可按地址单独刷新。
 class AvatarImage extends StatefulWidget {
   final String? url;
+  final String name;
   final double size;
   final bool refreshable;
+  final bool lazy;
   const AvatarImage({
     super.key,
     this.url,
+    this.name = '',
     required this.size,
     this.refreshable = false,
+    this.lazy = false,
   });
 
   @override
@@ -26,19 +33,47 @@ class AvatarImage extends StatefulWidget {
 
 class _AvatarImageState extends State<AvatarImage> {
   int _revision = 0;
+  bool _visible = false;
   bool _refreshing = false;
   bool _failed = false;
   bool _completionScheduled = false;
+  bool _checkingCache = false;
   ImageProvider<Object>? _provider;
   (String, int, int)? _providerSpec;
   String? get _url =>
       widget.url?.trim().isNotEmpty == true ? widget.url!.trim() : null;
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (ModalRoute.isCurrentOf(context) ?? true) _restoreCachedAvatar();
+  }
+
+  Future<void> _restoreCachedAvatar() async {
+    final spec = _providerSpec;
+    if (!_failed || _checkingCache || spec == null) return;
+    _checkingCache = true;
+    try {
+      final bytes = await imageDiskCache.read(spec.$1);
+      if (!mounted || spec != _providerSpec || spec.$3 != _revision) return;
+      if (bytes != null) {
+        // A detail page may have filled this cache; recovery must never retry HTTP.
+        setState(() {
+          _provider = ResizeImage(MemoryImage(bytes), width: spec.$2);
+          _failed = false;
+        });
+      }
+    } finally {
+      _checkingCache = false;
+    }
+  }
+
+  @override
   void didUpdateWidget(covariant AvatarImage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.url != widget.url) {
       _revision++;
+      _visible = false;
       _refreshing = false;
       _failed = false;
       _completionScheduled = false;
@@ -85,7 +120,7 @@ class _AvatarImageState extends State<AvatarImage> {
   @override
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
-    final url = _url;
+    final url = widget.lazy && !_visible ? null : _url;
     final revision = _revision;
     final size = widget.size;
     final pixels = boundedImageDecodeWidth(
@@ -99,38 +134,65 @@ class _AvatarImageState extends State<AvatarImage> {
     }
     final fallback = Image.asset(
       appLogoAsset,
+      key: const ValueKey('avatar-logo'),
       width: size,
       height: size,
-      fit: BoxFit.cover,
       cacheWidth: pixels,
+      fit: BoxFit.cover,
       excludeFromSemantics: true,
     );
-    final avatar = ClipOval(
-      child: SizedBox.square(
-        dimension: size,
-        child: url == null || _failed
-            ? fallback
-            : Image(
-                key: ValueKey((url, revision)),
-                image: _provider!,
-                width: size,
-                height: size,
-                fit: BoxFit.cover,
-                excludeFromSemantics: true,
-                frameBuilder: (_, child, frame, synchronous) {
-                  if (synchronous || frame != null) {
-                    _finish(revision);
-                    return child;
-                  }
-                  return fallback;
-                },
-                errorBuilder: (_, _, _) {
-                  _finish(revision, failed: true);
-                  return fallback;
-                },
-              ),
+    final avatar = ExcludeSemantics(
+      child: ClipOval(
+        child: SizedBox.square(
+          dimension: size,
+          child: url == null || _failed
+              ? fallback
+              : Image(
+                  key: ValueKey((url, revision)),
+                  image: _provider!,
+                  width: size,
+                  height: size,
+                  fit: BoxFit.cover,
+                  excludeFromSemantics: true,
+                  frameBuilder: (_, child, frame, synchronous) {
+                    if (synchronous || frame != null) {
+                      _finish(revision);
+                      if (synchronous) return child;
+                      return TweenAnimationBuilder<double>(
+                        tween: Tween(begin: 0, end: 1),
+                        duration: MediaQuery.disableAnimationsOf(context)
+                            ? AppMotion.reducedFade
+                            : AppMotion.fade,
+                        builder: (_, opacity, image) => Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            if (opacity < 1) fallback,
+                            Opacity(opacity: opacity, child: image),
+                          ],
+                        ),
+                        child: child,
+                      );
+                    }
+                    return fallback;
+                  },
+                  errorBuilder: (_, _, _) {
+                    _finish(revision, failed: true);
+                    return fallback;
+                  },
+                ),
+        ),
       ),
     );
+    if (widget.lazy && !_visible) {
+      return _VisibleAvatar(
+        onVisible: () {
+          if (mounted && !_visible) {
+            setState(() => _visible = true);
+          }
+        },
+        child: avatar,
+      );
+    }
     if (!widget.refreshable || url == null) return avatar;
     return Tooltip(
       message: '刷新头像',
@@ -151,7 +213,6 @@ class _AvatarImageState extends State<AvatarImage> {
                   decoration: BoxDecoration(
                     color: t.surface,
                     shape: BoxShape.circle,
-                    border: Border.all(color: t.separator, width: .5),
                   ),
                   child: _refreshing
                       ? const SizedBox.square(
@@ -167,4 +228,83 @@ class _AvatarImageState extends State<AvatarImage> {
       ),
     );
   }
+}
+
+// Cached row layers can scroll into view without repainting their children.
+class _VisibleAvatar extends StatefulWidget {
+  const _VisibleAvatar({required this.onVisible, required this.child});
+  final VoidCallback onVisible;
+  final Widget child;
+
+  @override
+  State<_VisibleAvatar> createState() => _VisibleAvatarState();
+}
+
+class _VisibleAvatarState extends State<_VisibleAvatar> {
+  final _positions = <ScrollPosition>{};
+  bool _scheduled = false;
+  bool _notified = false;
+  bool _active = true;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _active =
+        (ModalRoute.isCurrentOf(context) ?? true) && TickerMode.valuesOf(context).enabled;
+    // Depend on the nearest scrollable; nested headers may move the outer one.
+    Scrollable.maybeOf(context);
+    for (final position in _positions) {
+      position.removeListener(_scheduleCheck);
+    }
+    _positions.clear();
+    context.visitAncestorElements((ancestor) {
+      if (ancestor is StatefulElement && ancestor.state is ScrollableState) {
+        _positions.add((ancestor.state as ScrollableState).position);
+      }
+      return true;
+    });
+    for (final position in _positions) {
+      position.addListener(_scheduleCheck);
+    }
+    _scheduleCheck();
+  }
+
+  void _scheduleCheck() {
+    if (_scheduled || _notified || !_active) return;
+    _scheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _scheduled = false;
+      if (!mounted || _notified || !_active) return;
+      final box = context.findRenderObject();
+      if (box is! RenderBox || !box.attached || !box.hasSize) return;
+      for (
+        var ancestor = box.parent;
+        ancestor != null;
+        ancestor = ancestor.parent
+      ) {
+        if (ancestor is! RenderAbstractViewport) continue;
+        final RenderObject viewport = ancestor;
+        if (viewport is RenderBox && viewport.hasSize) {
+          final bounds = MatrixUtils.transformRect(
+            box.getTransformTo(viewport),
+            box.paintBounds,
+          );
+          if (!bounds.overlaps(viewport.paintBounds)) return;
+        }
+      }
+      _notified = true;
+      widget.onVisible();
+    });
+  }
+
+  @override
+  void dispose() {
+    for (final position in _positions) {
+      position.removeListener(_scheduleCheck);
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }

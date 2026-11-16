@@ -132,6 +132,21 @@ abstract interface class AjaxFormFetcher {
   Future<ChhResponse> postAjaxForm(Uri url, Map<String, String> form);
 }
 
+/// Forms whose names repeat, such as multiple pollanswers[] inputs.
+abstract interface class FormFieldsFetcher {
+  Future<ChhResponse> postFormFields(
+    Uri url,
+    List<MapEntry<String, String>> fields,
+  );
+}
+
+String encodeFormFields(Iterable<MapEntry<String, String>> fields) => fields
+    .map(
+      (field) =>
+          '${Uri.encodeQueryComponent(field.key)}=${Uri.encodeQueryComponent(field.value)}',
+    )
+    .join('&');
+
 /// multipart 里的一个文件项
 class UploadFile {
   final String field;

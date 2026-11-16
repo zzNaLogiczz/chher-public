@@ -1,9 +1,10 @@
 import 'package:chh_app/core/reading_prefs.dart';
 import 'package:chh_app/design/reading.dart';
+import 'package:chh_app/parser/post_note_parser.dart';
+import 'package:chh_app/design/typography.dart';
 import 'package:chh_app/design/icons.dart';
 import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/design/tokens.dart';
-import 'package:chh_app/design/typography.dart';
 import 'package:chh_app/pages/thread_detail_page.dart';
 import 'package:chh_app/ui/press.dart';
 import 'package:chh_app/ui/hit_slop.dart';
@@ -130,7 +131,7 @@ void main() {
           final rect = tester.getRect(reply);
           final time = tester.getRect(find.text(post.timeRaw));
           expect(time.left, closeTo(body.left, .01));
-          expect(rect.left - time.right, closeTo(8, .01));
+          expect(rect.left - time.right, closeTo(16, .01));
           expect(rect.top, greaterThan(note.bottom));
           expect(rect.top - feedback.bottom, closeTo(8, .01));
           expect(rect.height, inInclusiveRange(20, 22));
@@ -216,26 +217,30 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('opening has no homepage, floor number or reply action', (
-    tester,
-  ) async {
-    for (final card in [
-      PostCard(post: sample, isOpening: true, onReply: () {}),
-      PostCard.header(post: sample, isOpening: true, onReply: () {}),
-      PostCard.footer(post: sample, isOpening: true, onReply: () {}),
-    ]) {
-      await mount(tester, card);
-      expect(find.text('主页'), findsNothing);
-      expect(find.text('#2'), findsNothing);
-      expect(find.text('回复'), findsNothing);
-      expect(find.bySemanticsLabel('回复'), findsNothing);
-    }
-    await mount(
-      tester,
-      PostCard(post: sample, isOpening: false, onReply: () {}),
-    );
-    expect(find.text('回复 #2'), findsOneWidget);
-  });
+  testWidgets(
+    'opening removes action pills while ordinary reply actions remain',
+    (tester) async {
+      final cards = [
+        PostCard(post: sample, isOpening: true, onReply: () {}),
+        PostCard.header(post: sample, isOpening: true, onReply: () {}),
+        PostCard.footer(post: sample, isOpening: true, onReply: () {}),
+      ];
+      for (var i = 0; i < cards.length; i++) {
+        await mount(tester, cards[i]);
+        expect(find.text('主页'), findsNothing);
+        expect(find.text('#2'), findsNothing);
+        for (final label in ['回复', '点评', '评分']) {
+          expect(find.text(label), findsNothing);
+        }
+        expect(find.bySemanticsLabel('回复'), findsNothing);
+      }
+      await mount(
+        tester,
+        PostCard(post: sample, isOpening: false, onReply: () {}),
+      );
+      expect(find.text('回复'), findsOneWidget);
+    },
+  );
   testWidgets('expanded reply target preserves drag scrolling', (tester) async {
     var replies = 0;
     await mount(
@@ -314,7 +319,7 @@ void main() {
       PostCard(post: sample, isOpening: false, onReply: () => replies++),
     );
     final control = find.ancestor(
-      of: find.text('回复 #2'),
+      of: find.text('回复'),
       matching: find.byType(PressScale),
     );
     final rect = tester.getRect(control);
@@ -325,13 +330,13 @@ void main() {
   });
 
   testWidgets(
-    'notes condense dates, preserve fallback and use amber supplement',
+    'notes require known edit timing and use an unboxed light supplement',
     (tester) async {
       const post = Post(
         pid: 1,
         floor: 1,
         author: '作者',
-        timeRaw: '今天',
+        timeRaw: '2026-10-30 12:00',
         content: [TextBlock('正文')],
         notes: [
           PostNote(PostNoteKind.edited, '本帖最后由 作者 于 2026-10-30 12:34 编辑'),
@@ -340,17 +345,28 @@ void main() {
         ],
       );
       await mount(tester, const PostCard(post: post, isOpening: true));
-      expect(find.text('10-30 12:34 编辑过'), findsOneWidget);
-      expect(find.text('无法提取的编辑原文'), findsOneWidget);
-      expect(find.text('楼主补充 10-31'), findsOneWidget);
+      expect(find.text('最后编辑于 2026-10-30 12:34'), findsOneWidget);
+      expect(find.text('无法提取的编辑原文'), findsNothing);
+      expect(find.text('楼主补充'), findsOneWidget);
+      expect(
+        find.text(supplementDateLabel('2026-10-31 08:20')),
+        findsOneWidget,
+      );
       expect(find.text('追加正文'), findsOneWidget);
-      final panel = tester
-          .widgetList<Container>(find.byType(Container))
-          .where((w) => w.decoration is BoxDecoration)
-          .map((w) => w.decoration! as BoxDecoration)
-          .singleWhere((d) => d.color == AppTokens.light.warnBg);
-      expect((panel.border! as Border).left.width, 3);
-      expect((panel.border! as Border).left.color, AppTokens.light.warn);
+      final note = find.byKey(const ValueKey('supplement-1-0'));
+      expect(
+        find.descendant(of: note, matching: find.byType(Container)),
+        findsNothing,
+      );
+      final body = tester.widget<SelectableText>(
+        find.ancestor(
+          of: find.text('追加正文'),
+          matching: find.byType(SelectableText),
+        ),
+      );
+      expect(body.style!.color, AppTokens.light.text2);
+      expect(body.style!.fontSize, 15.5);
+      expect(body.style!.height, 1.7);
     },
   );
 
@@ -359,7 +375,7 @@ void main() {
       pid: 2,
       floor: 2,
       author: '作者',
-      timeRaw: '今天',
+      timeRaw: '2026-10-30 12:00',
       content: [TextBlock('正文')],
       comments: [PostComment(author: '点评者', text: '点评')],
     );
@@ -420,7 +436,7 @@ void main() {
           of: find.byKey(const ValueKey('post-avatar-2')),
           matching: find.byType(AvatarImage),
         );
-        expect(tester.getSize(avatar), const Size(24, 24));
+        expect(tester.getSize(avatar), const Size(22, 22));
         expect(find.byKey(const ValueKey('comment-reply-2')), findsOneWidget);
         expect(find.text('#2'), findsNothing);
         double textBaseline(String text) {
@@ -478,7 +494,7 @@ void main() {
                   pid: 1,
                   floor: 1,
                   author: '楼主',
-                  timeRaw: '今天',
+                  timeRaw: '2026-10-30 12:00',
                   content: [TextBlock('首楼正文')],
                 ),
                 sample,
@@ -502,7 +518,7 @@ void main() {
     expect(title().style!.fontSize, 24);
     expect(body().style!.fontSize, 17);
     expect(tester.getTopLeft(find.text('首楼正文')).dx, 20);
-    expect(tester.getSize(band).height, 8);
+    expect(band, findsNothing);
     expect(find.byType(ThreadCommentHeading), findsOneWidget);
     await controller.set(
       const ReadingPrefs(
@@ -512,11 +528,11 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(title().style!.fontSize, 22);
+    expect(title().style!.fontSize, 24);
     expect(body().style!.fontSize, 20);
     expect(body().style!.height, 1.85);
     expect(tester.getTopLeft(find.text('首楼正文')).dx, 16);
-    expect(tester.getSize(band).height, 6);
+    expect(band, findsNothing);
     expect(tester.takeException(), isNull);
   });
   testWidgets(
@@ -730,7 +746,7 @@ void main() {
             pid: 1,
             floor: 1,
             author: '作者',
-            timeRaw: '今天',
+            timeRaw: '2026-10-30 12:00',
             content: [first, second],
           );
           final gaps = <double>[];
@@ -781,7 +797,10 @@ void main() {
             gaps.add(rect(second).top - rect(first).bottom);
             expect(
               gaps.last,
-              closeTo(metrics.paragraphGap, .001),
+              closeTo(
+                opening ? metrics.threadParagraphGap : metrics.paragraphGap,
+                .001,
+              ),
               reason: 'split=$split',
             );
           }

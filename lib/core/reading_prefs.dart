@@ -1,6 +1,7 @@
 /// 阅读偏好独立于账号，存储不可用时仍可切换。
 library;
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
@@ -21,6 +22,7 @@ class ReadingPrefs {
   final ReadingLineHeight lineHeight;
   final ReadingLayout layout;
   final bool imagesExpanded;
+  final bool imagesStackHintSeen;
   final CommentViewMode commentMode;
 
   const ReadingPrefs({
@@ -28,6 +30,7 @@ class ReadingPrefs {
     this.lineHeight = ReadingLineHeight.standard,
     this.layout = ReadingLayout.comfy,
     this.imagesExpanded = false,
+    this.imagesStackHintSeen = false,
     this.commentMode = CommentViewMode.threaded,
   });
 
@@ -36,16 +39,19 @@ class ReadingPrefs {
     ReadingLineHeight? lineHeight,
     ReadingLayout? layout,
     bool? imagesExpanded,
+    bool? imagesStackHintSeen,
     CommentViewMode? commentMode,
   }) => ReadingPrefs(
     fontSize: fontSize ?? this.fontSize,
     lineHeight: lineHeight ?? this.lineHeight,
     layout: layout ?? this.layout,
     imagesExpanded: imagesExpanded ?? this.imagesExpanded,
+    imagesStackHintSeen: imagesStackHintSeen ?? this.imagesStackHintSeen,
     commentMode: commentMode ?? this.commentMode,
   );
 
-  bool get isDefault => this == const ReadingPrefs();
+  bool get isDefault =>
+      copyWith(imagesStackHintSeen: false) == const ReadingPrefs();
 
   @override
   bool operator ==(Object other) =>
@@ -54,11 +60,18 @@ class ReadingPrefs {
       other.lineHeight == lineHeight &&
       other.layout == layout &&
       other.imagesExpanded == imagesExpanded &&
+      other.imagesStackHintSeen == imagesStackHintSeen &&
       other.commentMode == commentMode;
 
   @override
-  int get hashCode =>
-      Object.hash(fontSize, lineHeight, layout, imagesExpanded, commentMode);
+  int get hashCode => Object.hash(
+    fontSize,
+    lineHeight,
+    layout,
+    imagesExpanded,
+    imagesStackHintSeen,
+    commentMode,
+  );
 }
 
 class ReadingPrefsController extends ChangeNotifier {
@@ -98,6 +111,8 @@ class ReadingPrefsController extends ChangeNotifier {
             ),
             layout: ReadingLayout.values.byName(decoded['layout'] as String),
             imagesExpanded: decoded['imagesExpanded'] as bool? ?? false,
+            imagesStackHintSeen:
+                decoded['imagesStackHintSeen'] as bool? ?? false,
             commentMode: CommentViewMode.values.byName(
               decoded['commentMode'] as String? ?? 'threaded',
             ),
@@ -127,7 +142,15 @@ class ReadingPrefsController extends ChangeNotifier {
     return _writes = _writes.then((_) => _persist(prefs));
   }
 
-  Future<void> reset() => set(const ReadingPrefs());
+  // Claim before starting motion so adjacent galleries cannot both hint.
+  bool claimImageStackHint() {
+    if (!_ready || _disposed || _prefs.imagesStackHintSeen) return false;
+    unawaited(set(_prefs.copyWith(imagesStackHintSeen: true)));
+    return true;
+  }
+
+  Future<void> reset() =>
+      set(ReadingPrefs(imagesStackHintSeen: _prefs.imagesStackHintSeen));
 
   Future<void> _persist(ReadingPrefs prefs) async {
     try {
@@ -146,6 +169,7 @@ class ReadingPrefsController extends ChangeNotifier {
           'lineHeight': prefs.lineHeight.name,
           'layout': prefs.layout.name,
           'imagesExpanded': prefs.imagesExpanded,
+          'imagesStackHintSeen': prefs.imagesStackHintSeen,
           'commentMode': prefs.commentMode.name,
         }),
         flush: true,

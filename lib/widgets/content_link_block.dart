@@ -9,17 +9,24 @@ import 'site_link_card.dart';
 
 class ContentLinkBlockView extends StatelessWidget {
   final ContentBlock block;
-  const ContentLinkBlockView({super.key, required this.block});
+  final bool compact;
+  const ContentLinkBlockView({
+    super.key,
+    required this.block,
+    this.compact = false,
+  });
 
   @override
   Widget build(BuildContext context) => switch (block) {
     final SiteLinkBlock site => SiteLinkCard(
       key: ValueKey(site.target.key),
       block: site,
+      compact: compact,
     ),
     final BilibiliBlock video => BilibiliCard(
       key: ValueKey(video.video.key),
       block: video,
+      compact: compact,
     ),
     _ => const SizedBox.shrink(),
   };

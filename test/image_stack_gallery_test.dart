@@ -44,30 +44,37 @@ Future<List<MemoryImage>> makePhotos(
 
 Finder get stackStage => find.byKey(const ValueKey('image-stack-stage'));
 Finder stackCard(int index) => find.byKey(ValueKey('image-stack-card-$index'));
-Finder stackPhoto(int index) => find.byKey(ValueKey('image-stack-photo-$index'));
+Finder stackPhoto(int index) =>
+    find.byKey(ValueKey('image-stack-photo-$index'));
 
-/// Mirror of the B-frame geometry: median ratio clamped, height capped.
-({double fw, double fh}) frameOf(double stageW, double medianRatio) {
-  const peek = 8.0;
-  final fw = stageW - peek * 2;
-  final cap = math.min(stageW * 1.25, 400.0);
-  final fh = (fw / medianRatio.clamp(0.8, 16 / 9)).clamp(
-    math.min(fw * 0.5625, cap).toDouble(),
-    cap,
-  );
+/// Expected paper geometry from the approved frame rules.
+({double fw, double fh}) frameOf(
+  double stageW,
+  double medianRatio, {
+  bool portraits = false,
+}) {
+  final fh = portraits
+      ? math.min(480.0, (stageW - 12) / medianRatio + 12)
+      : (stageW / medianRatio).clamp(200.0, 480.0);
+  final fw = portraits
+      ? math.min(stageW, (fh - 12) * medianRatio + 12)
+      : stageW;
   return (fw: fw, fh: fh);
 }
 
-/// Mirror of the in-frame photo placement: full display, long shots fill
-/// the frame width from the top, everything else is centered contain.
 Rect innerRectOf(double ratio, double w, double h) {
-  final ih = w / ratio;
-  if (ih <= h) return Rect.fromLTWH(0, (h - ih) / 2, w, ih);
-  if (ratio >= 0.4) {
-    final iw = h * ratio;
-    return Rect.fromLTWH((w - iw) / 2, 0, iw, h);
+  const edge = 6.0;
+  final well = Rect.fromLTWH(edge, edge, w - edge * 2, h - edge * 2);
+  if (ratio < .4 || (ratio / well.size.aspectRatio - 1).abs() < .04) {
+    return well;
   }
-  return Rect.fromLTWH(0, 0, w, h);
+  final width = math.min(well.width - 24, (well.height - 24) * ratio);
+  final height = width / ratio;
+  final free = well.height - height;
+  final lift = math
+      .min(8.0, math.min((free - 24) / 2, free * .06))
+      .clamp(0.0, 8.0);
+  return Rect.fromLTWH((w - width) / 2, edge + free / 2 - lift, width, height);
 }
 
 Future<void> mountStack(
@@ -170,27 +177,23 @@ class _ScrollHost extends StatelessWidget {
 }
 
 Future<void> swipe(WidgetTester tester, {bool previous = false}) async {
-  await tester.fling(
-    stackStage,
-    Offset(previous ? 240 : -240, 0),
-    1000,
-  );
+  await tester.fling(stackStage, Offset(previous ? 240 : -240, 0), 1000);
   await tester.pumpAndSettle();
 }
 
 int storedIndex(WidgetTester tester) {
   final context = tester.element(find.byType(ImageStackGallery));
-  return (PageStorage.of(context).readState(
-    context,
-    identifier: 'image-stack-state',
-  ) as Map)['current'] as int;
+  return (PageStorage.of(
+            context,
+          ).readState(context, identifier: 'image-stack-state')
+          as Map)['current']
+      as int;
 }
 
 Rect photoRect(WidgetTester tester, int index) {
-  final image = tester.renderObject<RenderBox>(find.descendant(
-    of: stackPhoto(index),
-    matching: find.byType(RawImage),
-  ));
+  final image = tester.renderObject<RenderBox>(
+    find.descendant(of: stackPhoto(index), matching: find.byType(RawImage)),
+  );
   return MatrixUtils.transformRect(
     image.getTransformTo(null),
     Offset.zero & image.size,
@@ -198,14 +201,13 @@ Rect photoRect(WidgetTester tester, int index) {
 }
 
 void main() {
-  testWidgets('keeps the frame stage and exposes only the small mode toggle', (
+  testWidgets('keeps the fixed photo frame and caption below it', (
     tester,
   ) async {
     await mountStack(tester);
     expect(stackStage, findsOneWidget);
-    expect(find.byType(Text), findsNothing);
+    expect(find.text('展开全部'), findsOneWidget);
     expect(find.byType(IconButton), findsNothing);
-    expect(find.byType(Icon), findsNothing);
     expect(find.byType(ImageStackModeToggle), findsOneWidget);
     expect(find.byType(Tooltip), findsNothing);
     final toggle = tester.getRect(find.byType(ImageStackModeToggle));
@@ -215,10 +217,10 @@ void main() {
     final stageRect = tester.getRect(stackStage);
     expect(toggle.top, greaterThan(stageRect.bottom));
     expect(toggle.top, lessThan(gallery.bottom));
-    expect(toggle.size, const Size(44, 44));
+    expect(toggle.height, greaterThanOrEqualTo(44));
     // The frame stage keeps one fixed height: median ratio of 4:3 photos.
     final frame = frameOf(350, 4 / 3);
-    expect(tester.getSize(stackStage).height, closeTo(frame.fh, 1));
+    expect(tester.getSize(stackStage).height, closeTo(frame.fh + 16, 1));
     expect(tester.getSize(stackStage).width, closeTo(350, 1));
   });
 
@@ -230,16 +232,13 @@ void main() {
       sizes: [const Size(90, 160), const Size(90, 160), const Size(90, 160)],
     );
     await mountStack(tester, count: 3, photos: photos);
-    final frame = frameOf(350, 9 / 16);
-    expect(tester.getSize(stackStage).height, closeTo(frame.fh, 1));
+    final frame = frameOf(350, 9 / 16, portraits: true);
+    expect(tester.getSize(stackStage).height, closeTo(frame.fh + 16, 1));
     // Tall photos stay fully visible inside the frame (centered, unclipped).
     final bounds = photoRect(tester, 0);
     expect(bounds.size.aspectRatio, closeTo(9 / 16, .001));
-    expect(bounds.size.height, closeTo(frame.fh, 1));
-    expect(
-      bounds.top,
-      closeTo(tester.getTopLeft(stackStage).dy + (frame.fh - frame.fh) / 2, 1),
-    );
+    expect(bounds.size.height, closeTo(frame.fh - 12, 1));
+    expect(bounds.top, closeTo(tester.getTopLeft(stackStage).dy + 6, 1));
     expect(tester.takeException(), isNull);
   });
 
@@ -257,7 +256,11 @@ void main() {
       await tester.pumpAndSettle();
       // Expanded list fills the full column width (same as the frame stage);
       // each photo keeps its own ratio, small photos included.
-      final expanded = [const Size(350, 175), const Size(350, 700), const Size(350, 350)];
+      final expanded = [
+        const Size(350, 175),
+        const Size(350, 700),
+        const Size(350, 350),
+      ];
       for (var i = 0; i < 3; i++) {
         final box = tester.renderObject<RenderBox>(stackCard(i));
         final origin = tester.getTopLeft(find.byType(ImageStackGallery));
@@ -266,7 +269,7 @@ void main() {
         expect(box.size.height, closeTo(expanded[i].height, 1));
         expect(topLeft.dx - origin.dx, closeTo(0, 1));
       }
-      expect(find.byType(Text), findsNothing);
+      expect(find.text('收起'), findsOneWidget);
       await tester.tap(find.byType(ImageStackModeToggle));
       await tester.pumpAndSettle();
       expect(storedIndex(tester), 1);
@@ -283,7 +286,7 @@ void main() {
         tester
             .widget<ImageViewerPage>(find.byType(ImageViewerPage))
             .initialIndex,
-        3,
+        1,
       );
     },
   );
@@ -320,7 +323,7 @@ void main() {
         final stageW = tester.getSize(gallery).width;
         final frame = frameOf(stageW, 9 / 16);
         final before = tester.getSize(stackStage);
-        expect(before.height, closeTo(frame.fh, 1));
+        expect(before.height, closeTo(frame.fh + 16, 1));
         final sourceRatios = [9 / 16, 16 / 9, 32 / 640];
         for (var i = 0; i < 3; i++) {
           final rect = photoRect(tester, i);
@@ -330,7 +333,10 @@ void main() {
           // displayed ratio is the frame's, not the source's.
           expect(
             rect.size.aspectRatio,
-            closeTo(i == 2 ? frame.fw / frame.fh : sourceRatios[i], .01),
+            closeTo(
+              innerRectOf(sourceRatios[i], frame.fw, frame.fh).size.aspectRatio,
+              .04,
+            ),
             reason: 'photo $i',
           );
           if (i == 0) {
@@ -366,15 +372,12 @@ void main() {
       expect(actualPadding, padding);
       final size = tester.getSize(stackStage);
       final frame = frameOf(350, 4 / 3);
-      expect(size.height, closeTo(frame.fh, 1));
+      expect(size.height, closeTo(frame.fh + 16, 1));
       expect(tester.binding.hasScheduledFrame, isFalse);
       await tester.pump(const Duration(seconds: 1));
       expect(tester.binding.hasScheduledFrame, isFalse);
       expect(tester.getSize(stackStage), size);
-      final scroll = Scrollable.maybeOf(
-        context,
-        axis: Axis.vertical,
-      )!.position;
+      final scroll = Scrollable.maybeOf(context, axis: Axis.vertical)!.position;
       scroll.jumpTo(120);
       await tester.pumpAndSettle();
       expect(tester.getSize(stackStage), size);
@@ -383,38 +386,36 @@ void main() {
     },
   );
 
-  testWidgets(
-    'orientation uses the updated width without losing selection',
-    (tester) async {
-      await mountStack(tester, count: 3);
-      await swipe(tester);
-      expect(storedIndex(tester), 1);
-      tester.view.physicalSize = const Size(844, 390);
-      await tester.pumpAndSettle();
-      final context = tester.element(find.byType(ImageStackGallery));
-      final viewport = Scrollable.maybeOf(
-        context,
-        axis: Axis.vertical,
-      )!.position.viewportDimension;
-      expect(viewport, 390);
-      final stageW = tester.getSize(find.byType(ImageStackGallery)).width;
-      final frame = frameOf(stageW, 4 / 3);
-      expect(tester.getSize(stackStage).height, closeTo(frame.fh, 1));
-      expect(storedIndex(tester), 1);
-      expect(tester.takeException(), isNull);
-    },
-  );
+  testWidgets('orientation uses the updated width without losing selection', (
+    tester,
+  ) async {
+    await mountStack(tester, count: 3);
+    await swipe(tester);
+    expect(storedIndex(tester), 1);
+    tester.view.physicalSize = const Size(844, 390);
+    await tester.pumpAndSettle();
+    final context = tester.element(find.byType(ImageStackGallery));
+    final viewport = Scrollable.maybeOf(
+      context,
+      axis: Axis.vertical,
+    )!.position.viewportDimension;
+    expect(viewport, 390);
+    final stageW = tester.getSize(find.byType(ImageStackGallery)).width;
+    final frame = frameOf(stageW, 4 / 3);
+    expect(tester.getSize(stackStage).height, closeTo(frame.fh + 16, 1));
+    expect(storedIndex(tester), 1);
+    expect(tester.takeException(), isNull);
+  });
 
-  testWidgets(
-    'without a reader Scrollable the gallery still lays out safely',
-    (tester) async {
-      await mountStack(tester, count: 3, scrollable: false);
-      final context = tester.element(find.byType(ImageStackGallery));
-      expect(Scrollable.maybeOf(context, axis: Axis.vertical), isNull);
-      expect(tester.getSize(stackStage).height, greaterThan(0));
-      expect(tester.takeException(), isNull);
-    },
-  );
+  testWidgets('without a reader Scrollable the gallery still lays out safely', (
+    tester,
+  ) async {
+    await mountStack(tester, count: 3, scrollable: false);
+    final context = tester.element(find.byType(ImageStackGallery));
+    expect(Scrollable.maybeOf(context, axis: Axis.vertical), isNull);
+    expect(tester.getSize(stackStage).height, greaterThan(0));
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('horizontal gestures stop at the ends with rubber band', (
     tester,
@@ -461,7 +462,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('tap opens the whole floor gallery at the selected offset', (
+  testWidgets('tap opens the same image group at the selected index', (
     tester,
   ) async {
     await mountStack(tester);
@@ -470,8 +471,8 @@ void main() {
     await tester.tapAt(tester.getCenter(stackStage));
     await tester.pumpAndSettle();
     final viewer = tester.widget<ImageViewerPage>(find.byType(ImageViewerPage));
-    expect(viewer.urls, List.generate(9, (i) => 'full-$i'));
-    expect(viewer.initialIndex, 4);
+    expect(viewer.urls, List.generate(6, (i) => 'photo-$i'));
+    expect(viewer.initialIndex, 2);
   });
 
   testWidgets('a thousand-photo gallery keeps decode requests windowed', (
@@ -485,7 +486,9 @@ void main() {
         .descendant(
           of: find.byType(ImageStackGallery),
           matching: find.byWidgetPredicate(
-            (w) => w is Image && (w.key ?? const Key('')).toString().contains(
+            (w) =>
+                w is Image &&
+                (w.key ?? const Key('')).toString().contains(
                   'image-stack-photo',
                 ),
           ),

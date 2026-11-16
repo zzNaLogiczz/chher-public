@@ -46,22 +46,44 @@ PmConversation? _parseConversation(dom.Element dl, String prefix) {
 
   final peer = findUserLink(dl);
   // 摘要区混着按钮、计数、对方、预览与时间,先剔掉操作区再取预览
-  final preview = textWithout(dl.querySelector('.pm_c'), [
-    '.o',
-    '.pm_o',
-    '.y',
-    'em',
-  ]);
+  final content = dl.querySelector('.pm_c')?.clone(true);
+  for (final a in content?.querySelectorAll('a') ?? <dom.Element>[]) {
+    if (cleanText(a.text) == '查看' &&
+        (a.attributes['href'] ?? '').contains('do=pm')) {
+      a.remove();
+    }
+  }
+  var preview = textWithout(content, ['.o', '.pm_o', '.y', 'em']);
+  final trailingTime = RegExp(
+    r'\s+(\d{4}-\d{1,2}-\d{1,2}\s+\d{1,2}:\d{2}(?::\d{2})?)\s*$',
+  ).firstMatch(preview);
+  final time = cleanText(dl.querySelector('.pm_c em, span.xg1, em')?.text);
+  if (trailingTime != null) {
+    preview = preview.substring(0, trailingTime.start).trimRight();
+  }
+
+  final peerName = cleanText(peer?.el.text).isEmpty
+      ? cleanText(link?.text)
+      : cleanText(peer?.el.text);
+  final outgoing = RegExp(
+    '^您\\s*对\\s*${RegExp.escape(peerName)}\\s*说\\s*[:：]?\\s*',
+  );
+  final incoming = RegExp(
+    '^${RegExp.escape(peerName)}\\s*对\\s*您\\s*说\\s*[:：]?\\s*',
+  );
+  final isOutgoing = peerName.isNotEmpty && outgoing.hasMatch(preview);
+  if (peerName.isNotEmpty) {
+    preview = preview.replaceFirst(isOutgoing ? outgoing : incoming, '');
+  }
 
   return PmConversation(
     id: id,
-    peer: cleanText(peer?.el.text).isEmpty
-        ? cleanText(link?.text)
-        : cleanText(peer?.el.text),
+    peer: peerName,
     peerUid: peer?.uid,
     avatarUrl: _avatarOf(dl),
     preview: preview,
-    timeRaw: cleanText(dl.querySelector('.pm_c em, span.xg1, em')?.text),
+    isOutgoing: isOutgoing,
+    timeRaw: time.isNotEmpty ? time : trailingTime?.group(1) ?? '',
     viewUrl: ChhUrls.absolutize(href),
   );
 }

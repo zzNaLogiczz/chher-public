@@ -126,7 +126,11 @@ class _BlockedUserRow extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(vertical: 4),
                 child: Row(
                   children: [
-                    AccountAvatar(url: user.avatarUrl, size: 40),
+                    AccountAvatar(
+                      name: user.name,
+                      url: user.avatarUrl,
+                      size: 40,
+                    ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Column(

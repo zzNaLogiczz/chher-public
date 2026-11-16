@@ -22,21 +22,17 @@ void main() {
     final appearance = find.byType(SettingsAppearance);
     final section = find.byKey(const ValueKey('settings-appearance'));
     expect(appearance, findsOneWidget);
+    expect(find.descendant(of: section, matching: appearance), findsOneWidget);
     expect(
-      find.descendant(of: section, matching: appearance),
-      findsOneWidget,
-    );
-    expect(
-      tester.getRect(section).left -
-          tester.getRect(find.byType(ListView)).left,
+      tester.getRect(section).left - tester.getRect(find.byType(ListView)).left,
       AppSpace.groupInset,
     );
     expect(
-      tester.widget<Text>(find.text('外观与风格')).style,
-      tester.widget<Text>(find.text('存储与诊断')).style,
+      tester.widget<Text>(find.text('外观')).style,
+      tester.widget<Text>(find.text('通用')).style,
     );
     expect(
-      tester.getTopLeft(find.text('外观与风格')).dy,
+      tester.getTopLeft(find.text('外观')).dy,
       lessThan(tester.getTopLeft(appearance).dy),
     );
     expect(
@@ -61,7 +57,7 @@ void main() {
     }
     expect(
       tester.getBottomLeft(appearance).dy,
-      lessThan(tester.getTopLeft(find.text('存储与诊断')).dy),
+      lessThan(tester.getTopLeft(find.text('通用')).dy),
     );
     expect(tester.takeException(), isNull);
   });

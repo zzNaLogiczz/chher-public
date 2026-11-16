@@ -89,7 +89,7 @@ void main() {
 
         final appearance = find.byKey(const ValueKey('settings-appearance'));
         final storage = find.byKey(const ValueKey('settings-storage'));
-        final about = find.byKey(const ValueKey('settings-about-section'));
+        final about = find.byKey(const ValueKey('settings-about'));
         expect(appearance, findsOneWidget);
         expect(storage, findsOneWidget);
         expect(about, findsOneWidget);
@@ -107,7 +107,7 @@ void main() {
           find.descendant(of: about, matching: find.text('运行日志')),
           findsNothing,
         );
-        final labels = ['外观与风格', '存储与诊断', '关于', if (loggedIn) '退出登录'];
+        final labels = ['外观', '通用', '关于 Chher', if (loggedIn) '退出登录'];
         for (var i = 1; i < labels.length; i++) {
           expect(
             tester.getTopLeft(find.text(labels[i - 1])).dy,
@@ -162,7 +162,7 @@ void main() {
     for (final key in [
       'settings-appearance',
       'settings-storage',
-      'settings-about-section',
+      'settings-about',
     ]) {
       expect(find.byKey(ValueKey(key)), findsOneWidget);
     }
@@ -195,7 +195,7 @@ void main() {
       200,
       scrollable: find.byType(Scrollable).last,
     );
-    expect(find.text('关于'), findsOneWidget);
+    expect(find.text('通用'), findsOneWidget);
     expect(find.text('关于 Chher'), findsOneWidget);
     // 检查更新与安装统计说明都挪进了关于页
     expect(find.text('检查更新'), findsNothing);
@@ -227,7 +227,7 @@ void main() {
     );
     final logout = find.byKey(const ValueKey('settings-logout'));
     expect(logout, findsOneWidget);
-    expect(tester.getSize(logout).height, greaterThanOrEqualTo(50));
+    expect(tester.getSize(logout).height, 44);
     // 只露出一角时点不中,先整行滚进视野
     await tester.ensureVisible(find.text('退出登录'));
     await tester.pumpAndSettle();

@@ -23,6 +23,10 @@ class ReadingMetrics {
   double get bodySize =>
       const [15.0, 16.0, 17.0, 18.0, 20.0][prefs.fontSize.index];
   double get bodyHeight => const [1.55, 1.7, 1.85][prefs.lineHeight.index];
+  double get threadBodyHeight =>
+      const [1.55, 1.8, 1.85][prefs.lineHeight.index];
+  double get threadParagraphGap => _compact ? 10 : 14;
+  double get commentGutter => 12;
   double get commentSize => bodySize - 1;
   double get commentHeight => bodyHeight - .1;
   bool get _compact => prefs.layout == ReadingLayout.compact;
@@ -30,7 +34,8 @@ class ReadingMetrics {
   double get postVPad => _compact ? 8 : 12;
   double get avatar => _compact ? 28 : 32;
   double get avatarNested => _compact ? 22 : 24;
-  double get openingAvatar => _compact ? 32 : 36;
+  double get threadAvatarNested => 22;
+  double get openingAvatar => 40;
   double get paragraphGap => _compact ? 6 : 10;
   double get titleSize => _compact ? 22 : 24;
   double get imageGap => _compact ? 8 : 12;

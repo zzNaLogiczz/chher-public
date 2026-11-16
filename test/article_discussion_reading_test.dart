@@ -1,12 +1,12 @@
 import 'package:chh_app/core/reading_prefs.dart';
 import 'package:chh_app/design/reading.dart';
+import 'package:chh_app/design/sheet_tokens.dart';
 import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/design/tokens.dart';
 import 'package:chh_app/models/article_discussion.dart';
 import 'package:chh_app/models/models.dart';
 import 'package:chh_app/pages/article_discussion_page.dart';
 import 'package:chh_app/ui/hit_slop.dart';
-import 'package:chh_app/ui/picker.dart';
 import 'package:chh_app/widgets/article_discussion_widgets.dart';
 import 'package:chh_app/widgets/article_reply_sheet.dart';
 import 'package:chh_app/widgets/comment_mode_bar.dart';
@@ -15,7 +15,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 const body = '合成评论正文第一行\n合成评论正文第二行';
-const quoted = '合成引用第一行\n合成引用第二行';
+const quoted = '合成引用第一行\n合成引用第二行\n合成引用第三行\n合成引用第四行\n合成引用第五行';
 const discussion = ArticleDiscussion(
   aid: 1,
   title: '合成阅读测试',
@@ -110,14 +110,9 @@ Future<void> pick(WidgetTester tester, String mode) async {
   final bar = find.byType(CommentModeBar);
   final value = tester.widget<CommentModeBar>(bar).mode;
   if (['评论', '原楼层', '只看作者'][value.index] == mode) return;
-  final picker = inside(bar, PickerButton<CommentViewMode>);
-  if (picker.evaluate().isNotEmpty) {
-    await tester.tap(picker);
-    await tester.pumpAndSettle();
-    await tester.tap(find.text(mode).last);
-  } else {
-    await tester.tap(textIn(bar, mode));
-  }
+  await tester.tap(
+    find.byKey(ValueKey('comment-mode-${['评论', '原楼层', '只看作者'].indexOf(mode)}')),
+  );
   await tester.pumpAndSettle();
 }
 
@@ -153,22 +148,20 @@ void main() {
         final before = tester.getRect(root);
         final beforeAvatar = tester.getSize(avatar);
         final bodyBefore = tester.getSize(textIn(root, body));
-        expect(before.left, 20);
+        expect(before.left, 20 + (sheet ? AppSheetTokens.inset : 0));
         expect(beforeAvatar.width, 32);
         await controller.set(
           controller.prefs.copyWith(layout: ReadingLayout.compact),
         );
         await tester.pumpAndSettle();
-        expect(tester.getRect(root).left, 16);
+        expect(
+          tester.getRect(root).left,
+          16 + (sheet ? AppSheetTokens.inset : 0),
+        );
         expect(tester.getSize(avatar).width, 28);
         expect(tester.getSize(root).height, lessThan(before.height));
         expect(tester.getSize(textIn(root, body)).height, bodyBefore.height);
-        if (mode != '只看作者') {
-          final divider = tester
-              .widgetList<Divider>(find.byType(Divider))
-              .firstWhere((d) => d.thickness == .5);
-          expect(divider.indent, 38);
-        }
+        expect(find.byType(Divider), findsNothing);
         expect(tester.takeException(), isNull);
       });
     }
@@ -197,7 +190,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.getSize(content).height, greaterThan(largeBody));
     expect(tester.getSize(quote).height, greaterThan(largeQuote));
-    await tester.tap(textIn(tile(1), '展开引用'));
+    await tester.tap(textIn(tile(1), '展开'));
     await tester.pumpAndSettle();
     final expanded = tester.getSize(find.byType(DiscussionQuote)).height;
     await controller.set(

@@ -9,6 +9,7 @@ import 'expressive_composer.dart';
 
 class ComposerSheet extends StatefulWidget {
   final String? quoteOf;
+  final String? quoteText;
   final String hintText;
   final Future<PostResult> Function(String message) onSubmit;
   final String initialText;
@@ -20,6 +21,7 @@ class ComposerSheet extends StatefulWidget {
     super.key,
     required this.onSubmit,
     this.quoteOf,
+    this.quoteText,
     this.hintText = '回复内容',
     this.initialText = '',
     this.draftKey,
@@ -33,6 +35,7 @@ class ComposerSheet extends StatefulWidget {
     BuildContext context, {
     required Future<PostResult> Function(String message) onSubmit,
     String? quoteOf,
+    String? quoteText,
     String hintText = '回复内容',
     String initialText = '',
     String? draftKey,
@@ -43,6 +46,7 @@ class ComposerSheet extends StatefulWidget {
     builder: (_) => ComposerSheet(
       onSubmit: onSubmit,
       quoteOf: quoteOf,
+      quoteText: quoteText,
       hintText: hintText,
       initialText: draftKey == null
           ? initialText
@@ -60,11 +64,12 @@ class ComposerSheet extends StatefulWidget {
 class _ComposerSheetState extends State<ComposerSheet> {
   @override
   Widget build(BuildContext context) => ExpressiveComposer(
-    title: '写回复',
+    title: widget.quoteOf == null ? '写回复' : '回复 ${widget.quoteOf}',
+    compactReply: true,
     modeLabel: widget.quoteOf == null ? '社区讨论' : '楼层回复',
     hintText: widget.hintText,
     initialText: widget.initialText,
-    quoteLabel: widget.quoteOf == null ? null : '引用 ${widget.quoteOf}',
+    quoteText: widget.quoteText,
     onSubmit: widget.onSubmit,
     attachments: widget.attachments,
     onDraftChanged: (text) {

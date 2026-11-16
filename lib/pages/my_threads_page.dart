@@ -178,7 +178,7 @@ class _Row extends StatelessWidget {
                   newRepliesText(t, fresh),
               ],
             ),
-            // 可定位的回复摘要:左侧细线,点按直接跳到那一楼
+            // 可定位的回复摘要：浅底引用，点按直接跳到那一楼
             for (final snippet in item.replySnippets)
               Padding(
                 padding: const EdgeInsets.only(top: 10),
@@ -187,9 +187,8 @@ class _Row extends StatelessWidget {
                   borderRadius: BorderRadius.circular(AppRadii.xs),
                   child: DecoratedBox(
                     decoration: BoxDecoration(
-                      border: Border(
-                        left: BorderSide(color: t.fill2, width: 3),
-                      ),
+                      color: t.fill,
+                      borderRadius: BorderRadius.circular(AppRadii.sm),
                     ),
                     child: Padding(
                       padding: const EdgeInsets.fromLTRB(12, 2, 4, 2),

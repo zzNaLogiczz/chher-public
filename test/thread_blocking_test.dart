@@ -2,6 +2,7 @@ import 'package:chh_app/data/user_block_index.dart';
 import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/models/models.dart';
 import 'package:chh_app/pages/thread_detail_page.dart';
+import 'package:chh_app/ui/sheet_scaffold.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -88,7 +89,7 @@ void main() {
     final blocks = UserBlockIndex(null);
     await blocks.block(uid: '2', name: '用户2');
     await _pump(tester, blocks);
-    await tester.tap(find.text('原楼层'));
+    await tester.tap(find.byKey(const ValueKey('comment-mode-1')));
     await tester.pumpAndSettle();
     expect(find.text('引用已屏蔽楼层'), findsOneWidget);
     expect(find.textContaining('原始引用', findRichText: true), findsNothing);
@@ -115,10 +116,15 @@ void main() {
       await _pump(tester, blocks);
       await tester.tap(find.byKey(const ValueKey('post-more-1')));
       await tester.pumpAndSettle();
-      expect(find.text('点评'), findsOneWidget);
-      expect(find.text('评分'), findsOneWidget);
-      expect(find.text('用户资料'), findsNothing);
-      expect(find.text('加入黑名单'), findsOneWidget);
+      Finder menuText(String label) => find.descendant(
+        of: find.byType(SheetScaffold),
+        matching: find.text(label),
+      );
+      expect(menuText('点评'), findsOneWidget);
+      expect(menuText('评分'), findsOneWidget);
+      expect(menuText('复制文字'), findsOneWidget);
+      expect(menuText('用户资料'), findsNothing);
+      expect(menuText('加入黑名单'), findsOneWidget);
       await tester.pumpWidget(const SizedBox());
       blocks.dispose();
     },

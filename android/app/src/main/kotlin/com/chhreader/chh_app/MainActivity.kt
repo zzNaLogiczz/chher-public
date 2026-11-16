@@ -5,6 +5,8 @@ import android.content.res.Configuration
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
+import android.window.BackEvent
 import android.view.Display
 import android.view.Surface
 import android.view.SurfaceHolder
@@ -25,6 +27,7 @@ class MainActivity : FlutterActivity() {
     private var channel: MethodChannel? = null
     private var sessionChannel: MethodChannel? = null
     private var editorTouchBridge: EditorTouchBridge? = null
+    private var composerBackBridge: ComposerBackBridge? = null
     private var updateBridge: UpdateBridge? = null
     private var imageBridge: ImageBridge? = null
     private var notificationBridge: NotificationBridge? = null
@@ -32,6 +35,43 @@ class MainActivity : FlutterActivity() {
     private var lastError: String? = null
     private var originalModeId = 0
     private var originalRefreshRate = 0f
+    private var backProgressEvents = 0
+    private var lastBackProgress = 0f
+
+    // Observe the embedding's existing callback, without registering a competing
+    // callback. One start/end summary distinguishes missing native progress from
+    // a Dart route declining the stream; never log or allocate on every update.
+    override fun startBackGesture(backEvent: BackEvent) {
+        backProgressEvents = 0
+        lastBackProgress = backEvent.progress
+        val touch = when {
+            backEvent.touchX.isNaN() || backEvent.touchY.isNaN() -> "missing"
+            backEvent.touchX == 0f && backEvent.touchY == 0f -> "zero"
+            else -> "present"
+        }
+        Log.i("ChherBack", "start api=${Build.VERSION.SDK_INT} touch=$touch progress=$lastBackProgress edge=${backEvent.swipeEdge}")
+        super.startBackGesture(backEvent)
+    }
+
+    override fun updateBackGestureProgress(backEvent: BackEvent) {
+        backProgressEvents++
+        lastBackProgress = backEvent.progress
+        super.updateBackGestureProgress(backEvent)
+    }
+
+    override fun commitBackGesture() {
+        Log.i("ChherBack", "commit updates=$backProgressEvents progress=$lastBackProgress")
+        backProgressEvents = 0
+        lastBackProgress = 0f
+        super.commitBackGesture()
+    }
+
+    override fun cancelBackGesture() {
+        Log.i("ChherBack", "cancel updates=$backProgressEvents progress=$lastBackProgress")
+        backProgressEvents = 0
+        lastBackProgress = 0f
+        super.cancelBackGesture()
+    }
 
     private val surfaceCallback = object : SurfaceHolder.Callback {
         override fun surfaceCreated(holder: SurfaceHolder) {
@@ -49,6 +89,8 @@ class MainActivity : FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
         editorTouchBridge?.dispose()
         editorTouchBridge = EditorTouchBridge(this, flutterEngine)
+        composerBackBridge?.dispose()
+        composerBackBridge = ComposerBackBridge(this, flutterEngine)
         updateBridge?.dispose()
         updateBridge = UpdateBridge(this, flutterEngine)
         imageBridge?.dispose()
@@ -150,6 +192,8 @@ class MainActivity : FlutterActivity() {
     override fun onDestroy() {
         editorTouchBridge?.dispose()
         editorTouchBridge = null
+        composerBackBridge?.dispose()
+        composerBackBridge = null
         updateBridge?.dispose()
         updateBridge = null
         imageBridge?.dispose()
@@ -187,7 +231,6 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun requestPreferredRefresh() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
         val display = currentDisplay() ?: return
         val current = display.mode
         // Keep the current physical resolution; never trade clarity for Hz.
@@ -239,7 +282,7 @@ class MainActivity : FlutterActivity() {
 
     private fun displaySnapshot(): Map<String, Any?> {
         val display = currentDisplay()
-        val supported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && display != null
+        val supported = display != null
         return mapOf(
             "available" to supported,
             "apiLevel" to Build.VERSION.SDK_INT,

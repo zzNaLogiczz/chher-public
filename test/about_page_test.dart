@@ -1,5 +1,6 @@
 import 'package:chh_app/core/app_info.dart';
 import 'package:chh_app/design/theme.dart';
+import 'package:chh_app/design/shapes.dart';
 import 'package:chh_app/design/tokens.dart';
 import 'package:chh_app/pages/about_page.dart';
 import 'package:chh_app/pages/settings_page.dart';
@@ -13,6 +14,34 @@ import 'package:chh_app/widgets/link_opener.dart';
 import 'package:chh_app/widgets/large_title_scaffold.dart';
 
 void main() {
+  for (final style in AppearanceStyle.values) {
+    for (final brightness in Brightness.values) {
+      testWidgets('发送邮件采用44胶囊 $style $brightness', (tester) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: buildAppTheme(brightness, style),
+            home: const AboutPage(),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final row = find.byKey(const ValueKey('about-feedback'));
+        await tester.ensureVisible(row);
+        expect(tester.getSize(row).height, AppSizes.singleLineHeight);
+        final box = tester.widget<DecoratedBox>(
+          find.ancestor(of: row, matching: find.byType(DecoratedBox)).first,
+        );
+        final shape = (box.decoration as ShapeDecoration).shape;
+        expect(shape, appShape(AppRadii.full));
+        final rect = Offset.zero & tester.getSize(row);
+        final radius = BorderRadius.circular(
+          AppRadii.full,
+        ).toRRect(rect).scaleRadii().tlRadiusX;
+        expect(radius, rect.height / 2);
+        expect(tester.takeException(), isNull);
+      });
+    }
+  }
+
   testWidgets('设置里点关于进入关于页:图标在上,版本号其次,介绍在下', (tester) async {
     await tester.pumpWidget(
       MaterialApp(

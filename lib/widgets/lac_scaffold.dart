@@ -123,20 +123,15 @@ class _LacScaffoldState extends State<LacScaffold> {
         ? Stack(
             children: [
               Positioned.fill(
-                child: IgnorePointer(
-                  child: ShaderMask(
-                    blendMode: BlendMode.dstIn,
-                    shaderCallback: (bounds) => LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [t.onLac, t.onLac.withValues(alpha: 0)],
-                      stops: const [.3, .62],
-                    ).createShader(bounds),
-                    child: const Stack(
-                      children: [
-                        Positioned(top: 4, right: -14, child: _Watermark()),
-                      ],
-                    ),
+                child: LayoutBuilder(
+                  builder: (context, constraints) => Stack(
+                    children: [
+                      Positioned(
+                        top: 4,
+                        right: -14,
+                        child: _Watermark(fadeHeight: constraints.maxHeight),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -272,24 +267,33 @@ class PaperSheet extends StatelessWidget {
 
 /// 漆面水印:大字 chh,奶白 10%,溢出右缘
 class _Watermark extends StatelessWidget {
-  const _Watermark();
+  final double? fadeHeight;
+  const _Watermark({this.fadeHeight});
 
   @override
   Widget build(BuildContext context) {
-    final t = AppTokens.of(context);
+    final color = AppTokens.of(context).onLac.withValues(alpha: .1);
+    // Paint the gradient directly into the glyphs; a ShaderMask would allocate
+    // a full header saveLayer on Skia just to fade this static watermark.
+    final foreground = Paint()..color = color;
+    if (fadeHeight case final height?) {
+      foreground.shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [color, color.withValues(alpha: 0)],
+        stops: const [.3, .62],
+      ).createShader(Rect.fromLTWH(0, -4, 1, height));
+    }
     return IgnorePointer(
-      child: Opacity(
-        opacity: .1,
-        child: Text(
-          'chh',
-          maxLines: 1,
-          style: TextStyle(
-            fontSize: LacquerMarks.watermark,
-            fontWeight: FontWeight.w800,
-            letterSpacing: -5,
-            height: 1,
-            color: t.onLac,
-          ),
+      child: Text(
+        'chh',
+        maxLines: 1,
+        style: TextStyle(
+          fontSize: LacquerMarks.watermark,
+          fontWeight: FontWeight.w800,
+          letterSpacing: -5,
+          height: 1,
+          foreground: foreground,
         ),
       ),
     );

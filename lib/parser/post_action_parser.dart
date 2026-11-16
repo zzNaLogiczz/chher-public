@@ -16,18 +16,25 @@ String interactionHtml(String raw) {
 }
 
 dom.Document _document(String raw) => html.parse(interactionHtml(raw));
-Uri interactionPageUrl(PostInteractionKind kind, int tid, int pid) => Uri.parse(
-  '${ChhUrls.base}/forum.php?mod=misc&action=${kind == PostInteractionKind.comment ? 'comment' : 'rate'}&tid=$tid&pid=$pid&infloat=yes&inajax=1${kind == PostInteractionKind.rating ? '&handlekey=rate&ajaxtarget=fwin_content_rate' : '&extra=&handlekey=comment&ajaxtarget=fwin_content_comment'}',
-);
-Uri interactionSubmitUrl(
-  PostInteractionKind kind,
-  int tid,
-  int pid,
-) => Uri.parse(
-  kind == PostInteractionKind.comment
-      ? '${ChhUrls.base}/forum.php?mod=post&action=reply&comment=yes&tid=$tid&pid=$pid&extra=&commentsubmit=yes&infloat=yes&inajax=1'
-      : '${ChhUrls.base}/forum.php?mod=misc&action=rate&ratesubmit=yes&infloat=yes&inajax=1',
-);
+Uri interactionPageUrl(PostInteractionKind kind, int tid, int pid) =>
+    kind == PostInteractionKind.supplement
+    ? supplementPageUrl(tid, pid)
+    : Uri.parse(
+        '${ChhUrls.base}/forum.php?mod=misc&action=${kind == PostInteractionKind.comment ? 'comment' : 'rate'}&tid=$tid&pid=$pid&infloat=yes&inajax=1${kind == PostInteractionKind.rating ? '&handlekey=rate&ajaxtarget=fwin_content_rate' : '&extra=&handlekey=comment&ajaxtarget=fwin_content_comment'}',
+      );
+Uri interactionSubmitUrl(PostInteractionKind kind, int tid, int pid) =>
+    kind == PostInteractionKind.supplement
+    ? supplementPageUrl(tid, pid).replace(
+        queryParameters: {
+          ...supplementPageUrl(tid, pid).queryParameters,
+          'postappendsubmit': 'yes',
+        },
+      )
+    : Uri.parse(
+        kind == PostInteractionKind.comment
+            ? '${ChhUrls.base}/forum.php?mod=post&action=reply&comment=yes&tid=$tid&pid=$pid&extra=&commentsubmit=yes&infloat=yes&inajax=1'
+            : '${ChhUrls.base}/forum.php?mod=misc&action=rate&ratesubmit=yes&infloat=yes&inajax=1',
+      );
 
 bool isInteractionUrl(
   Uri uri,
@@ -36,6 +43,9 @@ bool isInteractionUrl(
   int pid, {
   bool submit = false,
 }) {
+  if (kind == PostInteractionKind.supplement) {
+    return isSupplementUrl(uri, tid, pid, submit: submit);
+  }
   final base = Uri.parse(ChhUrls.base);
   if (uri.scheme != 'https' ||
       uri.host != base.host ||
@@ -68,7 +78,7 @@ PostActionCapabilities parsePostActionCapabilities(
   required int tid,
   required int pid,
 }) {
-  Uri? comment, rating;
+  Uri? comment, rating, supplement;
   var hasReplyToolbar = false;
   final base = Uri.parse(ChhUrls.base);
   for (final a in table.querySelectorAll('a')) {
@@ -133,6 +143,9 @@ PostActionCapabilities parsePostActionCapabilities(
       final normalized = url.replace(
         queryParameters: {...q, 'tid': '$tid', 'pid': '$pid'},
       );
+      if (inToolbar && isSupplementUrl(normalized, tid, pid)) {
+        supplement = normalized;
+      }
       if (inToolbar &&
           isInteractionUrl(normalized, PostInteractionKind.comment, tid, pid)) {
         comment = normalized;
@@ -155,6 +168,7 @@ PostActionCapabilities parsePostActionCapabilities(
         : PostActionPermission.unknown,
     commentUrl: comment,
     ratingUrl: rating,
+    supplementUrl: supplement,
   );
 }
 
@@ -382,6 +396,9 @@ PostResult parsePostInteractionResult(
   PostInteractionKind kind, {
   int status = 200,
 }) {
+  if (kind == PostInteractionKind.supplement) {
+    return parsePostSupplementResult(raw, status: status);
+  }
   final doc = _document(raw);
   if (doc.getElementById('thread_subject') != null ||
       doc.querySelector('td[id^=postmessage_]') != null) {
@@ -404,6 +421,109 @@ PostResult parsePostInteractionResult(
       message.isNotEmpty &&
       accepted.any(message.contains)) {
     return PostResult(PostResultKind.success, message);
+  }
+  return const PostResult(PostResultKind.unknown, '提交结果待核对，请刷新确认');
+}
+
+// Discuz-X/DiscuzX: template/default/forum/postappend.htm and forum_misc.php.
+Uri supplementPageUrl(int tid, int pid) =>
+    Uri.https('www.chiphell.com', '/forum.php', {
+      'mod': 'misc',
+      'action': 'postappend',
+      'tid': '$tid',
+      'pid': '$pid',
+      'infloat': 'yes',
+      'inajax': '1',
+      'handlekey': 'postappend',
+    });
+
+bool isSupplementUrl(Uri url, int tid, int pid, {bool submit = false}) {
+  final q = url.queryParameters;
+  return tid > 0 &&
+      pid > 0 &&
+      url.scheme == 'https' &&
+      url.host == 'www.chiphell.com' &&
+      url.userInfo.isEmpty &&
+      (!url.hasPort || url.port == 443) &&
+      url.path == '/forum.php' &&
+      url.queryParametersAll.values.every((v) => v.length == 1) &&
+      q['mod'] == 'misc' &&
+      q['action'] == 'postappend' &&
+      q['tid'] == '$tid' &&
+      q['pid'] == '$pid' &&
+      (submit || !q.containsKey('postappendsubmit'));
+}
+
+PostSupplementForm? parsePostSupplementForm(
+  String raw, {
+  required int tid,
+  required int pid,
+  required Uri pageUrl,
+  required String sessionIdentity,
+  int? sessionRevision,
+}) {
+  if (!isSupplementUrl(pageUrl, tid, pid) ||
+      parseInteractionPageError(raw) != null) {
+    return null;
+  }
+  final doc = _document(raw);
+  for (final form in doc.querySelectorAll('form')) {
+    final field = form.querySelector('textarea[name=postappendmessage]');
+    final hash = form
+        .querySelector('input[name=formhash]')
+        ?.attributes['value']
+        ?.trim();
+    final actionRaw = form.attributes['action'];
+    if (field == null ||
+        field.attributes.containsKey('disabled') ||
+        hash == null ||
+        hash.isEmpty ||
+        actionRaw == null) {
+      continue;
+    }
+    final relative = Uri.tryParse(actionRaw);
+    if (relative == null) continue;
+    final action = pageUrl.resolveUri(relative);
+    if (!isSupplementUrl(action, tid, pid, submit: true)) continue;
+    final hidden = _hidden(form);
+    if ((hidden.containsKey('tid') && hidden['tid'] != '$tid') ||
+        (hidden.containsKey('pid') && hidden['pid'] != '$pid')) {
+      continue;
+    }
+    final max = int.tryParse(
+      field.attributes['maxlength'] ??
+          form.querySelector('#checklen_append')?.text.trim() ??
+          '',
+    );
+    return PostSupplementForm(
+      tid: tid,
+      pid: pid,
+      action: action,
+      pageUrl: pageUrl,
+      formhash: hash,
+      sessionIdentity: sessionIdentity,
+      sessionRevision: sessionRevision,
+      hidden: Map.unmodifiable(hidden),
+      maxLength: max != null && max > 0 ? max : null,
+    );
+  }
+  return null;
+}
+
+PostResult parsePostSupplementResult(String raw, {int status = 200}) {
+  final error = parseInteractionPageError(raw);
+  if (error != null) return error;
+  final doc = _document(raw);
+  final match = RegExp(
+    r'''succeedhandle_postappend\s*\(\s*['"][^'"]*['"]\s*,\s*['"]([^'"]+)['"]''',
+  ).firstMatch(interactionHtml(raw));
+  final message = cleanText(
+    match?.group(1) ?? doc.querySelector('.alert_right')?.text,
+  );
+  if (status >= 200 &&
+      status < 300 &&
+      (message == '添加成功' || message == '补充成功' || message == '补充内容成功')) {
+    return const PostResult(PostResultKind.success, '已补充');
   }
   return const PostResult(PostResultKind.unknown, '提交结果待核对，请刷新确认');
 }

@@ -3,18 +3,20 @@ library;
 
 enum PostActionPermission { unknown, allowed, denied }
 
-enum PostInteractionKind { comment, rating }
+enum PostInteractionKind { comment, rating, supplement }
 
 class PostActionCapabilities {
   final PostActionPermission comment;
   final PostActionPermission rating;
   final Uri? commentUrl;
   final Uri? ratingUrl;
+  final Uri? supplementUrl;
   const PostActionCapabilities({
     this.comment = PostActionPermission.unknown,
     this.rating = PostActionPermission.unknown,
     this.commentUrl,
     this.ratingUrl,
+    this.supplementUrl,
   });
 }
 
@@ -89,4 +91,24 @@ class PostRateForm {
   Map<String, int> get initialScores => {
     for (final t in scoreTypes) t.fieldName: 0,
   };
+}
+
+/// A fresh, server-authorized append form for one owned post.
+class PostSupplementForm {
+  final int tid, pid;
+  final Uri action, pageUrl;
+  final String formhash, sessionIdentity;
+  final int? sessionRevision, maxLength;
+  final Map<String, String> hidden;
+  const PostSupplementForm({
+    required this.tid,
+    required this.pid,
+    required this.action,
+    required this.pageUrl,
+    required this.formhash,
+    required this.sessionIdentity,
+    this.sessionRevision,
+    this.maxLength,
+    this.hidden = const {},
+  });
 }

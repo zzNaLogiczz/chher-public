@@ -1,11 +1,15 @@
-/// 内容页的平铺行:白底、左右 20、按下整行变灰、分隔线从文字起点开始(规格 §6.7)
+/// 内容页的平铺行：按下变底色，仅以留白分隔。
 library;
 
 import 'package:flutter/material.dart';
 import 'package:motor/motor.dart';
 
 import '../design/icons.dart';
+import '../design/forum_tokens.dart';
+import '../core/chh_urls.dart';
+import '../widgets/avatar_image.dart';
 import '../design/motion.dart';
+import '../design/notice_tokens.dart';
 import '../design/shapes.dart';
 import '../design/tokens.dart';
 import '../data/thread_read_index.dart';
@@ -13,12 +17,14 @@ import '../design/typography.dart';
 import '../models/models.dart';
 import 'app_button.dart';
 import 'press.dart';
+import 'chrome_button.dart' show BadgeAppearance;
 
 class PlainRow extends StatelessWidget {
   final Widget child;
   final VoidCallback? onTap;
   final EdgeInsetsGeometry padding;
   final bool separator;
+  final BorderRadius? borderRadius;
 
   const PlainRow({
     super.key,
@@ -31,37 +37,28 @@ class PlainRow extends StatelessWidget {
       0,
     ),
     this.separator = true,
+    this.borderRadius,
   });
 
   @override
   Widget build(BuildContext context) {
-    final t = AppTokens.of(context);
     final scope = PlainRowScope.maybeOf(context);
-    final separator = this.separator && (scope?.separator ?? true);
     final content = Padding(
       padding: scope == null
           ? padding
           : EdgeInsets.fromLTRB(scope.inset, 14, scope.inset, 0),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          border: separator
-              ? Border(
-                  bottom: BorderSide(
-                    color: t.separator,
-                    width: AppSpace.hairline,
-                  ),
-                )
-              : null,
-        ),
-        child: Padding(
-          padding: const EdgeInsets.only(bottom: 14),
-          child: SizedBox(width: double.infinity, child: child),
-        ),
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: 14),
+        child: SizedBox(width: double.infinity, child: child),
       ),
     );
     return onTap == null
         ? content
-        : PressHighlight(onTap: onTap, child: content);
+        : PressHighlight(
+            onTap: onTap,
+            borderRadius: borderRadius,
+            child: content,
+          );
   }
 }
 
@@ -173,6 +170,7 @@ class ThreadRow extends StatelessWidget {
   final String? eyebrow;
   final String? timeLabel;
   final bool showCategory;
+  final bool forumStyle;
 
   /// 可定位的回复摘要等补充文字
   final String? excerpt;
@@ -191,6 +189,7 @@ class ThreadRow extends StatelessWidget {
     this.eyebrow,
     this.timeLabel,
     this.showCategory = true,
+    this.forumStyle = false,
     this.excerpt,
     this.onTap,
     this.locked = false,
@@ -209,8 +208,12 @@ class ThreadRow extends StatelessWidget {
         thread.sticky &&
         !(PlainRowScope.maybeOf(context)?.impliesSticky ?? false);
     final reduced = MediaQuery.disableAnimationsOf(context);
-    final duration = reduced ? Duration.zero : AppMotion.revealDuration;
+    final duration = reduced ? AppMotion.reducedFade : AppMotion.fade;
     return PlainRow(
+      separator: !forumStyle,
+      borderRadius: forumStyle
+          ? BorderRadius.circular(ForumTokens.rowRadius)
+          : null,
       onTap: onTap,
       child: Semantics(
         label: readSemanticsLabel(readState),
@@ -224,12 +227,12 @@ class ThreadRow extends StatelessWidget {
                   TweenAnimationBuilder<Color?>(
                     tween: ColorTween(end: readTitleColor(t, readState)),
                     duration: duration,
-                    curve: Curves.easeOut,
                     builder: (context, color, _) => Text(
                       thread.title,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: AppType.headline.copyWith(color: color),
+                      style: (forumStyle ? ForumTokens.title : AppType.headline)
+                          .copyWith(color: color),
                     ),
                   ),
                   if ((excerpt ?? thread.snippet) case final String text) ...[
@@ -242,7 +245,10 @@ class ThreadRow extends StatelessWidget {
                     ),
                   ],
                   const SizedBox(height: 5),
-                  _metadata(context, t, label, when, sticky),
+                  if (forumStyle)
+                    _forumMetadata(context, t, label, when, sticky, duration)
+                  else
+                    _metadata(context, t, label, when, sticky),
                   if (locked)
                     Padding(
                       padding: const EdgeInsets.only(top: 6),
@@ -265,9 +271,84 @@ class ThreadRow extends StatelessWidget {
                 ],
               ),
             ),
-            if (!locked) ...[const SizedBox(width: 12), _count(t, duration)],
+            if (!locked) ...[
+              const SizedBox(width: 12),
+              if (forumStyle)
+                _ForumReplyCount(thread: thread, state: readState)
+              else
+                _count(t, duration),
+            ],
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _forumMetadata(
+    BuildContext context,
+    AppTokens t,
+    String? label,
+    String? when,
+    bool sticky,
+    Duration duration,
+  ) {
+    final uid = thread.authorUid?.trim();
+    final hasUid = uid != null && RegExp(r'^\d{1,9}$').hasMatch(uid);
+    final avatar = AnimatedOpacity(
+      opacity: readState is ThreadReadSeen ? ForumTokens.seenAvatarOpacity : 1,
+      duration: duration,
+      child: AvatarImage(
+        key: ValueKey('thread-avatar-${thread.tid}'),
+        name: thread.author,
+        // Reuse the detail avatar source and its disk cache at a bounded decode size.
+        url: hasUid ? ChhUrls.avatar(uid) : null,
+        size: ForumTokens.avatarSize,
+        lazy: true,
+      ),
+    );
+    final style = ForumTokens.metadata.copyWith(color: t.text3);
+    return LayoutBuilder(
+      builder: (context, constraints) => Wrap(
+        spacing: 8,
+        runSpacing: 3,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: constraints.maxWidth * .55),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                avatar,
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    thread.author,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: style.copyWith(color: t.text2),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (sticky) Text('置顶', style: style.copyWith(color: t.warn)),
+          if (label?.isNotEmpty == true)
+            Text(
+              label!,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: style,
+            ),
+          if (when?.isNotEmpty == true)
+            Text(
+              when!,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: style,
+            ),
+          if (thread.hasImages)
+            Icon(AppIcons.image, size: 14, color: t.text3, semanticLabel: '含图'),
+        ],
       ),
     );
   }
@@ -409,6 +490,93 @@ class ThreadRow extends StatelessWidget {
   }
 }
 
+class _ForumReplyCount extends StatefulWidget {
+  const _ForumReplyCount({required this.thread, required this.state});
+  final ThreadSummary thread;
+  final ThreadReadState state;
+
+  @override
+  State<_ForumReplyCount> createState() => _ForumReplyCountState();
+}
+
+class _ForumReplyCountState extends State<_ForumReplyCount> {
+  int _lastFresh = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
+    final state = widget.state;
+    final fresh = state is ThreadReadNewReplies ? state.count : null;
+    if (fresh != null) _lastFresh = fresh;
+    final duration = MediaQuery.disableAnimationsOf(context)
+        ? AppMotion.reducedFade
+        : AppMotion.fade;
+    return SizedBox(
+      key: ValueKey('thread-count-${widget.thread.tid}'),
+      width: ForumTokens.countWidth,
+      child: Semantics(
+        label: fresh == null
+            ? '${widget.thread.replies} 回复'
+            : '有 $fresh 条新回复，共 ${widget.thread.replies} 回复',
+        excludeSemantics: true,
+        child: Stack(
+          alignment: Alignment.topRight,
+          children: [
+            AnimatedOpacity(
+              opacity: fresh == null ? 1 : 0,
+              duration: duration,
+              child: TweenAnimationBuilder<Color?>(
+                tween: ColorTween(
+                  end: state is ThreadReadSeen ? t.text3 : t.text2,
+                ),
+                duration: duration,
+                builder: (_, color, _) => Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        ThreadRow._compactCount(widget.thread.replies),
+                        style: AppType.subhead.copyWith(
+                          color: color,
+                          fontWeight: FontWeight.w600,
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                        ),
+                      ),
+                    ),
+                    Text('回复', style: AppType.caption.copyWith(color: t.text3)),
+                  ],
+                ),
+              ),
+            ),
+            BadgeAppearance(
+              visible: fresh != null,
+              child: Container(
+                key: ValueKey('thread-new-replies-${widget.thread.tid}'),
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                decoration: BoxDecoration(
+                  color: t.accentFill,
+                  borderRadius: BorderRadius.circular(ForumTokens.badgeRadius),
+                ),
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    '+${ThreadRow._compactCount(_lastFresh)}',
+                    style: AppType.footnote.copyWith(
+                      color: t.accent,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 /// 置顶帖分组:收起时是一行"置顶帖  N 条 ⌄";展开时灰色底向下长成大卡片,
 /// 置顶帖排在卡片内,收起时卡片向上折回一行
 class PinnedGroupRow extends StatelessWidget {
@@ -429,26 +597,24 @@ class PinnedGroupRow extends StatelessWidget {
     required this.itemBuilder,
   });
 
-  static final _turn = AppMotion.curveOf(AppMotion.select);
-
   @override
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
     final reduced = MediaQuery.disableAnimationsOf(context);
     return Padding(
       padding: const EdgeInsets.fromLTRB(
-        AppSpace.screen,
+        AppSpace.groupInset,
         2,
-        AppSpace.screen,
+        AppSpace.groupInset,
         6,
       ),
       child: DecoratedBox(
         decoration: ShapeDecoration(
-          color: t.fill3,
-          shape: appShape(AppRadii.sm),
+          color: t.surface,
+          shape: appShape(ForumTokens.groupRadius),
         ),
         child: AppClip(
-          radius: AppRadii.sm,
+          radius: ForumTokens.groupRadius,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -457,9 +623,20 @@ class PinnedGroupRow extends StatelessWidget {
               // 高度只作用于卡片内新出现的置顶帖;灰色底随之伸缩,不另画一层
               SingleMotionBuilder(
                 value: expanded ? 1 : 0,
-                active: !reduced,
+                active: !reduced && count <= 24,
                 motion: AppMotion.of(context, AppMotion.reveal),
-                child: _rows(t),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    ForumTokens.groupInset,
+                    0,
+                    ForumTokens.groupInset,
+                    ForumTokens.groupInset,
+                  ),
+                  child: AppClip(
+                    radius: ForumTokens.rowRadius,
+                    child: _rows(t),
+                  ),
+                ),
                 builder: (context, progress, rows) {
                   final p = progress.clamp(0.0, 1.0);
                   if (p == 0) return const SizedBox.shrink();
@@ -467,7 +644,7 @@ class PinnedGroupRow extends StatelessWidget {
                     child: Align(
                       alignment: Alignment.topCenter,
                       heightFactor: p,
-                      child: Opacity(opacity: p, child: rows),
+                      child: rows,
                     ),
                   );
                 },
@@ -481,13 +658,17 @@ class PinnedGroupRow extends StatelessWidget {
 
   Widget _header(AppTokens t, bool reduced) => PressHighlight(
     onTap: onToggle,
+    paintInset: const EdgeInsets.all(ForumTokens.groupInset),
+    borderRadius: BorderRadius.circular(ForumTokens.rowRadius),
     semanticLabel: '置顶帖 $count 条',
     child: Semantics(
       expanded: expanded,
       child: ConstrainedBox(
-        constraints: const BoxConstraints(minHeight: 44),
+        constraints: const BoxConstraints(
+          minHeight: AppSizes.singleLineHeight - 2 * ForumTokens.groupInset,
+        ),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 12),
           child: Row(
             children: [
               Text(
@@ -501,7 +682,7 @@ class PinnedGroupRow extends StatelessWidget {
               Expanded(
                 child: AnimatedOpacity(
                   opacity: expanded ? 0 : 1,
-                  duration: reduced ? Duration.zero : AppMotion.fade,
+                  duration: reduced ? AppMotion.reducedFade : AppMotion.fade,
                   child: Text(
                     firstTitle ?? '',
                     maxLines: 1,
@@ -519,12 +700,12 @@ class PinnedGroupRow extends StatelessWidget {
                 style: AppType.footnote.copyWith(color: t.text3),
               ),
               const SizedBox(width: 2),
-              TweenAnimationBuilder<double>(
-                tween: Tween(end: expanded ? .5 : 0),
-                duration: reduced ? Duration.zero : _turn.duration,
-                curve: _turn,
-                builder: (_, turns, child) => RotationTransition(
-                  turns: AlwaysStoppedAnimation(turns),
+              SingleMotionBuilder(
+                value: expanded ? .5 : 0.0,
+                active: !reduced,
+                motion: AppMotion.select,
+                builder: (_, turns, child) => Transform.rotate(
+                  angle: turns * 6.283185307179586,
                   child: child,
                 ),
                 child: Icon(AppIcons.down, size: 15, color: t.text3),
@@ -539,18 +720,10 @@ class PinnedGroupRow extends StatelessWidget {
   Widget _rows(AppTokens t) => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        child: Divider(
-          height: AppSpace.hairline,
-          thickness: AppSpace.hairline,
-          color: t.separator,
-        ),
-      ),
       for (var i = 0; i < count; i++)
         PlainRowScope(
           inset: 12,
-          separator: i < count - 1,
+          separator: false,
           impliesSticky: true,
           child: Builder(builder: (context) => itemBuilder(context, i)),
         ),
@@ -558,8 +731,8 @@ class PinnedGroupRow extends StatelessWidget {
   );
 }
 
-/// 提醒、私信会话行:头像 44 正圆 → 名字与时间 → 两行内容;未读在头像左侧标蓝点
-class NoticeRow extends StatelessWidget {
+/// Source-backed notice sentences and conversation previews inside message cards.
+class NoticeRow extends StatefulWidget {
   static const unreadDotKey = ValueKey('notice-unread-dot');
 
   final Widget avatar;
@@ -568,6 +741,12 @@ class NoticeRow extends StatelessWidget {
   final String text;
   final bool unread;
   final VoidCallback? onTap;
+  final String? title;
+  final String? scoreText;
+  final String? category;
+  final bool system;
+  final bool conversation;
+  final bool isOutgoing;
 
   const NoticeRow({
     super.key,
@@ -577,94 +756,323 @@ class NoticeRow extends StatelessWidget {
     required this.text,
     this.unread = false,
     this.onTap,
+    this.title,
+    this.scoreText,
+    this.category,
+    this.system = false,
+    this.conversation = false,
+    this.isOutgoing = false,
   });
+
+  @override
+  State<NoticeRow> createState() => _NoticeRowState();
+}
+
+class _NoticeRowState extends State<NoticeRow>
+    with SingleTickerProviderStateMixin {
+  late bool _unread = widget.unread;
+  late bool _emphasized = widget.unread;
+  late final _dot = AnimationController.unbounded(
+    vsync: this,
+    value: widget.unread ? .6 : 0,
+  );
+  bool _started = false;
+
+  void _changeUnread() {
+    if (!_dot.isAnimating && _dot.value == (_unread ? 1 : 0)) return;
+    if (_unread && _dot.value == 0) _dot.value = .6;
+    AppMotion.settle(
+      _dot,
+      target: _unread ? 1 : 0,
+      motion: _unread ? AppMotion.pop : AppMotion.tap,
+      reduced: MediaQuery.disableAnimationsOf(context),
+    ).whenCompleteOrCancel(() {
+      if (mounted && !_unread && _dot.value == 0 && _emphasized) {
+        setState(() => _emphasized = false);
+      }
+    });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_started || MediaQuery.disableAnimationsOf(context)) {
+      _started = true;
+      _changeUnread();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant NoticeRow oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.unread == widget.unread) return;
+    _unread = widget.unread;
+    if (_unread) _emphasized = true;
+    _changeUnread();
+  }
+
+  void _open() {
+    if (_unread) {
+      setState(() => _unread = false);
+      _changeUnread();
+    }
+    widget.onTap?.call();
+  }
+
+  @override
+  void dispose() {
+    _dot.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
-    final content = Stack(
-      clipBehavior: Clip.none,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpace.screen,
-            12,
-            AppSpace.screen,
-            0,
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              ClipOval(child: SizedBox.square(dimension: 44, child: avatar)),
-              const SizedBox(width: 12),
-              Expanded(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    border: Border(
-                      bottom: BorderSide(
-                        color: t.separator,
-                        width: AppSpace.hairline,
+    final name = widget.system ? '系统' : widget.name;
+    final title = widget.title;
+    final content = Padding(
+      padding: widget.conversation
+          ? NoticeTokens.conversationPadding
+          : NoticeTokens.rowPadding,
+      child: Row(
+        crossAxisAlignment: widget.conversation
+            ? CrossAxisAlignment.center
+            : CrossAxisAlignment.start,
+        children: [
+          _avatar(t),
+          const SizedBox(width: NoticeTokens.avatarGap),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: widget.conversation
+                          ? Text(
+                              name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: NoticeTokens.name.copyWith(
+                                color: t.text,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            )
+                          : Text.rich(
+                              key: const ValueKey('notice-sentence'),
+                              TextSpan(
+                                children: [
+                                  TextSpan(
+                                    text: name,
+                                    style: TextStyle(
+                                      color: _emphasized ? t.text : t.text2,
+                                      fontWeight: _emphasized
+                                          ? FontWeight.w600
+                                          : FontWeight.w500,
+                                    ),
+                                  ),
+                                  if (widget.text.isNotEmpty)
+                                    const TextSpan(text: ' '),
+                                  ..._action(t),
+                                ],
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: NoticeTokens.sentence.copyWith(
+                                color: t.text2,
+                              ),
+                            ),
+                    ),
+                    const SizedBox(width: 10),
+                    _time(t),
+                  ],
+                ),
+                if (widget.conversation) ...[
+                  const SizedBox(height: 3),
+                  Text.rich(
+                    key: const ValueKey('notice-preview'),
+                    TextSpan(
+                      children: [
+                        if (widget.isOutgoing)
+                          TextSpan(
+                            text: '你：',
+                            style: TextStyle(color: t.text3),
+                          ),
+                        TextSpan(text: widget.text),
+                      ],
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: NoticeTokens.preview.copyWith(
+                      color: _unread ? t.text : t.text2,
+                    ),
+                  ),
+                ] else if (title != null && title.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Container(
+                    key: const ValueKey('notice-quote'),
+                    width: double.infinity,
+                    padding: NoticeTokens.quotePadding,
+                    decoration: BoxDecoration(
+                      color: t.fill,
+                      borderRadius: BorderRadius.circular(
+                        NoticeTokens.quoteRadius,
+                      ),
+                    ),
+                    child: Text(
+                      title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: NoticeTokens.preview.copyWith(
+                        color: _emphasized ? t.text : t.text2,
                       ),
                     ),
                   ),
-                  child: Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                name,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: AppType.callout.copyWith(
-                                  color: t.text,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              time,
-                              style: AppType.footnote.copyWith(color: t.text3),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          text,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: AppType.subhead.copyWith(color: t.text2),
-                        ),
-                      ],
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+    return MergeSemantics(
+      child: Semantics(
+        label: _unread ? '未读' : null,
+        child: widget.onTap == null
+            ? content
+            : PressHighlight(
+                onTap: _open,
+                borderRadius: BorderRadius.circular(NoticeTokens.rowRadius),
+                child: content,
+              ),
+      ),
+    );
+  }
+
+  List<InlineSpan> _action(AppTokens t) {
+    final score = widget.scoreText;
+    if (score == null || score.isEmpty) return [TextSpan(text: widget.text)];
+    final index = widget.text.indexOf(score);
+    return [
+      TextSpan(text: index < 0 ? widget.text : widget.text.substring(0, index)),
+      if (index < 0) const TextSpan(text: ' '),
+      TextSpan(
+        text: score,
+        style: TextStyle(color: t.accent, fontWeight: FontWeight.w600),
+      ),
+      if (index >= 0)
+        TextSpan(text: widget.text.substring(index + score.length)),
+    ];
+  }
+
+  Widget _time(AppTokens t) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      AnimatedBuilder(
+        animation: _dot,
+        builder: (context, _) {
+          final scale = _dot.value.clamp(0.0, 2.0);
+          if (scale == 0) return const SizedBox.shrink();
+          return Padding(
+            padding: const EdgeInsets.only(right: 6),
+            child: Transform.scale(
+              scale: scale,
+              child: DecoratedBox(
+                key: NoticeRow.unreadDotKey,
+                decoration: BoxDecoration(
+                  color: t.accent.withValues(alpha: scale.clamp(0.0, 1.0)),
+                  shape: BoxShape.circle,
+                ),
+                child: const SizedBox.square(dimension: NoticeTokens.dot),
+              ),
+            ),
+          );
+        },
+      ),
+      if (widget.time.isNotEmpty)
+        Text(widget.time, style: NoticeTokens.time.copyWith(color: t.text3)),
+    ],
+  );
+
+  Widget _avatar(AppTokens t) {
+    final size = widget.conversation
+        ? NoticeTokens.conversationAvatar
+        : NoticeTokens.avatar;
+    final kind = switch (widget.category) {
+      'post' => (AppIcons.reply, '回复'),
+      'rate' => (AppIcons.credits, '评分'),
+      'pcomment' => (AppIcons.comments, '点评'),
+      'at' => (null, '@'),
+      'friend' => (AppIcons.person, '好友'),
+      'poke' => (NoticeTokens.pokeIcon, '打招呼'),
+      _ => null,
+    };
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        SizedBox.square(
+          key: const ValueKey('notice-avatar'),
+          dimension: size,
+          child: ExcludeSemantics(
+            child: widget.system
+                ? DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: t.fill,
+                      borderRadius: BorderRadius.circular(
+                        NoticeTokens.quoteRadius,
+                      ),
                     ),
+                    child: Icon(
+                      AppIcons.notification,
+                      size: NoticeTokens.systemIcon,
+                      color: t.text2,
+                    ),
+                  )
+                : ClipOval(child: widget.avatar),
+          ),
+        ),
+        if (!widget.system && !widget.conversation && kind != null)
+          Positioned(
+            right: NoticeTokens.kindOffset,
+            bottom: NoticeTokens.kindOffset,
+            child: Semantics(
+              label: kind.$2,
+              child: Container(
+                key: const ValueKey('notice-kind'),
+                width: NoticeTokens.kindFrame,
+                height: NoticeTokens.kindFrame,
+                decoration: BoxDecoration(
+                  color: t.surface,
+                  shape: BoxShape.circle,
+                ),
+                alignment: Alignment.center,
+                child: Container(
+                  width: NoticeTokens.kind,
+                  height: NoticeTokens.kind,
+                  decoration: BoxDecoration(
+                    color: t.fill,
+                    shape: BoxShape.circle,
+                  ),
+                  alignment: Alignment.center,
+                  child: ExcludeSemantics(
+                    child: kind.$1 == null
+                        ? Text(
+                            '@',
+                            style: NoticeTokens.time.copyWith(color: t.text2),
+                          )
+                        : Icon(
+                            kind.$1,
+                            size: NoticeTokens.kindIcon,
+                            color: t.text2,
+                          ),
                   ),
                 ),
               ),
-            ],
-          ),
-        ),
-        if (unread)
-          Positioned(
-            left: 7,
-            top: 30,
-            child: DecoratedBox(
-              key: unreadDotKey,
-              decoration: BoxDecoration(
-                color: t.accent,
-                shape: BoxShape.circle,
-              ),
-              child: const SizedBox.square(dimension: 8),
             ),
           ),
       ],
     );
-    return onTap == null
-        ? content
-        : PressHighlight(onTap: onTap, semanticLabel: name, child: content);
   }
 }
 

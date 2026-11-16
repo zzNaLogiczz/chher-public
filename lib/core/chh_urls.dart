@@ -20,6 +20,26 @@ class ChhUrls {
   static Uri thread(int tid, {int page = 1}) =>
       Uri.parse('$base/thread-$tid-$page-1.html');
 
+  static Uri viewRatings(int tid, int pid) => Uri.parse(
+    '$base/forum.php?mod=misc&action=viewratings&tid=$tid&pid=$pid',
+  );
+
+  static bool isViewRatings(Uri uri, {required int tid, required int pid}) {
+    final q = uri.queryParameters;
+    return tid > 0 &&
+        pid > 0 &&
+        (uri.scheme == 'https' || uri.scheme == 'http') &&
+        (uri.host == 'www.chiphell.com' || uri.host == 'chiphell.com') &&
+        uri.userInfo.isEmpty &&
+        (!uri.hasPort || uri.port == 443 || uri.port == 80) &&
+        q['tid'] == '$tid' &&
+        q['pid'] == '$pid' &&
+        ((uri.path == '/misc.php' && q['mod'] == 'viewratings') ||
+            (uri.path == '/forum.php' &&
+                q['mod'] == 'misc' &&
+                q['action'] == 'viewratings'));
+  }
+
   /// 版块页。typeid 走 filter=typeid 组合;digest / heat 等走 filter 本身。
   ///
   /// 2026-10-29 实测:第 2 页裸 orderby 与 filter+orderby 结果一致。

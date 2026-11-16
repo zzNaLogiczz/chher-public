@@ -11,7 +11,6 @@ import 'package:chh_app/pages/thread_detail_page.dart';
 import 'package:chh_app/pages/thread_review_page.dart';
 import 'package:chh_app/widgets/composer_sheet.dart';
 import 'package:chh_app/widgets/post_card.dart';
-import 'package:chh_app/ui/picker.dart';
 import 'package:chh_app/widgets/thread_comment_widgets.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -251,7 +250,7 @@ void main() {
       Navigator.of(tester.element(find.byType(ComposerSheet))).pop();
       await _settle(tester);
       await capture('04-return-inline');
-      // 视图切换在评论区标题右侧的分段里;窄屏大字号时降级为选择按钮。
+      // 视图切换在评论区标题右侧;窄屏大字号时仅显示图标。
       // 标题在当前视口上方,先回到顶部再往下找
       tester.state<ScrollableState>(_mainScroll()).position.jumpTo(0);
       await _settle(tester);
@@ -264,11 +263,9 @@ void main() {
         ),
         _mainScroll(),
       );
-      if (find.text('原楼层').hitTestable().evaluate().isEmpty) {
-        await tester.tap(find.byType(PickerButton<ThreadViewMode>));
-        await _settle(tester);
-      }
-      await tester.tap(find.text('原楼层').hitTestable());
+      await tester.tap(
+        find.byKey(const ValueKey('comment-mode-1')).hitTestable(),
+      );
       await _settle(tester);
       final rawReply = find.byWidgetPredicate(
         (w) => w is PostCard && w.post.pid == 99004,

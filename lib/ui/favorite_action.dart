@@ -19,6 +19,7 @@ class FavoriteActionBuilder extends StatefulWidget {
   final FavoriteIndex? index;
   final FavoriteRepository? repository;
   final bool Function()? isLoggedIn;
+  final VoidCallback? onChanged;
 
   const FavoriteActionBuilder({
     super.key,
@@ -27,6 +28,7 @@ class FavoriteActionBuilder extends StatefulWidget {
     this.index,
     this.repository,
     this.isLoggedIn,
+    this.onChanged,
   });
 
   @override
@@ -68,6 +70,7 @@ class _FavoriteActionBuilderState extends State<FavoriteActionBuilder> {
           : repository.add(target));
       if (mounted && stillCurrent()) {
         AppToast.show(context, result.favorited ? '已收藏' : '已取消收藏');
+        widget.onChanged?.call();
       }
     } catch (_) {
       if (mounted && stillCurrent()) {

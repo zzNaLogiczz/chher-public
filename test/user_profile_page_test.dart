@@ -1,6 +1,10 @@
 import 'dart:async';
 
 import 'package:chh_app/data/user_group_levels.dart';
+import 'package:chh_app/data/user_block_index.dart';
+import 'package:chh_app/design/shapes.dart';
+import 'package:chh_app/design/tokens.dart';
+import 'package:chh_app/ui/press.dart';
 import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/network/chh_client.dart';
 import 'package:chh_app/models/models.dart';
@@ -11,6 +15,7 @@ import 'package:chh_app/ui/chrome_button.dart';
 import 'package:chh_app/ui/grouped.dart';
 import 'package:chh_app/ui/nav_bar.dart';
 import 'package:chh_app/widgets/expressive_controls.dart';
+import 'package:chh_app/widgets/level_badge.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -33,8 +38,9 @@ Widget _app(
   Brightness brightness = Brightness.light,
   double textScale = 1,
   bool disableAnimations = false,
+  AppearanceStyle style = AppearanceStyle.cinnabar,
 }) => MaterialApp(
-  theme: buildAppTheme(brightness),
+  theme: buildAppTheme(brightness, style),
   builder: (context, child) => MediaQuery(
     data: MediaQuery.of(context).copyWith(
       textScaler: TextScaler.linear(textScale),
@@ -53,7 +59,59 @@ void _size(WidgetTester tester, Size size) {
 }
 
 void main() {
-  testWidgets('个人主页按身份、数据、帖子、资料组织内容', (tester) async {
+  for (final style in AppearanceStyle.values) {
+    for (final brightness in Brightness.values) {
+      testWidgets('黑名单两种状态均为44胶囊 $style $brightness', (tester) async {
+        await tester.runAsync(() => userBlockIndex.unblock('42'));
+        addTearDown(() => tester.runAsync(() => userBlockIndex.unblock('42')));
+        await tester.pumpWidget(
+          _app(
+            UserPage(uid: '42', repository: FixtureSpace()),
+            style: style,
+            brightness: brightness,
+          ),
+        );
+        await tester.pumpAndSettle();
+        for (final label in ['加入黑名单', '解除黑名单']) {
+          final row = find.byWidgetPredicate(
+            (widget) =>
+                widget is PressHighlight && widget.semanticLabel == label,
+          );
+          expect(row, findsOneWidget);
+          expect(tester.getSize(row).height, AppSizes.singleLineHeight);
+          final press = tester.widget<PressHighlight>(row);
+          expect(press.borderRadius, BorderRadius.circular(AppRadii.full));
+          final decoration =
+              tester
+                      .widget<DecoratedBox>(
+                        find
+                            .ancestor(
+                              of: row,
+                              matching: find.byType(DecoratedBox),
+                            )
+                            .first,
+                      )
+                      .decoration
+                  as ShapeDecoration;
+          expect(decoration.shape, appShape(AppRadii.full));
+          final rect = Offset.zero & tester.getSize(row);
+          final radius = press.borderRadius!
+              .toRRect(rect)
+              .scaleRadii()
+              .tlRadiusX;
+          expect(radius, rect.height / 2);
+          await tester.tap(row);
+          await tester.pumpAndSettle();
+          expect(userBlockIndex.isBlocked('42'), label == '加入黑名单');
+          await tester.pump(const Duration(seconds: 4));
+          await tester.pumpAndSettle();
+        }
+        expect(tester.takeException(), isNull);
+      });
+    }
+  }
+
+  testWidgets('个人主页将主题与回复并入统计卡并保留导航', (tester) async {
     _size(tester, const Size(400, 1600));
     final repo = FixtureSpace();
     await tester.pumpWidget(_app(UserPage(uid: '42', repository: repo)));
@@ -73,8 +131,36 @@ void main() {
         );
       }
     }
+    expect(
+      find.descendant(
+        of: find.byKey(UserPage.statsKey),
+        matching: find.byKey(UserPage.threadsKey),
+      ),
+      findsOneWidget,
+    );
+    final threads = tester.widget<PressHighlight>(
+      find.byKey(UserPage.threadsKey),
+    );
+    expect(threads.semanticLabel, '主题与回复');
+    expect(
+      threads.borderRadius,
+      BorderRadius.circular(UserProfileTokens.rowRadius),
+    );
+    final card = tester.widget<DecoratedBox>(
+      find
+          .descendant(
+            of: find.byKey(UserPage.statsKey),
+            matching: find.byType(DecoratedBox),
+          )
+          .first,
+    );
+    expect(
+      (card.decoration as ShapeDecoration).shape,
+      appShape(UserProfileTokens.cardRadius),
+    );
     expect(find.text('权天使'), findsOneWidget);
     expect(find.text('在线时长'), findsOneWidget);
+    expect(find.byType(VerticalDivider), findsNothing);
     expect(find.text('1200'), findsOneWidget);
     expect(find.text('小时'), findsOneWidget);
     expect(find.text('主题 120，回帖 4800'), findsOneWidget);
@@ -148,8 +234,8 @@ void main() {
     expect(find.byKey(UserPage.identityKey), findsOneWidget);
     expect(find.text('UID 42'), findsOneWidget);
     expect(find.byKey(UserPage.threadsKey), findsOneWidget);
-    expect(find.byKey(UserPage.statsKey), findsNothing);
-    expect(find.byType(GroupedSection), findsOneWidget);
+    expect(find.byKey(UserPage.statsKey), findsOneWidget);
+    expect(find.byType(GroupedSection), findsNothing);
     expect(find.text('加入黑名单'), findsOneWidget);
     expect(find.text('解除黑名单'), findsNothing);
     for (final text in [
@@ -219,12 +305,23 @@ void main() {
       findsNothing,
     );
     expect(find.byType(IconTile), findsNothing);
-    final identityBoxes = tester.widgetList<DecoratedBox>(
-      find.descendant(
-        of: find.byKey(UserPage.identityKey),
-        matching: find.byType(DecoratedBox),
-      ),
-    );
+    expect(tester.widget<LevelBadge>(find.byType(LevelBadge)).gid, 41);
+    final badgeBoxes = tester
+        .widgetList<DecoratedBox>(
+          find.descendant(
+            of: find.byType(LevelBadge),
+            matching: find.byType(DecoratedBox),
+          ),
+        )
+        .toSet();
+    final identityBoxes = tester
+        .widgetList<DecoratedBox>(
+          find.descendant(
+            of: find.byKey(UserPage.identityKey),
+            matching: find.byType(DecoratedBox),
+          ),
+        )
+        .where((box) => !badgeBoxes.contains(box));
     expect(
       identityBoxes.where(
         (box) =>
@@ -261,7 +358,7 @@ void main() {
       expect(find.byKey(UserPage.progressKey), findsNothing);
       expect(find.text('差 1120 积分'), findsNothing);
       expect(
-        find.byIcon(AppIcons.crownStar),
+        find.byType(LevelBadge),
         group == '特殊组' ? findsOneWidget : findsNothing,
       );
       expect(levels.requests, isEmpty);

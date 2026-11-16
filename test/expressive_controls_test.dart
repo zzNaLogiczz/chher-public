@@ -2,6 +2,7 @@ import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/design/tokens.dart';
 import 'package:chh_app/widgets/app_shell.dart';
 import 'package:chh_app/widgets/search_entry_route.dart';
+import 'package:chh_app/widgets/search_workspace.dart';
 import 'package:chh_app/widgets/expressive_controls.dart';
 import 'package:chh_app/ui/press.dart';
 import 'package:chh_app/ui/app_button.dart';
@@ -29,6 +30,67 @@ double scaleOf(WidgetTester tester) => tester
     .storage[0];
 
 void main() {
+  testWidgets('comment fades only paint and retain child layout and state', (
+    tester,
+  ) async {
+    final opacity = AnimationController(vsync: tester, value: 0);
+    var builds = 0;
+    await tester.pumpWidget(
+      app(
+        ContentFade(
+          opacity: opacity,
+          background: AppTokens.light.bg,
+          child: Builder(
+            builder: (_) {
+              builds++;
+              return const SizedBox(height: 400, child: Text('existing reply'));
+            },
+          ),
+        ),
+      ),
+    );
+    final before = tester.getRect(find.text('existing reply'));
+    opacity.value = .5;
+    await tester.pump();
+    expect(tester.getRect(find.text('existing reply')), before);
+    expect(builds, 1);
+    expect(find.byType(Opacity), findsNothing);
+    expect(find.byType(FadeTransition), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
+    opacity.dispose();
+  });
+
+  testWidgets(
+    'search arrival fades a cover without moving or compositing results',
+    (tester) async {
+      await tester.pumpWidget(
+        app(
+          SearchStateReveal(
+            child: ListView.builder(
+              itemCount: 1000,
+              itemExtent: 80,
+              itemBuilder: (_, i) => Text('result $i'),
+            ),
+          ),
+        ),
+      );
+      final before = tester.getTopLeft(find.text('result 0'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 90));
+      expect(tester.getTopLeft(find.text('result 0')), before);
+      expect(
+        find.descendant(
+          of: find.byType(SearchStateReveal),
+          matching: find.byType(Opacity),
+        ),
+        findsNothing,
+      );
+      expect(find.text('result 999'), findsNothing);
+      await tester.pump(const Duration(milliseconds: 91));
+      expect(tester.binding.transientCallbackCount, 0);
+    },
+  );
+
   testWidgets(
     'content transitions preserve mounted state and honor reduced motion immediately',
     (tester) async {
@@ -67,26 +129,78 @@ void main() {
       update(() => revision++);
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 40));
-      final opacity = find
-          .descendant(
-            of: find.byType(ExpressivePageReveal),
-            matching: find.byType(Opacity),
-          )
-          .first;
-      expect(tester.widget<Opacity>(opacity).opacity, inExclusiveRange(0, 1));
+      expect(
+        find.descendant(
+          of: find.byType(ExpressivePageReveal),
+          matching: find.byType(Opacity),
+        ),
+        findsNothing,
+      );
+      expect(tester.binding.transientCallbackCount, greaterThan(0));
       expect(scroll.offset, 400);
       expect(tester.state(find.byType(Scrollable)), same(state));
       update(() => reduced = true);
       await tester.pump();
-      expect(tester.widget<Opacity>(opacity).opacity, 1);
+      expect(tester.binding.transientCallbackCount, 0);
       update(() => revision++);
       await tester.pump();
-      expect(tester.widget<Opacity>(opacity).opacity, 1);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 151));
+      expect(tester.binding.transientCallbackCount, 0);
       expect(scroll.offset, 400);
       await tester.pumpWidget(const SizedBox());
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('sliver arrival preserves geometry and does not rebuild rows', (
+    tester,
+  ) async {
+    final revision = ValueNotifier(0);
+    var builds = 0;
+    final scroll = ScrollController();
+    await tester.pumpWidget(
+      app(
+        ValueListenableBuilder<int>(
+          valueListenable: revision,
+          builder: (_, value, _) => CustomScrollView(
+            controller: scroll,
+            slivers: [
+              ExpressivePageReveal(
+                active: true,
+                sliver: true,
+                revision: value,
+                child: SliverList.builder(
+                  itemCount: 1000,
+                  itemBuilder: (_, i) {
+                    builds++;
+                    return SizedBox(height: 80, child: Text('sliver row $i'));
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    scroll.jumpTo(400);
+    await tester.pump();
+    final before = tester.getTopLeft(find.text('sliver row 6'));
+    revision.value++;
+    await tester.pump();
+    final startBuilds = builds;
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 90));
+    expect(tester.getTopLeft(find.text('sliver row 6')), before);
+    expect(scroll.offset, 400);
+    expect(builds, startBuilds);
+    await tester.pump(const Duration(milliseconds: 91));
+    expect(tester.binding.transientCallbackCount, 0);
+    expect(builds, lessThan(1000));
+    await tester.pumpWidget(const SizedBox.shrink());
+    scroll.dispose();
+    revision.dispose();
+  });
 
   testWidgets(
     'collapsing controls animate their space and disable interaction immediately',
@@ -235,41 +349,36 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('search reversal keeps opacity continuous while opening', (
-    tester,
-  ) async {
-    final navigator = GlobalKey<NavigatorState>();
-    const pageKey = ValueKey('search-route-content');
-    await tester.pumpWidget(
-      MaterialApp(
-        navigatorKey: navigator,
-        theme: buildAppTheme(Brightness.light),
-        home: const Scaffold(body: Text('首页')),
-      ),
-    );
-    navigator.currentState!.push(
-      SearchEntryRoute(
-        builder: (_) => const Scaffold(key: pageKey, body: Text('搜索内容')),
-      ),
-    );
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 120));
-    final fade = find
-        .ancestor(
-          of: find.byKey(pageKey),
-          matching: find.byType(FadeTransition),
-        )
-        .first;
-    final before = tester.widget<FadeTransition>(fade).opacity.value;
-    expect(before, inExclusiveRange(0, 1));
-    navigator.currentState!.pop();
-    await tester.pump();
-    final after = tester.widget<FadeTransition>(fade).opacity.value;
-    expect(after, closeTo(before, .001));
-    await tester.pumpAndSettle();
-    expect(find.byKey(pageKey), findsNothing);
-    expect(tester.takeException(), isNull);
-  });
+  testWidgets(
+    'search reversal keeps its shared spring position while opening',
+    (tester) async {
+      final navigator = GlobalKey<NavigatorState>();
+      const pageKey = ValueKey('search-route-content');
+      await tester.pumpWidget(
+        MaterialApp(
+          navigatorKey: navigator,
+          theme: buildAppTheme(Brightness.light),
+          home: const Scaffold(body: Text('首页')),
+        ),
+      );
+      navigator.currentState!.push(
+        SearchEntryRoute(
+          builder: (_) => const Scaffold(key: pageKey, body: Text('搜索内容')),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 120));
+      final before = tester.getTopLeft(find.byKey(pageKey)).dx;
+      expect(before, inExclusiveRange(0, 800));
+      navigator.currentState!.pop();
+      await tester.pump();
+      final after = tester.getTopLeft(find.byKey(pageKey)).dx;
+      expect(after, closeTo(before, .001));
+      await tester.pumpAndSettle();
+      expect(find.byKey(pageKey), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('filled dark actions keep legible text contrast', (tester) async {
     await tester.pumpWidget(

@@ -43,6 +43,8 @@ internal class ImageBridge(
     private val sources = HashMap<Int, Source>()
     private var nextHandle = 1
     private var pendingPick: MethodChannel.Result? = null
+    private var pendingSave: MethodChannel.Result? = null
+    private var saveSource: File? = null
 
     private class Source(val bytes: ByteArray, val format: String, val bitmap: Bitmap?) {
         var scaledSide = 0
@@ -54,6 +56,7 @@ internal class ImageBridge(
         worker.execute { dir.deleteRecursively(); dir.mkdirs() }
         channel.setMethodCallHandler { call, result ->
             when (call.method) {
+                "save" -> save(call.argument<String>("path"), result)
                 "pick" -> pick(call.argument<Int>("max") ?: 1, result)
                 "open" -> work(result) { open(call.argument<String>("uri")!!) }
                 "encode" -> work(result) {
@@ -76,6 +79,9 @@ internal class ImageBridge(
         channel.setMethodCallHandler(null)
         pendingPick?.success(emptyList<String>())
         pendingPick = null
+        pendingSave?.success(false)
+        pendingSave = null
+        saveSource = null
         worker.execute {
             sources.values.forEach { recycle(it) }
             sources.clear()
@@ -85,6 +91,24 @@ internal class ImageBridge(
 
     /** 选图结果；不是本桥的请求返回 false，交给其他组件处理 */
     fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?): Boolean {
+        if (requestCode == REQUEST_SAVE) {
+            val result = pendingSave ?: return true
+            val source = saveSource
+            pendingSave = null
+            saveSource = null
+            val destination = data?.data
+            if (resultCode != Activity.RESULT_OK || destination == null || source == null) {
+                result.success(false)
+            } else {
+                work(result) {
+                    val output = activity.contentResolver.openOutputStream(destination, "wt")
+                        ?: throw IllegalStateException("unwritable")
+                    output.use { target -> source.inputStream().use { it.copyTo(target) } }
+                    true
+                }
+            }
+            return true
+        }
         if (requestCode != REQUEST_PICK) return false
         val result = pendingPick ?: return true
         pendingPick = null
@@ -123,6 +147,33 @@ internal class ImageBridge(
         }
     }
 
+    private fun save(path: String?, result: MethodChannel.Result) {
+        if (pendingSave != null) return result.error("busy", "save already open", null)
+        try {
+            val file = path?.let { File(it) }
+            // Only app-owned originals may be exported through this channel.
+            if (!isSaveSource(file, activity.cacheDir, activity.codeCacheDir)) {
+                return result.error("invalid_source", "image unavailable", null)
+            }
+            val header = ByteArray(16)
+            file!!.inputStream().use { it.read(header) }
+            val format = sniff(header)
+            if (format == "unknown") return result.error("invalid_source", "unknown image format", null)
+            val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "image/$format"
+                putExtra(Intent.EXTRA_TITLE, "chher-${System.currentTimeMillis()}.$format")
+            }
+            pendingSave = result
+            saveSource = file
+            activity.startActivityForResult(intent, REQUEST_SAVE)
+        } catch (error: Exception) {
+            pendingSave = null
+            saveSource = null
+            result.error("save_failed", error.javaClass.simpleName, null)
+        }
+    }
+
     private fun open(uri: String): Map<String, Any> {
         val bytes = activity.contentResolver.openInputStream(Uri.parse(uri))?.use { it.readBytes() }
             ?: throw IllegalStateException("unreadable")
@@ -147,31 +198,28 @@ internal class ImageBridge(
 
     /** 解码并转正；超大图在解码时就缩到最长边不超过 [MAX_SIDE]，避免整张大图进内存 */
     private fun decode(bytes: ByteArray): Bitmap? {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            try {
-                // ImageDecoder 会按 EXIF 方向转正
-                return ImageDecoder.decodeBitmap(ImageDecoder.createSource(ByteBuffer.wrap(bytes))) { decoder, info, _ ->
-                    decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
-                    val longest = max(info.size.width, info.size.height)
-                    if (longest > MAX_SIDE) {
-                        val f = MAX_SIDE.toFloat() / longest
-                        decoder.setTargetSize(
-                            max(1, (info.size.width * f).roundToInt()),
-                            max(1, (info.size.height * f).roundToInt()),
-                        )
-                    }
+        try {
+            // ImageDecoder 会按 EXIF 方向转正
+            return ImageDecoder.decodeBitmap(ImageDecoder.createSource(ByteBuffer.wrap(bytes))) { decoder, info, _ ->
+                decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                val longest = max(info.size.width, info.size.height)
+                if (longest > MAX_SIDE) {
+                    val f = MAX_SIDE.toFloat() / longest
+                    decoder.setTargetSize(
+                        max(1, (info.size.width * f).roundToInt()),
+                        max(1, (info.size.height * f).roundToInt()),
+                    )
                 }
-            } catch (_: OutOfMemoryError) {
-                return null
-            } catch (_: Exception) {
-                // 交给 BitmapFactory 再试一次
             }
+        } catch (_: OutOfMemoryError) {
+            return null
+        } catch (_: Exception) {
+            // 交给 BitmapFactory 再试一次
         }
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
         var sample = 1
         while (max(bounds.outWidth, bounds.outHeight) / (sample * 2) >= MAX_SIDE) sample *= 2
-        // Android 8 之前位图像素占 Java 堆，相机原图按原尺寸解码会超出单应用堆上限；
         // 内存不足时加大采样再试，宁可分辨率降一档也不让选图失败
         repeat(OOM_RETRIES) {
             try {
@@ -298,8 +346,15 @@ internal class ImageBridge(
 
     companion object {
         private const val REQUEST_PICK = 0x4348
+        private const val REQUEST_SAVE = 0x4349
         private const val MAX_SIDE = 4096
         private const val OOM_RETRIES = 3
+
+        // Flutter uses codeCacheDir for Dart Directory.systemTemp leases.
+        internal fun isSaveSource(file: File?, cache: File, codeCache: File): Boolean =
+            file != null && file.isFile && listOf(cache, codeCache).any {
+                file.canonicalPath.startsWith(it.canonicalPath + File.separator)
+            }
 
         /** 按文件头识别格式，不看扩展名 */
         fun sniff(bytes: ByteArray): String {
