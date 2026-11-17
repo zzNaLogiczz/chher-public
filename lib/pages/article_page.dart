@@ -71,6 +71,9 @@ class _ArticlePageState extends State<ArticlePage> {
   final _imageIndex = <int, int>{};
   int _indexedPages = 0;
   bool _handedOff = false;
+  bool _handoffScheduled = false;
+  Animation<double>? _handoffAnimation;
+  NavigatorState? _handoffNavigator;
   bool _overCover = true;
   bool _scrollCheckScheduled = false;
   double get _coverHeight =>
@@ -92,7 +95,39 @@ class _ArticlePageState extends State<ArticlePage> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final animation = ModalRoute.of(context)?.animation;
+    if (animation != _handoffAnimation) {
+      _handoffAnimation?.removeStatusListener(_handoffStatusChanged);
+      _handoffAnimation = animation;
+      animation?.addStatusListener(_handoffStatusChanged);
+    }
+    final navigator = Navigator.of(context);
+    if (navigator != _handoffNavigator) {
+      _handoffNavigator?.userGestureInProgressNotifier.removeListener(
+        _retryThreadHandoff,
+      );
+      _handoffNavigator = navigator;
+      navigator.userGestureInProgressNotifier.addListener(_retryThreadHandoff);
+    }
+    // A covered page may only redirect once it becomes the current page again.
+    _retryThreadHandoff();
+  }
+
+  void _handoffStatusChanged(AnimationStatus status) => _retryThreadHandoff();
+
+  void _retryThreadHandoff() {
+    if (!mounted) return;
+    if (_reader.thread != null) _handOffToThread();
+  }
+
+  @override
   void dispose() {
+    _handoffAnimation?.removeStatusListener(_handoffStatusChanged);
+    _handoffNavigator?.userGestureInProgressNotifier.removeListener(
+      _retryThreadHandoff,
+    );
     _scroll.dispose();
     _reader.removeListener(_readerChanged);
     _reader.dispose();
@@ -116,7 +151,7 @@ class _ArticlePageState extends State<ArticlePage> {
       }
     }
     _indexedPages = pages.length;
-    if (_reader.thread case final thread?) _handOffToThread(thread);
+    if (_reader.thread != null) _handOffToThread();
     if (!_coverRemembered && _reader.pages.isNotEmpty) {
       _rememberCover(_reader.pages.first);
     }
@@ -174,21 +209,48 @@ class _ArticlePageState extends State<ArticlePage> {
   void _openDiscussion() =>
       ArticleDiscussionPage.show(context, aid: widget.aid, title: widget.title);
 
-  void _handOffToThread(ThreadContent c) {
-    if (_handedOff) return;
-    _handedOff = true;
+  void _handOffToThread() {
+    if (_handedOff || _handoffScheduled) return;
+    _handoffScheduled = true;
+    WidgetsBinding.instance.ensureVisualUpdate();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (_) => ThreadDetailPage(tid: c.tid, title: c.title),
-        ),
-      );
+      _handoffScheduled = false;
+      if (!mounted || _handedOff) return;
+      final route = ModalRoute.of(context);
+      final navigator = Navigator.of(context);
+      // Keep an existing Hero mounted until its shuttle has left the Overlay.
+      if (route == null ||
+          !route.isActive ||
+          !route.isCurrent ||
+          route.offstage ||
+          route.animation?.status == AnimationStatus.reverse ||
+          (_hasCover &&
+              widget.heroTag != null &&
+              route.animation != null &&
+              !route.animation!.isCompleted) ||
+          navigator.userGestureInProgress) {
+        return;
+      }
+      setState(() => _handedOff = true);
     });
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_handedOff) {
+      final thread = _reader.thread!;
+      return ExpressivePageReveal(
+        active: true,
+        animateOnMount: ModalRoute.of(context)?.animation?.isCompleted ?? false,
+        child: ThreadDetailPage(
+          tid: thread.tid,
+          title: thread.title,
+          initialPage: thread.detail?.page.current ?? 1,
+          initialDetail: thread.detail,
+          initialDetailCacheGeneration: thread.cacheGeneration,
+        ),
+      );
+    }
     final t = AppTokens.of(context);
     final first = _reader.pages.firstOrNull;
     final error = _reader.error;
@@ -217,13 +279,16 @@ class _ArticlePageState extends State<ArticlePage> {
                     SliverToBoxAdapter(
                       child: SizedBox(
                         height: _coverHeight,
-                        child: EditorialCover(
-                          article: widget.preview!,
-                          heroTag:
-                              widget.heroTag ?? 'article-cover-${widget.aid}',
-                          expanded: true,
-                          fit: widget.coverFit,
-                          eyebrow: widget.eyebrow,
+                        child: HeroMode(
+                          enabled: widget.heroTag != null,
+                          child: EditorialCover(
+                            article: widget.preview!,
+                            heroTag:
+                                widget.heroTag ?? 'article-cover-${widget.aid}',
+                            expanded: true,
+                            fit: widget.coverFit,
+                            eyebrow: widget.eyebrow,
+                          ),
                         ),
                       ),
                     )
@@ -233,11 +298,22 @@ class _ArticlePageState extends State<ArticlePage> {
                         height: MediaQuery.paddingOf(context).top + 62,
                       ),
                     ),
-                  if (first != null) ...[
-                    _articleHeader(first, t),
-                    ..._contentSlivers(),
-                    SliverToBoxAdapter(child: _continuationFooter(t)),
-                  ] else if (error != null)
+                  if (first != null)
+                    ExpressivePageReveal(
+                      active: true,
+                      sliver: true,
+                      animateOnMount:
+                          ModalRoute.of(context)?.animation?.isCompleted ??
+                          true,
+                      child: SliverMainAxisGroup(
+                        slivers: [
+                          _articleHeader(first, t),
+                          ..._contentSlivers(),
+                          SliverToBoxAdapter(child: _continuationFooter(t)),
+                        ],
+                      ),
+                    )
+                  else if (error != null)
                     SliverFillRemaining(
                       hasScrollBody: false,
                       child: error is PageMessage
@@ -310,7 +386,7 @@ class _ArticlePageState extends State<ArticlePage> {
                 ],
               ),
             ),
-            if (_hasCover)
+            if (_hasCover && ModalRoute.of(context) is EditorialArticleRoute)
               Positioned(
                 top: MediaQuery.paddingOf(context).top,
                 left: 100,

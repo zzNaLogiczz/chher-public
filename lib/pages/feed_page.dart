@@ -402,7 +402,7 @@ class _FeedPageState extends State<FeedPage> {
                 a,
                 ShelfCard(
                   title: a.title,
-                  onTap: () => _openArticle(a, heroTag: tag),
+                  onTap: () => _openArticle(a, directDetail: true),
                   image: EditorialCover(
                     article: a,
                     heroTag: tag,
@@ -652,19 +652,23 @@ class _FeedPageState extends State<FeedPage> {
     String? heroTag,
     String? eyebrow,
     BoxFit coverFit = BoxFit.cover,
+    bool directDetail = false,
   }) {
     HapticFeedback.selectionClick();
+    Widget reader(BuildContext context) => ArticlePage(
+      aid: a.aid,
+      title: a.title,
+      preview: directDetail ? null : a,
+      heroTag: heroTag,
+      eyebrow: eyebrow,
+      coverFit: coverFit,
+      loadPage: (page, refresh) =>
+          _portal.openArticle(a.aid, page: page, refresh: refresh),
+    );
     Navigator.of(context).push(
-      EditorialArticleRoute(
-        builder: (_) => ArticlePage(
-          aid: a.aid,
-          title: a.title,
-          preview: a,
-          heroTag: heroTag,
-          eyebrow: eyebrow,
-          coverFit: coverFit,
-        ),
-      ),
+      heroTag == null || directDetail
+          ? MaterialPageRoute<void>(builder: reader)
+          : EditorialArticleRoute(builder: reader),
     );
   }
 }

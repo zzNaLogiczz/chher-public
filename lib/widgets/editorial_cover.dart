@@ -76,7 +76,6 @@ class EditorialCover extends StatelessWidget {
       transitionOnUserGestures: true,
       createRectTween: (begin, end) => RectTween(begin: begin, end: end),
       flightShuttleBuilder: (flightContext, animation, direction, from, to) {
-        // Freeze type metrics at takeoff; only the shared rectangle moves.
         final expandedContext = direction == HeroFlightDirection.push
             ? to
             : from;
@@ -125,13 +124,16 @@ class EditorialCover extends StatelessWidget {
               topInset: safeTop,
               flightProgress: animation,
               animateImage: false,
-              typographyHeight:
-                  (from.findRenderObject() as RenderBox).size.height,
             ),
           ),
-          builder: (context, child) => animation.value == 1
-              ? ClipRRect(child: child)
-              : AppClip(radius: AppRadii.lg, child: child!),
+          // The header is square and the source card is rounded. Interpolate
+          // this one shared outline, including the final frame, rather than
+          // snapping its radius when the flight completes. Keep the photograph
+          // mounted throughout both directions.
+          builder: (context, child) => AppClip(
+            radius: AppRadii.lg * (1 - animation.value.clamp(0.0, 1.0)),
+            child: child!,
+          ),
         );
       },
       child: child,
@@ -154,7 +156,6 @@ class _CoverContents extends StatelessWidget {
   final String? coverUrl;
   final bool animateImage;
   final Animation<double>? flightProgress;
-  final double? typographyHeight;
   final bool showText;
   final bool feature;
   final ValueListenable<double>? scrollOffset;
@@ -167,7 +168,6 @@ class _CoverContents extends StatelessWidget {
     this.topInset = 0,
     this.animateImage = true,
     this.flightProgress,
-    this.typographyHeight,
     this.showText = true,
     this.feature = false,
     this.scrollOffset,
@@ -234,10 +234,7 @@ class _CoverContents extends StatelessWidget {
       child: LayoutBuilder(
         builder: (context, constraints) {
           final height = constraints.maxHeight;
-          final prominence = (((typographyHeight ?? height) - 260) / 160).clamp(
-            0.0,
-            1.0,
-          );
+          final prominence = ((height - 260) / 160).clamp(0.0, 1.0);
           final textSize = feature
               ? HomeCoverTokens.titleSize
               : lerpDouble(
@@ -257,8 +254,9 @@ class _CoverContents extends StatelessWidget {
               rawSummary != null && !_linkedSummary.hasMatch(rawSummary)
               ? rawSummary
               : null;
+          // Keep the same text blocks at both endpoints. A height threshold
+          // inserted a summary (and displaced the title) mid-flight.
           final showSummary =
-              height >= (feature ? 360 : 390) &&
               (summary?.isNotEmpty ?? false) &&
               MediaQuery.textScalerOf(context).scale(1) < 1.4;
 

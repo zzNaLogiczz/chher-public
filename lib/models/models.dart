@@ -421,7 +421,14 @@ class ArticleContent extends PortalContent {
 class ThreadContent extends PortalContent {
   final int tid;
   final String title;
-  const ThreadContent(this.tid, this.title);
+  final ThreadDetail? detail;
+  final int? cacheGeneration;
+  const ThreadContent(
+    this.tid,
+    this.title, {
+    this.detail,
+    this.cacheGeneration,
+  });
 }
 
 class ArticleDetail {

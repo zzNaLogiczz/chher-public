@@ -30,7 +30,20 @@ ThreadDetail parseThread(
   required int tid,
   int fallbackPage = 1,
 }) {
-  final doc = html_parser.parse(html);
+  return parseThreadDocument(
+    html_parser.parse(html),
+    html,
+    tid: tid,
+    fallbackPage: fallbackPage,
+  );
+}
+
+ThreadDetail parseThreadDocument(
+  dom.Document doc,
+  String html, {
+  required int tid,
+  int fallbackPage = 1,
+}) {
   throwIfMessagePage(doc);
 
   final title =

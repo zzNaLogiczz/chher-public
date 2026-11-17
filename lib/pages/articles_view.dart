@@ -276,15 +276,23 @@ void _openArticle(
   String? heroTag,
 }) => Navigator.push(
   context,
-  EditorialArticleRoute(
-    reduceMotion: MediaQuery.disableAnimationsOf(context),
-    builder: (_) => ArticlePage(
-      aid: article.aid,
-      title: article.title,
-      preview: article,
-      heroTag: heroTag,
-    ),
-  ),
+  heroTag == null
+      ? MaterialPageRoute<void>(
+          builder: (_) => ArticlePage(
+            aid: article.aid,
+            title: article.title,
+            preview: article,
+          ),
+        )
+      : EditorialArticleRoute(
+          reduceMotion: MediaQuery.disableAnimationsOf(context),
+          builder: (_) => ArticlePage(
+            aid: article.aid,
+            title: article.title,
+            preview: article,
+            heroTag: heroTag,
+          ),
+        ),
 );
 
 class _FeaturedArticle extends StatelessWidget {

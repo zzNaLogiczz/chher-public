@@ -175,7 +175,7 @@ class EditorialArticleRoute extends PageRoute<void> {
                   alignment: Alignment.topCenter,
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(
-                      reduced || fraction == 0 ? 0 : AppRadii.lg,
+                      reduced ? 0 : AppRadii.lg * fraction,
                     ),
                     child: child,
                   ),
@@ -196,41 +196,23 @@ class EditorialArticleRoute extends PageRoute<void> {
     Widget child,
   ) {
     final reduced = _reduced || MediaQuery.disableAnimationsOf(context);
-    return AnimatedBuilder(
-      animation: animation,
-      child: RepaintBoundary(child: child),
-      builder: (context, child) {
-        final t = animation.value.clamp(0.0, 1.0);
-        final navigationY = reduced ? 0.0 : (1 - t) * 32;
-        final scale = reduced ? 1.0 : .96 + .04 * t;
-        final radius = reduced || t == 1 ? 0.0 : AppRadii.lg;
-        return Transform.translate(
-          offset: Offset(0, navigationY),
-          child: Transform.scale(
-            scale: scale,
-            alignment: Alignment.topCenter,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(radius),
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  child!,
-                  if (reduced && t < 1)
-                    Positioned.fill(
-                      child: IgnorePointer(
-                        child: ColoredBox(
-                          color: Theme.of(
-                            context,
-                          ).scaffoldBackgroundColor.withValues(alpha: 1 - t),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
+    // The shared cover flies in the Navigator overlay. The rest of the reader
+    // must leave on the same clock, revealing the retained home underneath.
+    // Scaling an opaque reader to .96 left its text on screen until disposal.
+    // Keep this repaint boundary stable so fading does not repaint the article.
+    return FadeTransition(
+      opacity: animation,
+      child: AnimatedBuilder(
+        animation: animation,
+        child: RepaintBoundary(child: child),
+        builder: (context, child) => Transform.translate(
+          offset: Offset(
+            0,
+            reduced ? 0 : (1 - animation.value.clamp(0.0, 1.0)) * 32,
           ),
-        );
-      },
+          child: child,
+        ),
+      ),
     );
   }
 

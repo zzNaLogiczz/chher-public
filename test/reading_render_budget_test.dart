@@ -228,7 +228,7 @@ void main() {
         tester
             .widgetList<AppClip>(find.byType(AppClip))
             .map((clip) => clip.radius),
-        everyElement(AppRadii.lg),
+        everyElement(inExclusiveRange(0, AppRadii.lg)),
       );
       await tester.pumpAndSettle();
       final expandedHero = tester.widget<Hero>(

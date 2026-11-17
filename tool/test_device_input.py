@@ -101,6 +101,72 @@ class DeviceInputTests(unittest.TestCase):
                     send_input('test-device', PACKAGE, ['tap', '10', '20'], runner=runner)
                 self.assertEqual(runner.call_count, 2)
 
+    def test_mirror_display_with_null_focus_does_not_hide_physical_focus(self):
+        for displays in [
+            '  Display: mDisplayId=52\n  mCurrentFocus=null\n'
+            f'  Display: mDisplayId=0 (organized)\n{WINDOW}',
+            f'  Display: mDisplayId=0 (organized)\n{WINDOW}'
+            '  Display: mDisplayId=52\n  mCurrentFocus=null\n',
+        ]:
+            for position in ['before', 'after']:
+                with self.subTest(displays=displays, position=position):
+                    top = '  mTopFocusedDisplayId=0\n'
+                    dump = top + displays if position == 'before' else displays + top
+                    runner = Mock(side_effect=[result(ACTIVITY), result(dump), result()])
+                    send_input('test-device', PACKAGE, ['tap', '10', '20'], runner=runner)
+                    self.assertEqual(runner.call_count, 3)
+
+    def test_display_tree_metadata_is_not_a_display_focus_block(self):
+        dump = (
+            '    Display{#52 state=ON size=726x1600 ROTATION_0}:\n'
+            '    Display{#0 state=ON size=1440x3168 ROTATION_0}:\n'
+            '  Display: mDisplayId=52\n  mCurrentFocus=null\n'
+            '  Display areas in top down Z order:\n'
+            f'  Display: mDisplayId=0 (organized)\n{WINDOW}'
+            '  Display areas in top down Z order:\n'
+            '  Display #0\n  mTopFocusedDisplayId=0\n'
+        )
+        runner = Mock(side_effect=[result(ACTIVITY), result(dump), result()])
+        send_input('test-device', PACKAGE, ['tap', '10', '20'], runner=runner)
+        self.assertEqual(runner.call_count, 3)
+
+    def test_target_on_other_display_cannot_override_physical_focus(self):
+        dump = (f'  Display: mDisplayId=52\n{WINDOW}'
+                '  Display: mDisplayId=0 (organized)\n'
+                + WINDOW.replace(PACKAGE, 'com.tencent.mm')
+                + '  mTopFocusedDisplayId=0\n')
+        runner = Mock(side_effect=[result(ACTIVITY), result(dump)])
+        with self.assertRaisesRegex(DeviceInputError, '窗口焦点'):
+            send_input('test-device', PACKAGE, ['tap', '10', '20'], runner=runner)
+        self.assertEqual(runner.call_count, 2)
+
+    def test_unknown_or_ambiguous_display_focus_fails_closed(self):
+        display = f'  Display: mDisplayId=0 (organized)\n{WINDOW}'
+        top = '  mTopFocusedDisplayId=0\n'
+        dumps = [
+            display,  # No authoritative focused display.
+            top + WINDOW,  # No matching display block.
+            top + '  Display: unknown\n' + WINDOW,
+            '  mTopFocusedDisplayId=unknown\n' + display,
+            '  mTopFocusedDisplayId =0\n' + WINDOW,
+            '  Display mDisplayId=0\n' + WINDOW,
+            top + top + display,
+            top + display + display,
+            top + display + WINDOW,
+            top + '  Display: mDisplayId=0\n  mCurrentFocus=null\n'
+            f'  Display: mDisplayId=52\n{WINDOW}',
+            '  mTopFocusedDisplayId=52\n' + display
+            + f'  Display: mDisplayId=52\n{WINDOW}',
+            top + '  Display: mDisplayId=0\nWINDOW MANAGER WINDOWS\n' + WINDOW,
+            WINDOW + WINDOW,  # Legacy dumps also need an unambiguous focus.
+        ]
+        for dump in dumps:
+            with self.subTest(dump=dump):
+                runner = Mock(side_effect=[result(ACTIVITY), result(dump)])
+                with self.assertRaisesRegex(DeviceInputError, '窗口焦点'):
+                    send_input('test-device', PACKAGE, ['tap', '10', '20'], runner=runner)
+                self.assertEqual(runner.call_count, 2)
+
     def test_device_error_stops_without_input_or_recovery(self):
         runner = Mock(return_value=result(stderr="error: device 'test-device' not found", code=1))
         with self.assertRaisesRegex(DeviceInputError, 'not found'):

@@ -3,11 +3,19 @@ import 'dart:ui' as ui;
 import 'package:chh_app/data/editorial_cover_cache.dart';
 import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/design/tokens.dart';
+import 'package:chh_app/design/shapes.dart';
 import 'package:chh_app/models/models.dart';
+import 'package:chh_app/widgets/editorial_article_route.dart';
 import 'package:chh_app/widgets/editorial_cover.dart';
 import 'package:chh_app/widgets/net_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+class _SeekableCoverRoute extends EditorialArticleRoute {
+  _SeekableCoverRoute({required super.builder});
+
+  void seek(double value) => controller!.value = value;
+}
 
 Future<void> seedImage(String url, int width, int height) async {
   final recorder = ui.PictureRecorder();
@@ -228,4 +236,88 @@ void main() {
       }
     },
   );
+  testWidgets('Hero corners meet the square header and retain the pop photo', (
+    tester,
+  ) async {
+    const url = 'https://static.chiphell.com/feature-corner-flight.jpg';
+    const article = PortalArticle(aid: 918725, title: '转场连续性', coverUrl: url);
+    final navigator = GlobalKey<NavigatorState>();
+    Widget photo({bool expanded = false}) => SizedBox(
+      width: expanded ? 800 : 360,
+      height: expanded ? 500 : 400,
+      child: EditorialCover(
+        article: article,
+        heroTag: 'corner-flight',
+        expanded: expanded,
+        fit: BoxFit.contain,
+      ),
+    );
+    await tester.runAsync(() => seedImage(url, 400, 160));
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(Brightness.light),
+        navigatorKey: navigator,
+        home: Scaffold(body: Center(child: photo())),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final route = _SeekableCoverRoute(
+      builder: (_) => Scaffold(
+        body: Align(
+          alignment: Alignment.topCenter,
+          child: photo(expanded: true),
+        ),
+      ),
+    );
+    navigator.currentState!.push(route);
+    await tester.pump();
+    await tester.pump();
+    final paintedPhoto = find.byKey(const ValueKey('editorial-feature-photo'));
+    double flightRadius() => tester
+        .widget<AppClip>(
+          find.ancestor(of: paintedPhoto, matching: find.byType(AppClip)).first,
+        )
+        .radius!;
+    route.seek(.999);
+    await tester.pump();
+    expect(flightRadius(), inExclusiveRange(0, AppRadii.lg * .002));
+    route.seek(1);
+    await tester.pumpAndSettle();
+
+    navigator.currentState!.pop();
+    await tester.pump();
+    await tester.pump();
+    final featureState = tester.state(
+      find.ancestor(
+        of: paintedPhoto,
+        matching: find.byWidgetPredicate(
+          (widget) => widget.runtimeType.toString() == '_FeaturePhoto',
+        ),
+      ),
+    );
+    route.seek(.999);
+    await tester.pump();
+    expect(flightRadius(), inExclusiveRange(0, AppRadii.lg * .002));
+    route.seek(.984);
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(flightRadius(), lessThan(AppRadii.lg * .02));
+    expect(featureState.mounted, isTrue);
+    expect(
+      tester.state(
+        find.ancestor(
+          of: paintedPhoto,
+          matching: find.byWidgetPredicate(
+            (widget) => widget.runtimeType.toString() == '_FeaturePhoto',
+          ),
+        ),
+      ),
+      same(featureState),
+    );
+    route.seek(0);
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+    PaintingBinding.instance.imageCache.clear();
+    PaintingBinding.instance.imageCache.clearLiveImages();
+  });
 }

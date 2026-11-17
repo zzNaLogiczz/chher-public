@@ -68,6 +68,8 @@ class ThreadDetailPage extends StatefulWidget {
   final int tid;
   final String title;
   final int initialPage;
+  final ThreadDetail? initialDetail;
+  final int? initialDetailCacheGeneration;
 
   /// 首屏就绪后限速补齐的页数，包含落地页；后续仍按阅读进度追加。
   final int preloadPages;
@@ -93,6 +95,8 @@ class ThreadDetailPage extends StatefulWidget {
     required this.tid,
     required this.title,
     this.initialPage = 1,
+    this.initialDetail,
+    this.initialDetailCacheGeneration,
     this.preloadPages = 30,
     this.fid,
     this.seenReplies,
@@ -114,6 +118,7 @@ class ThreadDetailPage extends StatefulWidget {
 
 class _ThreadDetailPageState extends State<ThreadDetailPage>
     with TickerProviderStateMixin, WidgetsBindingObserver {
+  bool _initialDetailConsumed = false;
   final _scroll = ScrollController();
   final _readListKey = GlobalKey();
   String? _centerEntryKey;
@@ -1002,15 +1007,30 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     int page, {
     bool refresh = false,
     bool Function()? shouldContinue,
-  }) =>
-      widget.loadPage?.call(page, author, refresh) ??
-      _repository.thread(
-        widget.tid,
-        page: page,
-        authorUid: author,
-        refresh: refresh,
-        shouldContinue: shouldContinue,
-      );
+  }) async {
+    final initial = _initialDetailConsumed ? null : widget.initialDetail;
+    _initialDetailConsumed = true;
+    // Reuse only this navigation's landing page, never an older session's data.
+    if (widget.loadPage == null &&
+        widget.gotoUrl == null &&
+        !refresh &&
+        author == null &&
+        initial?.tid == widget.tid &&
+        initial?.page.current == page &&
+        widget.initialDetailCacheGeneration ==
+            _repository.client.cacheGeneration) {
+      if (shouldContinue?.call() == false) throw const ThreadReadCancelled();
+      return initial!;
+    }
+    return widget.loadPage?.call(page, author, refresh) ??
+        _repository.thread(
+          widget.tid,
+          page: page,
+          authorUid: author,
+          refresh: refresh,
+          shouldContinue: shouldContinue,
+        );
+  }
 
   bool get _openingIsBlocked =>
       _orderedPosts.any((p) => postIsOpening(p) && _blocked(p));

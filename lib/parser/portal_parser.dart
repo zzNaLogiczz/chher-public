@@ -11,6 +11,7 @@ import '../core/chh_urls.dart';
 import '../models/models.dart';
 import 'content_walker.dart';
 import 'dom_utils.dart';
+import 'thread_parser.dart';
 
 /// 这个页面是不是落到了论坛帖上
 ///
@@ -54,7 +55,11 @@ PortalContent parsePortalContent(String html, {required int aid}) {
   final tid = _threadBehindArticle(doc, html);
   return tid == null
       ? ArticleContent(_parseArticle(doc, aid: aid))
-      : ThreadContent(tid, _titleOfPage(doc));
+      : ThreadContent(
+          tid,
+          _titleOfPage(doc),
+          detail: parseThreadDocument(doc, html, tid: tid),
+        );
 }
 
 ArticleDetail _parseArticle(dom.Document doc, {required int aid}) {

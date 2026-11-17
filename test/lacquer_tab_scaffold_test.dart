@@ -222,6 +222,83 @@ void main() {
     },
   );
 
+  testWidgets('search follows viewport corrections in the same layout frame', (
+    tester,
+  ) async {
+    final scroll = ScrollController();
+    addTearDown(scroll.dispose);
+    var correct = false;
+    const action = ValueKey('search-action');
+    await tester.pumpWidget(
+      _app(
+        LacquerTabScaffold(
+          title: '精选',
+          controller: scroll,
+          header: const SizedBox(height: 100),
+          actions: const [SizedBox(key: action, width: 44, height: 44)],
+          slivers: [
+            SliverLayoutBuilder(
+              builder: (_, constraints) {
+                if (correct) {
+                  correct = false;
+                  scroll.position.correctPixels(scroll.offset + 8);
+                }
+                return const SliverToBoxAdapter(child: SizedBox(height: 2000));
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final initial = tester.getTopLeft(find.byKey(action)).dy;
+    correct = true;
+    scroll.jumpTo(10);
+    await tester.pump();
+    expect(scroll.offset, 18);
+    expect(tester.getTopLeft(find.byKey(action)).dy, initial - 18);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('ordinary scroll release never starts a refresh pull spring', (
+    tester,
+  ) async {
+    await _surface(tester);
+    final scroll = ScrollController();
+    addTearDown(scroll.dispose);
+    const search = ValueKey('pinned-search');
+    var refreshes = 0;
+    await tester.pumpWidget(
+      _app(
+        _tab(
+          controller: scroll,
+          onRefresh: () async => refreshes++,
+          actions: const [SizedBox(key: search, width: 44, height: 44)],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    scroll.jumpTo(1000);
+    await tester.pumpAndSettle();
+    final pinnedY = tester.getTopLeft(find.byKey(search)).dy;
+    final row = find.text('本地内容 10');
+    final contentY = tester.getTopLeft(row).dy + scroll.offset;
+    await tester.fling(
+      find.byType(CustomScrollView),
+      const Offset(0, 150),
+      1500,
+    );
+    for (var frame = 0; frame < 3; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      expect(scroll.offset, greaterThan(500));
+      expect(tester.getTopLeft(find.byKey(search)).dy, pinnedY);
+      expect(tester.getTopLeft(row).dy + scroll.offset, closeTo(contentY, .01));
+    }
+    await tester.pumpAndSettle();
+    expect(refreshes, 0);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('pull below threshold returns without requesting data', (
     tester,
   ) async {
@@ -236,6 +313,30 @@ void main() {
     await tester.pumpAndSettle();
     expect(requests, 0);
     expect(tester.getTopLeft(find.byKey(_first)).dy, closeTo(origin.dy, .01));
+    expect(tester.binding.transientCallbackCount, 0);
+  });
+
+  testWidgets('grabbing a returning pull keeps its position and settles', (
+    tester,
+  ) async {
+    await _surface(tester);
+    var refreshes = 0;
+    await tester.pumpWidget(_app(_tab(onRefresh: () async => refreshes++)));
+    await tester.pumpAndSettle();
+    final origin = tester.getTopLeft(find.byKey(_first)).dy;
+    final pull = await _pull(tester, 100);
+    await pull.up();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 32));
+    final returning = tester.getTopLeft(find.byKey(_first)).dy;
+    expect(returning, greaterThan(origin));
+    final grabbed = await tester.startGesture(const Offset(160, 240));
+    await tester.pump(const Duration(milliseconds: 32));
+    expect(tester.getTopLeft(find.byKey(_first)).dy, returning);
+    await grabbed.up();
+    await tester.pumpAndSettle();
+    expect(tester.getTopLeft(find.byKey(_first)).dy, closeTo(origin, .01));
+    expect(refreshes, 0);
     expect(tester.binding.transientCallbackCount, 0);
   });
 

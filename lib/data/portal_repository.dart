@@ -62,12 +62,21 @@ class PortalRepository {
     bool refresh = false,
     bool fallback = true,
   }) async {
+    final generation = client.cacheGeneration;
     final html = await client.getHtml(
       ChhUrls.article(aid, page: page),
       refresh: refresh,
       fallback: fallback,
     );
 
-    return parsePortalContentAsync(html, aid: aid);
+    final content = await parsePortalContentAsync(html, aid: aid);
+    return content is ThreadContent
+        ? ThreadContent(
+            content.tid,
+            content.title,
+            detail: content.detail,
+            cacheGeneration: generation,
+          )
+        : content;
   }
 }

@@ -239,7 +239,7 @@ class _LacquerTabScaffoldState extends State<LacquerTabScaffold>
     if (pointer != _pointerId) return;
     _pointerId = null;
     _pointerDown = false;
-    final velocity = cancelled
+    final velocity = cancelled || _rawPull == 0
         ? 0.0
         : (_velocity?.getVelocity().pixelsPerSecond.dy ?? 0);
     final resistance =
@@ -259,6 +259,7 @@ class _LacquerTabScaffoldState extends State<LacquerTabScaffold>
   }
 
   void _settlePull(double target, double velocity) {
+    if (_pull.value == target && velocity == 0) return;
     if (_reduced) {
       _pull.value = target;
       return;
@@ -582,28 +583,26 @@ class _LacquerTabScaffoldState extends State<LacquerTabScaffold>
               if (widget.actions.isNotEmpty)
                 Positioned(
                   top: top,
+                  left: 0,
                   right: TabChromeTokens.pageInset,
-                  child: AnimatedBuilder(
-                    animation: Listenable.merge([_offset, _pull]),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: widget.actions,
+                  height: _headerHeight + TabChromeTokens.maxPull,
+                  child: Flow(
+                    clipBehavior: Clip.none,
+                    delegate: _TabActionsFlow(
+                      scroll: _scroll,
+                      pull: _pull,
+                      expandedY:
+                          _headerHeight -
+                          top -
+                          headerBottom -
+                          TabChromeTokens.actionSize,
                     ),
-                    builder: (_, child) => Transform.translate(
-                      offset: Offset(
-                        0,
-                        math.max(
-                              4,
-                              _headerHeight -
-                                  top -
-                                  headerBottom -
-                                  TabChromeTokens.actionSize -
-                                  _offset.value,
-                            ) +
-                            _pull.value,
+                    children: [
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: widget.actions,
                       ),
-                      child: child,
-                    ),
+                    ],
                   ),
                 ),
             ],
@@ -612,6 +611,43 @@ class _LacquerTabScaffoldState extends State<LacquerTabScaffold>
       ),
     );
   }
+}
+
+class _TabActionsFlow extends FlowDelegate {
+  _TabActionsFlow({
+    required this.scroll,
+    required this.pull,
+    required this.expandedY,
+  }) : super(repaint: Listenable.merge([scroll, pull]));
+
+  final ScrollController scroll;
+  final Animation<double> pull;
+  final double expandedY;
+
+  @override
+  BoxConstraints getConstraintsForChild(int i, BoxConstraints constraints) =>
+      constraints.loosen();
+
+  @override
+  void paintChildren(FlowPaintingContext context) {
+    final childSize = context.getChildSize(0)!;
+    // Viewport corrections happen during layout; follow the final painted offset.
+    context.paintChild(
+      0,
+      transform: Matrix4.translationValues(
+        context.size.width - childSize.width,
+        math.max(4, expandedY - (scroll.hasClients ? scroll.offset : 0)) +
+            pull.value,
+        0,
+      ),
+    );
+  }
+
+  @override
+  bool shouldRepaint(_TabActionsFlow oldDelegate) =>
+      scroll != oldDelegate.scroll ||
+      pull != oldDelegate.pull ||
+      expandedY != oldDelegate.expandedY;
 }
 
 class SlidingCompactTitle extends StatelessWidget {

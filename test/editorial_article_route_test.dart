@@ -47,6 +47,45 @@ _open(WidgetTester tester, {bool reduceMotion = false}) async {
 }
 
 void main() {
+  testWidgets('return fades the reader before disposal without corner jumps', (
+    tester,
+  ) async {
+    final fixture = await _open(tester);
+    fixture.nav.pop();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 16));
+
+    double readerOpacity() => tester
+        .widgetList<FadeTransition>(
+          find.ancestor(
+            of: find.byKey(_readerKey),
+            matching: find.byType(FadeTransition),
+          ),
+        )
+        .map((fade) => fade.opacity.value)
+        .reduce((a, b) => a * b);
+
+    final firstOpacity = readerOpacity();
+    expect(firstOpacity, greaterThan(0));
+    expect(firstOpacity, lessThan(1));
+    for (final clip in tester.widgetList<ClipRRect>(
+      find.ancestor(
+        of: find.byKey(_readerKey),
+        matching: find.byType(ClipRRect),
+      ),
+    )) {
+      expect(clip.borderRadius, BorderRadius.zero);
+    }
+    await tester.pump(const Duration(milliseconds: 160));
+    expect(find.byKey(_readerKey), findsOneWidget);
+    expect(readerOpacity(), lessThan(firstOpacity));
+    expect(readerOpacity(), lessThan(.5));
+    await tester.pumpAndSettle();
+    expect(find.byKey(_readerKey), findsNothing);
+    expect(find.text('Home'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('a 200px finger movement translates the actual page by 200px', (
     tester,
   ) async {

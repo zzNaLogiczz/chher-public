@@ -75,6 +75,47 @@ def _resumed_activity(dump):
     return ''
 
 
+def _focused_window(dump):
+    """按系统顶层焦点屏选择窗口；未知或冲突的多屏结构一律拒绝。"""
+    lines = dump.splitlines()
+    top_lines = [line for line in lines if 'mTopFocusedDisplayId' in line]
+    displays = [i for i, line in enumerate(lines)
+                if re.match(r'\s*Display(?:\s*:|\s+mDisplayId\b)', line)]
+    if not top_lines and not displays:
+        # 老Android只有全局焦点，不从多个候选里猜目标窗口。
+        focuses = [line for line in lines if re.match(r'\s*mCurrentFocus=', line)]
+        return focuses[0] if len(focuses) == 1 else ''
+    if len(top_lines) != 1 or not displays:
+        return ''
+    top = re.fullmatch(r'\s*mTopFocusedDisplayId=(\d+)\s*', top_lines[0])
+    # input未指定-d，只允许默认物理屏，避免校验外屏却把触摸送到屏0。
+    if top is None or int(top[1]) != 0:
+        return ''
+    focused = None
+    seen = set()
+    for n, start in enumerate(displays):
+        header = re.fullmatch(
+            r'\s*Display: mDisplayId=(\d+)(?: \([^()]+\))?\s*', lines[start],
+        )
+        if header is None or int(header[1]) in seen:
+            return ''
+        display_id = int(header[1])
+        seen.add(display_id)
+        end = displays[n + 1] if n + 1 < len(displays) else len(lines)
+        # A new dumpsys section cannot donate a focus to the preceding display.
+        block = lines[start + 1:end]
+        for index, line in enumerate(block):
+            if line.startswith('WINDOW MANAGER '):
+                block = block[:index]
+                break
+        if display_id == int(top[1]):
+            focuses = [line for line in block if re.match(r'\s*mCurrentFocus=', line)]
+            if len(focuses) != 1:
+                return ''
+            focused = focuses[0]
+    return focused or ''
+
+
 def send_input(device, package, arguments, *, runner=None):
     """只在目标Activity和窗口均处于前台时发送一个已校验动作。"""
     command = validated_input(arguments)
@@ -88,7 +129,7 @@ def send_input(device, package, arguments, *, runner=None):
     if not _belongs_to_package(activity, package):
         raise DeviceInputError('目标应用不在前台，已停止输入；不会自动拉回应用。')
     windows = _adb(device, ['shell', 'dumpsys', 'window'], runner)
-    focus = next((line for line in windows.splitlines() if 'mCurrentFocus=' in line), '')
+    focus = _focused_window(windows)
     if not _belongs_to_package(focus, package):
         raise DeviceInputError('窗口焦点不在目标应用，已停止输入；不会自动拉回应用。')
     return _adb(device, ['shell', 'input', *command], runner)
