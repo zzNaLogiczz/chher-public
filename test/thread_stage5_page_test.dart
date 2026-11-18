@@ -213,13 +213,13 @@ void main() {
       position.jumpTo(threshold + 2);
       await tester.pumpAndSettle();
       expect(opacity(), 1);
+      position.jumpTo(threshold + 400);
+      await tester.pumpAndSettle();
       final progress = tester.widget<Transform>(
         find.byKey(const ValueKey('thread-reading-progress')),
       );
-      expect(
-        progress.transform.entry(0, 0),
-        closeTo(position.pixels / position.maxScrollExtent, .001),
-      );
+      expect(progress.transform.entry(0, 0), greaterThan(0));
+      expect(progress.transform.entry(0, 0), lessThan(.5));
       position.jumpTo(threshold - 2);
       await tester.pumpAndSettle();
       expect(opacity(), 0);

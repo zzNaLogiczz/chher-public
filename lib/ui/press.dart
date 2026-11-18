@@ -1,7 +1,8 @@
 /// 统一按压反馈
 ///
 /// 块状控件用 [PressScale](整体缩小),整行用 [PressHighlight](底色变深)。
-/// 两者共享同一套按压核心:按下立即反馈、移动超过 touch slop 取消、
+/// 块状控件按下立即反馈；滚动行确认点击后才高亮，避免起滑闪条。
+/// 两者共享同一套按压核心:移动超过 touch slop 取消、
 /// Enter/Space 触发、仅键盘焦点显示焦点环。
 library;
 
@@ -24,6 +25,7 @@ class _PressCore extends StatefulWidget {
   final VoidCallback onPressCancelled;
   final Widget Function(BuildContext context, Widget ringed) builder;
   final Widget child;
+  final bool deferPressInScrollable;
 
   const _PressCore({
     required this.onTap,
@@ -33,6 +35,7 @@ class _PressCore extends StatefulWidget {
     required this.onPressCancelled,
     required this.builder,
     required this.child,
+    this.deferPressInScrollable = false,
   });
 
   @override
@@ -43,6 +46,7 @@ class _PressCoreState extends State<_PressCore> {
   Offset? _origin;
   bool _down = false;
   bool _showFocus = false;
+  bool _deferredPointerFeedback = false;
   ScrollPosition? _scrollPosition;
 
   @override
@@ -60,8 +64,8 @@ class _PressCoreState extends State<_PressCore> {
   }
 
   void _cancel() {
-    if (!_down) return;
     _origin = null;
+    if (!_down) return;
     _down = false;
     widget.onPressCancelled();
   }
@@ -76,6 +80,19 @@ class _PressCoreState extends State<_PressCore> {
     if (!mounted || _down == down || (down && widget.onTap == null)) return;
     _down = down;
     widget.onPressedChanged(down);
+  }
+
+  void _tap() {
+    if (_deferredPointerFeedback) {
+      _press(true);
+      _press(false);
+    }
+    widget.onTap?.call();
+  }
+
+  void _longPress() {
+    if (_deferredPointerFeedback) _press(true);
+    widget.onLongPress?.call();
   }
 
   @override
@@ -120,7 +137,9 @@ class _PressCoreState extends State<_PressCore> {
           behavior: HitTestBehavior.opaque,
           onPointerDown: (event) {
             _origin = event.position;
-            _press(true);
+            _deferredPointerFeedback =
+                widget.deferPressInScrollable && _scrollPosition != null;
+            if (!_deferredPointerFeedback) _press(true);
           },
           onPointerMove: (event) {
             final origin = _origin;
@@ -137,8 +156,8 @@ class _PressCoreState extends State<_PressCore> {
           onPointerCancel: (_) => _cancel(),
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onTap: widget.onTap,
-            onLongPress: widget.onLongPress,
+            onTap: widget.onTap == null ? null : _tap,
+            onLongPress: widget.onLongPress == null ? null : _longPress,
             onTapCancel: _cancel,
             child: widget.builder(
               context,
@@ -267,7 +286,8 @@ class _PressScaleState extends State<PressScale>
   );
 }
 
-/// 整行列表项的按压:按下立即铺上 `pressed` 底色,松手 200ms 淡回透明,不缩放。
+/// 滚动行确认点击后铺上 `pressed` 底色并在 200ms 内淡回，不缩放；
+/// 未放入滚动视口的独立条目仍在按下时反馈。
 class PressHighlight extends StatefulWidget {
   /// 松手后底色淡回的时长(规格 §5.7 规则 3 规定,允许的非弹簧例外)
   static const fadeBack = Duration(milliseconds: 200);
@@ -324,6 +344,7 @@ class _PressHighlightState extends State<PressHighlight>
   Widget build(BuildContext context) {
     final pressed = widget.color ?? AppTokens.of(context).pressed;
     return _PressCore(
+      deferPressInScrollable: true,
       onTap: widget.onTap,
       onLongPress: widget.onLongPress,
       semanticLabel: widget.semanticLabel,

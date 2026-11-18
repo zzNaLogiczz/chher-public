@@ -9,6 +9,7 @@ import '../design/motion.dart';
 import '../design/tokens.dart';
 import '../design/typography.dart';
 import '../ui/app_button.dart';
+import '../ui/feedback.dart';
 import '../models/models.dart';
 import '../network/chh_fetcher.dart';
 import 'expressive_controls.dart';
@@ -28,11 +29,13 @@ class StateView extends StatelessWidget {
   });
 
   /// 加载中只给指示器,不配文字
-  static Widget loading() => const Center(
-    child: SizedBox(
-      width: 20,
-      height: 20,
-      child: CircularProgressIndicator(strokeWidth: 2),
+  static Widget loading() => const LoadingPlaceholder(
+    child: Center(
+      child: SizedBox(
+        width: 20,
+        height: 20,
+        child: CircularProgressIndicator(strokeWidth: 2),
+      ),
     ),
   );
 

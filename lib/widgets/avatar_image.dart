@@ -10,6 +10,7 @@ import '../ui/feedback.dart';
 import '../ui/press.dart';
 import 'cached_net_image.dart';
 import 'net_image.dart';
+import 'viewport_ticker_mode.dart';
 
 /// 头像加载和失败时显示应用标志；个人主页可按地址单独刷新。
 class AvatarImage extends StatefulWidget {
@@ -147,38 +148,44 @@ class _AvatarImageState extends State<AvatarImage> {
           dimension: size,
           child: url == null || _failed
               ? fallback
-              : Image(
-                  key: ValueKey((url, revision)),
-                  image: _provider!,
-                  width: size,
-                  height: size,
-                  fit: BoxFit.cover,
-                  excludeFromSemantics: true,
-                  frameBuilder: (_, child, frame, synchronous) {
-                    if (synchronous || frame != null) {
-                      _finish(revision);
-                      if (synchronous) return child;
-                      return TweenAnimationBuilder<double>(
-                        tween: Tween(begin: 0, end: 1),
-                        duration: MediaQuery.disableAnimationsOf(context)
-                            ? AppMotion.reducedFade
-                            : AppMotion.fade,
-                        builder: (_, opacity, image) => Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            if (opacity < 1) fallback,
-                            Opacity(opacity: opacity, child: image),
-                          ],
-                        ),
-                        child: child,
-                      );
-                    }
-                    return fallback;
-                  },
-                  errorBuilder: (_, _, _) {
-                    _finish(revision, failed: true);
-                    return fallback;
-                  },
+              : ViewportTickerMode(
+                  // Lazy avatars already passed visibility detection; avoid a
+                  // second inherited-mode change retrying an immediate failure.
+                  initiallyVisible: true,
+                  child: Image(
+                    key: ValueKey((url, revision)),
+                    image: _provider!,
+                    width: size,
+                    height: size,
+                    fit: BoxFit.cover,
+                    gaplessPlayback: true,
+                    excludeFromSemantics: true,
+                    frameBuilder: (_, child, frame, synchronous) {
+                      if (synchronous || frame != null) {
+                        _finish(revision);
+                        if (synchronous) return child;
+                        return TweenAnimationBuilder<double>(
+                          tween: Tween(begin: 0, end: 1),
+                          duration: MediaQuery.disableAnimationsOf(context)
+                              ? AppMotion.reducedFade
+                              : AppMotion.fade,
+                          builder: (_, opacity, image) => Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              if (opacity < 1) fallback,
+                              Opacity(opacity: opacity, child: image),
+                            ],
+                          ),
+                          child: child,
+                        );
+                      }
+                      return fallback;
+                    },
+                    errorBuilder: (_, _, _) {
+                      _finish(revision, failed: true);
+                      return fallback;
+                    },
+                  ),
                 ),
         ),
       ),
@@ -250,7 +257,8 @@ class _VisibleAvatarState extends State<_VisibleAvatar> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     _active =
-        (ModalRoute.isCurrentOf(context) ?? true) && TickerMode.valuesOf(context).enabled;
+        (ModalRoute.isCurrentOf(context) ?? true) &&
+        TickerMode.valuesOf(context).enabled;
     // Depend on the nearest scrollable; nested headers may move the outer one.
     Scrollable.maybeOf(context);
     for (final position in _positions) {

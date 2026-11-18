@@ -4,6 +4,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/physics.dart';
+import 'package:flutter/rendering.dart' show RenderAbstractViewport;
 import '../design/image_tokens.dart';
 import '../attachments/image_save.dart';
 import '../ui/feedback.dart';
@@ -12,6 +13,8 @@ import '../ui/press.dart';
 import '../design/motion.dart';
 import '../design/typography.dart';
 import '../ui/chrome_button.dart';
+import '../ui/nav_bar.dart';
+import '../ui/reading_bar.dart';
 
 import '../design/tokens.dart';
 import '../design/system_ui.dart';
@@ -142,6 +145,7 @@ class _InlineImageViewerState extends State<InlineImageViewer> {
           enabled: !MediaQuery.disableAnimationsOf(context),
           child: Hero(
             tag: _heroTag,
+            placeholderBuilder: imageHeroPlaceholder,
             child: ClipRRect(
               borderRadius: BorderRadius.circular(
                 widget.natural ? ImageTokens.radius : AppRadii.xs,
@@ -168,6 +172,24 @@ class _InlineImageViewerState extends State<InlineImageViewer> {
         ),
       );
     },
+  );
+}
+
+/// Keep a reader's photo in its own route if Back skips its return flight.
+Widget imageHeroPlaceholder(BuildContext context, Size size, Widget photo) {
+  final routeAnimation = ModalRoute.of(context)?.animation;
+  return SizedBox.fromSize(
+    size: size,
+    child: routeAnimation == null
+        ? null
+        : AnimatedBuilder(
+            animation: routeAnimation,
+            child: photo,
+            builder: (context, child) =>
+                routeAnimation.status == AnimationStatus.reverse
+                ? child!
+                : const SizedBox.shrink(),
+          ),
   );
 }
 
@@ -220,25 +242,23 @@ class _ImageViewerRoute extends PageRouteBuilder<void> {
             : AppMotion.sheetDuration,
         reverseTransitionDuration: reduced
             ? AppMotion.reducedFade
-            : AppMotion.sheetDuration,
+            : AppMotion.reveal.duration,
         pageBuilder: (context, _, _) =>
             SizedBox.expand(child: builder(context)),
         transitionsBuilder: (context, animation, _, child) => child,
       );
 
   final bool reduced;
-  double? releaseVelocity;
-
   @override
-  Simulation? createSimulation({required bool forward}) => reduced
-      ? null
-      : SpringSimulation(
-          forward ? AppMotion.hero : AppMotion.sheet.description,
+  Simulation? createSimulation({required bool forward}) => !reduced && forward
+      ? SpringSimulation(
+          AppMotion.hero,
           controller!.value,
-          forward ? 1 : 0,
-          releaseVelocity ?? controller!.velocity,
+          1,
+          controller!.velocity,
           snapToEnd: true,
-        );
+        )
+      : null;
 }
 
 class ImageViewerPage extends StatefulWidget {
@@ -271,6 +291,8 @@ class _ImageViewerPageState extends State<ImageViewerPage>
       ? 0
       : widget.initialIndex.clamp(0, widget.urls.length - 1);
   final _transform = TransformationController();
+  final _viewportKey = GlobalKey();
+  Animation<double>? _routeAnimation;
   late final _zoom = AnimationController(
     vsync: this,
     duration: AppMotion.revealDuration,
@@ -302,7 +324,36 @@ class _ImageViewerPageState extends State<ImageViewerPage>
     });
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final animation = ModalRoute.of(context)?.animation;
+    if (animation == _routeAnimation) return;
+    _routeAnimation?.removeStatusListener(_routeStatusChanged);
+    _routeAnimation = animation;
+    animation?.addStatusListener(_routeStatusChanged);
+  }
+
+  void _routeStatusChanged(AnimationStatus status) {
+    if (status == AnimationStatus.reverse) {
+      // Freeze the presented geometry before Hero measures its departure rect.
+      _zoom.stop();
+      _dismiss.stop();
+      _pageMotion.stop();
+      _closing = true;
+      _dragStart = _lastPosition = null;
+      _dragging = false;
+      if (_controller.hasClients) {
+        final position = _controller.position;
+        if (position is ScrollPositionWithSingleContext) position.goIdle();
+      }
+    } else if (status == AnimationStatus.completed) {
+      _closing = false;
+    }
+  }
+
   void _doubleTap() {
+    if (_closing) return;
     final target = _zoomed
         ? Matrix4.identity()
         : (Matrix4.identity()
@@ -351,6 +402,7 @@ class _ImageViewerPageState extends State<ImageViewerPage>
   }
 
   void _pointerMove(PointerMoveEvent event) {
+    if (_closing) return;
     final start = _dragStart;
     if (start == null) return;
     _velocity?.addPosition(event.timeStamp, event.position);
@@ -383,10 +435,6 @@ class _ImageViewerPageState extends State<ImageViewerPage>
     _dragging = false;
     if (dismiss && Navigator.of(context).canPop()) {
       _closing = true;
-      final route = ModalRoute.of(context);
-      if (route is _ImageViewerRoute) {
-        route.releaseVelocity = -velocity / height;
-      }
       Navigator.of(context).pop();
     } else {
       AppMotion.settle(
@@ -402,6 +450,7 @@ class _ImageViewerPageState extends State<ImageViewerPage>
   void _cancelDrag() {
     _dragStart = _lastPosition = null;
     _dragging = false;
+    if (_closing) return;
     if (_dismiss.value != 0) {
       AppMotion.settle(
         _dismiss,
@@ -447,8 +496,18 @@ class _ImageViewerPageState extends State<ImageViewerPage>
     }
   }
 
+  Widget _chrome(Widget child) => FadeTransition(
+    opacity: _routeAnimation ?? const AlwaysStoppedAnimation<double>(1),
+    child: child,
+  );
+
+  void _close() {
+    if (!_closing) Navigator.of(context).maybePop();
+  }
+
   @override
   void dispose() {
+    _routeAnimation?.removeStatusListener(_routeStatusChanged);
     _pageMotion.dispose();
     _controller.dispose();
     _transform.dispose();
@@ -467,30 +526,39 @@ class _ImageViewerPageState extends State<ImageViewerPage>
         backgroundColor: Colors.transparent,
         foregroundColor: foreground,
         centerTitle: true,
-        leading: ChromeButton(
-          tooltip: '关闭图片',
-          icon: AppIcons.dismiss,
-          onImage: true,
-          onPressed: () => Navigator.pop(context),
+        leading: _chrome(
+          ChromeButton(
+            tooltip: '关闭图片',
+            icon: AppIcons.dismiss,
+            onImage: true,
+            onPressed: _close,
+          ),
         ),
         actions: [
           if (widget.urls.isNotEmpty)
-            ChromeButton(
-              tooltip: _saving ? '正在保存' : '保存图片',
-              icon: AppIcons.update,
-              onImage: true,
-              onPressed: _saving ? null : _save,
+            _chrome(
+              ChromeButton(
+                tooltip: _saving ? '正在保存' : '保存图片',
+                icon: AppIcons.update,
+                onImage: true,
+                onPressed: _saving ? null : _save,
+              ),
             ),
         ],
-        title: Text(
-          widget.urls.isEmpty ? '图片' : '${_index + 1} / ${widget.urls.length}',
-          style: TextStyle(fontSize: AppType.sizeFootnote, color: foreground),
+        title: _chrome(
+          Text(
+            widget.urls.isEmpty
+                ? '图片'
+                : '${_index + 1} / ${widget.urls.length}',
+            style: TextStyle(fontSize: AppType.sizeFootnote, color: foreground),
+          ),
         ),
       ),
       body: widget.urls.isEmpty
           ? const SizedBox.shrink()
           : _dragged(
               PageView.builder(
+                key: _viewportKey,
                 controller: _controller,
                 physics: _zoomed
                     ? const NeverScrollableScrollPhysics()
@@ -579,43 +647,48 @@ class _ImageViewerPageState extends State<ImageViewerPage>
             ),
       bottomNavigationBar: widget.urls.isEmpty
           ? null
-          : SafeArea(
-              top: false,
-              minimum: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  ChromeButton(
-                    tooltip: '上一张',
-                    onImage: true,
-                    onPressed: _index > 0 ? () => _goTo(_index - 1) : null,
-                    icon: AppIcons.back,
-                  ),
-                  Expanded(
-                    child: AnimatedSwitcher(
-                      duration: MediaQuery.disableAnimationsOf(context)
-                          ? Duration.zero
-                          : AppMotion.fade,
-                      child: Text(
-                        _zoomed ? '双击还原' : '双击放大',
-                        key: ValueKey(_zoomed),
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: AppType.sizeFootnote,
-                          color: foreground,
+          : _chrome(
+              SafeArea(
+                top: false,
+                minimum: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 12,
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    ChromeButton(
+                      tooltip: '上一张',
+                      onImage: true,
+                      onPressed: _index > 0 ? () => _goTo(_index - 1) : null,
+                      icon: AppIcons.back,
+                    ),
+                    Expanded(
+                      child: AnimatedSwitcher(
+                        duration: MediaQuery.disableAnimationsOf(context)
+                            ? Duration.zero
+                            : AppMotion.fade,
+                        child: Text(
+                          _zoomed ? '双击还原' : '双击放大',
+                          key: ValueKey(_zoomed),
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: AppType.sizeFootnote,
+                            color: foreground,
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                  ChromeButton(
-                    tooltip: '下一张',
-                    onImage: true,
-                    onPressed: _index < widget.urls.length - 1
-                        ? () => _goTo(_index + 1)
-                        : null,
-                    icon: AppIcons.forward,
-                  ),
-                ],
+                    ChromeButton(
+                      tooltip: '下一张',
+                      onImage: true,
+                      onPressed: _index < widget.urls.length - 1
+                          ? () => _goTo(_index + 1)
+                          : null,
+                      icon: AppIcons.forward,
+                    ),
+                  ],
+                ),
               ),
             ),
     );
@@ -673,7 +746,138 @@ class _ImageViewerPageState extends State<ImageViewerPage>
         widget.heroTagForIndex?.call(index) ??
         (index == widget.initialIndex ? widget.heroTag : null);
     return tag != null && !MediaQuery.disableAnimationsOf(context)
-        ? Hero(tag: tag, child: child)
+        ? Hero(tag: tag, flightShuttleBuilder: _imageFlight, child: child)
         : child;
   }
+
+  Widget _imageFlight(
+    BuildContext context,
+    Animation<double> animation,
+    HeroFlightDirection direction,
+    BuildContext fromContext,
+    BuildContext toContext,
+  ) {
+    final destination = (toContext.widget as Hero).child;
+    if (direction != HeroFlightDirection.pop) return destination;
+    final photo = fromContext.findRenderObject();
+    final viewport = _viewportKey.currentContext?.findRenderObject();
+    final target = toContext.findRenderObject();
+    if (photo is! RenderBox || viewport is! RenderBox || target is! RenderBox) {
+      return destination;
+    }
+    final photoRect = MatrixUtils.transformRect(
+      photo.getTransformTo(null),
+      Offset.zero & photo.size,
+    );
+    final viewportRect = MatrixUtils.transformRect(
+      viewport.getTransformTo(null),
+      Offset.zero & viewport.size,
+    );
+    if (photoRect.isEmpty) return destination;
+    final visible = photoRect.intersect(viewportRect);
+    final targetRect = MatrixUtils.transformRect(
+      target.getTransformTo(null),
+      Offset.zero & target.size,
+    );
+    final RenderObject? targetViewport = RenderAbstractViewport.maybeOf(target);
+    final media = MediaQuery.of(toContext);
+    var targetBounds = targetViewport is RenderBox
+        ? MatrixUtils.transformRect(
+            targetViewport.getTransformTo(null),
+            Offset.zero & targetViewport.size,
+          )
+        : Offset.zero & media.size;
+    final reader = toContext.getInheritedWidgetOfExactType<ReadingBarAnchor>();
+    if (reader != null) {
+      // Reading chrome is painted above the viewport, not a clip ancestor.
+      final bottom = reader.height * (1 - reader.hiddenProgress.value);
+      targetBounds = targetBounds.intersect(
+        Rect.fromLTRB(
+          0,
+          media.viewPadding.top + NavOverlay.barHeight,
+          media.size.width,
+          media.size.height -
+              bottom.clamp(media.viewPadding.bottom, media.size.height),
+        ),
+      );
+    }
+    final arrival = targetRect.intersect(targetBounds);
+    final targetAnimation = ModalRoute.of(toContext)?.animation;
+    final roundedDestination = destination is ClipRRect
+        ? AnimatedBuilder(
+            animation: animation,
+            child: destination.child,
+            builder: (context, child) => ClipRRect(
+              borderRadius: BorderRadiusGeometry.lerp(
+                destination.borderRadius,
+                BorderRadius.zero,
+                animation.value.clamp(0.0, 1.0),
+              )!,
+              clipBehavior: destination.clipBehavior,
+              child: child,
+            ),
+          )
+        : destination;
+    // Hero already includes the ancestor's zoom/pan in its flight rect. Only
+    // carry the lost viewport clip; applying the matrix again would zoom twice.
+    return Builder(
+      builder: (flightContext) => ClipRect(
+        key: const ValueKey('image-viewer-flight-clip'),
+        clipper: _ImageFlightClipper(
+          animation,
+          visible.isEmpty ? Rect.zero : visible,
+          arrival.isEmpty ? Rect.zero : arrival,
+          flightContext,
+          targetAnimation,
+        ),
+        child: roundedDestination,
+      ),
+    );
+  }
+}
+
+class _ImageFlightClipper extends CustomClipper<Rect> {
+  final Animation<double> animation;
+  final Rect departureClip;
+  final Rect arrivalClip;
+  final BuildContext flightContext;
+  final Animation<double>? targetAnimation;
+  _ImageFlightClipper(
+    this.animation,
+    this.departureClip,
+    this.arrivalClip,
+    this.flightContext,
+    this.targetAnimation,
+  ) : super(reclip: Listenable.merge([animation, targetAnimation]));
+
+  @override
+  Rect getClip(Size size) {
+    // The Hero overlay outlives the reader when Back is pressed again.
+    // Stop painting it as soon as the route it was returning to leaves.
+    final status = targetAnimation?.status;
+    if (status == AnimationStatus.reverse ||
+        status == AnimationStatus.dismissed) {
+      return Rect.zero;
+    }
+    final clip = Rect.lerp(
+      arrivalClip,
+      departureClip,
+      animation.value.clamp(0.0, 1.0),
+    )!;
+    final box = flightContext.findRenderObject()! as RenderBox;
+    // Interpolate in screen space so shrinking the photo cannot expand its
+    // visible area over the reader's toolbar. Convert only at paint time.
+    return MatrixUtils.transformRect(
+      Matrix4.inverted(box.getTransformTo(null)),
+      clip,
+    );
+  }
+
+  @override
+  bool shouldReclip(_ImageFlightClipper oldClipper) =>
+      departureClip != oldClipper.departureClip ||
+      arrivalClip != oldClipper.arrivalClip ||
+      flightContext != oldClipper.flightContext ||
+      targetAnimation != oldClipper.targetAnimation ||
+      animation != oldClipper.animation;
 }

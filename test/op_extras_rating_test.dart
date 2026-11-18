@@ -307,9 +307,19 @@ void main() {
                 (w) => w is ColoredBox && w.color == t.pressed,
               ),
             ),
-            findsOneWidget,
+            findsNothing,
           );
           await gesture.up();
+          await tester.pump();
+          expect(
+            find.descendant(
+              of: row('用户0'),
+              matching: find.byWidgetPredicate(
+                (w) => w is ColoredBox && w.color == t.pressed,
+              ),
+            ),
+            findsOneWidget,
+          );
           await tester.pumpAndSettle();
           final text = tester.widget<Text>(fullReason());
           expect(text.style!.color, t.text2);

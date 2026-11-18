@@ -32,6 +32,7 @@ Future<PostResult?> showExpressiveComposerRoute(
       barrierColor: t.scrim,
       barrierLabel: '关闭编辑',
       reduced: MediaQuery.disableAnimationsOf(context),
+      holdViewInsetsOnExit: true,
     ),
   );
 }
@@ -85,7 +86,9 @@ class _ExpressiveComposerState extends State<ExpressiveComposer>
   _ComposePhase _phase = _ComposePhase.idle;
   PostResult? _failure;
   static const _backChannel = MethodChannel('chh/composer_back');
-  bool _nativeBackEnabled = false;
+  // Outgoing sheets remain mounted during their exit animation. Only the
+  // current owner may release the platform callback.
+  static _ExpressiveComposerState? _nativeBackOwner;
   bool get _android =>
       !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
   bool _keyboardVisible = false;
@@ -113,17 +116,7 @@ class _ExpressiveComposerState extends State<ExpressiveComposer>
     _hasText.value = _input.text.trim().isNotEmpty;
     _input.addListener(_textChanged);
     _sheet.addListener(_sheetChanged);
-    if (_android) {
-      _backChannel.setMethodCallHandler((call) async {
-        if (call.method == 'back' &&
-            mounted &&
-            ModalRoute.of(context)?.isCurrent == true &&
-            !_busy) {
-          _focus.unfocus();
-          await Navigator.of(context).maybePop();
-        }
-      });
-    }
+    _focus.addListener(_syncCurrentNativeBack);
   }
 
   @override
@@ -137,15 +130,40 @@ class _ExpressiveComposerState extends State<ExpressiveComposer>
     final visible = media.viewInsets.bottom > 0;
     if (visible && !_keyboardVisible) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && _sheet.hasClient) _moveSheet(expand: true);
+        if (mounted && ModalRoute.of(context)?.isCurrent == true) {
+          _moveSheet(expand: true);
+        }
       });
     }
     _keyboardVisible = visible;
   }
 
+  void _syncCurrentNativeBack() {
+    _syncNativeBack(
+      (_focus.hasFocus || _keyboardVisible) &&
+          ModalRoute.isCurrentOf(context) == true,
+    );
+  }
+
   void _syncNativeBack(bool enabled) {
-    if (!_android || enabled == _nativeBackEnabled) return;
-    _nativeBackEnabled = enabled;
+    if (!_android) return;
+    if (enabled) {
+      if (identical(_nativeBackOwner, this)) return;
+      _nativeBackOwner = this;
+      _backChannel.setMethodCallHandler((call) async {
+        if (call.method == 'back' &&
+            mounted &&
+            identical(_nativeBackOwner, this) &&
+            ModalRoute.of(context)?.isCurrent == true &&
+            !_busy) {
+          await Navigator.of(context).maybePop();
+        }
+      });
+    } else {
+      if (!identical(_nativeBackOwner, this)) return;
+      _nativeBackOwner = null;
+      _backChannel.setMethodCallHandler(null);
+    }
     unawaited(
       _backChannel
           .invokeMethod<void>('setEnabled', enabled)
@@ -184,8 +202,7 @@ class _ExpressiveComposerState extends State<ExpressiveComposer>
   }
 
   void _close([PostResult? result]) {
-    if (_busy) return;
-    _focus.unfocus();
+    if (_busy || ModalRoute.of(context)?.isCurrent != true) return;
     Navigator.of(context).pop(result);
   }
 
@@ -244,7 +261,7 @@ class _ExpressiveComposerState extends State<ExpressiveComposer>
   @override
   void dispose() {
     _syncNativeBack(false);
-    if (_android) _backChannel.setMethodCallHandler(null);
+    _focus.removeListener(_syncCurrentNativeBack);
     _successHold.dispose();
     _input.dispose();
     _focus.dispose();
@@ -256,14 +273,15 @@ class _ExpressiveComposerState extends State<ExpressiveComposer>
 
   @override
   Widget build(BuildContext context) {
-    _syncNativeBack(
-      _keyboardVisible && ModalRoute.isCurrentOf(context) == true,
-    );
+    _syncCurrentNativeBack();
     final t = AppTokens.of(context);
     final hasViewport =
         context.findAncestorWidgetOfExactType<SheetViewport>() != null;
-    final sheet = PopScope(
+    final sheet = PopScope<PostResult>(
       canPop: !_busy,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) _syncNativeBack(false);
+      },
       child: SheetKeyboardDismissible(
         dismissBehavior: const SheetKeyboardDismissBehavior.onDragDown(
           isContentScrollAware: false,

@@ -34,7 +34,6 @@ class UpdateController extends ChangeNotifier {
   final UpdatePlatform _platform;
   final UpdateClient _client;
   final List<String> _injectedEndpoints;
-  final List<String> _builtInEndpoints;
   final bool _isRelease;
   final DateTime Function() _now;
   final UpdateStore Function(AppIdentity identity) _storeFor;
@@ -43,7 +42,6 @@ class UpdateController extends ChangeNotifier {
     UpdatePlatform? platform,
     UpdateClient? client,
     List<String>? injectedEndpoints,
-    List<String>? builtInEndpoints,
     bool isRelease = kReleaseMode,
     DateTime Function()? now,
     UpdateStore Function(AppIdentity identity)? storeFor,
@@ -51,7 +49,6 @@ class UpdateController extends ChangeNotifier {
          platform ?? ChannelUpdatePlatform(),
          client,
          injectedEndpoints,
-         builtInEndpoints,
          isRelease,
          now,
          storeFor,
@@ -61,14 +58,12 @@ class UpdateController extends ChangeNotifier {
     UpdatePlatform platform,
     UpdateClient? client,
     List<String>? injectedEndpoints,
-    List<String>? builtInEndpoints,
     bool isRelease,
     DateTime Function()? now,
     UpdateStore Function(AppIdentity identity)? storeFor,
   ) : _platform = platform,
       _client = client ?? UpdateClient(platform: platform),
       _injectedEndpoints = injectedEndpoints ?? injectedUpdateEndpoints,
-      _builtInEndpoints = builtInEndpoints ?? builtInUpdateEndpoints,
       _isRelease = isRelease,
       _now = now ?? DateTime.now,
       _storeFor = storeFor ?? ((id) => UpdateStore.inDirectory(id.filesDir));
@@ -109,6 +104,7 @@ class UpdateController extends ChangeNotifier {
   }
 
   Future<void> _init() async {
+    if (normalizeEndpoints(_injectedEndpoints).isEmpty) return;
     try {
       identity = await _platform.identity();
     } catch (error) {
@@ -139,7 +135,6 @@ class UpdateController extends ChangeNotifier {
         isRelease: _isRelease,
         injectedEndpoints: _injectedEndpoints,
         storedEndpoints: _loaded ? _state.endpoints : const [],
-        builtInEndpoints: _builtInEndpoints,
       );
 
   /// 包名与存储就绪后才开放地址;正式通道仍优先使用刚应答的地址
@@ -308,6 +303,8 @@ class UpdateController extends ChangeNotifier {
 
   /// 核对安装包后交给系统安装器;没有安装权限时停下来等用户开启
   Future<void> install() async {
+    await _ready;
+    if (!available) return;
     final target = release;
     final apk = _apk;
     if (target == null || apk == null) return;
@@ -351,11 +348,13 @@ class UpdateController extends ChangeNotifier {
 
   /// 用户从“允许安装未知应用”设置页返回后调用
   Future<void> resumeAfterPermission() async {
-    if (phase != UpdatePhase.needsPermission) return;
+    if (!available || phase != UpdatePhase.needsPermission) return;
     if (await _platform.canInstall()) await install();
   }
 
-  Future<void> openInstallPermission() => _platform.openInstallPermission();
+  Future<void> openInstallPermission() async {
+    if (available) await _platform.openInstallPermission();
+  }
 
   /// 失败后重试:安装包已下好就直接安装,否则继续下载
   Future<void> retry() async {

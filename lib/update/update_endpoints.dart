@@ -1,38 +1,30 @@
 /// 更新服务地址与响应签名公钥
 ///
-/// 正式通道优先使用服务器下发并验签通过的地址,再用构建注入与内置地址;
+/// 正式通道优先使用服务器下发并验签通过的地址,再用构建注入地址;
 /// 其他通道只用构建注入地址,避免测试安装被线上服务计入统计。
 /// 服务器换 IP 或端口时,先在旧服务器的配置里下发新地址,已安装的客户端下次检查就会切换;
-/// 新地址也写进这里,保证全新安装和旧地址全部失效时仍能找到服务。
+/// 新地址写进本地构建配置，公共源码不内置服务地址。
 library;
 
-/// 构建时覆盖:--dart-define=CHH_UPDATE_ENDPOINTS=http://1.2.3.4:8080,http://5.6.7.8:8080
+/// 未注入地址时整个更新功能停用，持久化地址不能自行启用更新。
 const String _definedEndpoints = String.fromEnvironment('CHH_UPDATE_ENDPOINTS');
-
-/// 内置地址(IP:端口,按优先级排列)。
-/// 端口避开 80(国内运营商对 80 端口明文 HTTP 有劫持与透明缓存)和常被占用、扫描的 8080/8888 等
-const List<String> _builtInEndpoints = ['http://115.159.191.32:27080'];
 
 List<String> get injectedUpdateEndpoints =>
     normalizeEndpoints(_definedEndpoints.split(','));
-
-List<String> get builtInUpdateEndpoints =>
-    normalizeEndpoints(_builtInEndpoints);
 
 ({bool isOfficial, List<String> endpoints}) resolveUpdateChannel({
   required String? packageName,
   required bool isRelease,
   required Iterable<String> injectedEndpoints,
   required Iterable<String> storedEndpoints,
-  required Iterable<String> builtInEndpoints,
 }) {
   final isOfficial = packageName == 'com.chhreader.chh_app' && isRelease;
+  final injected = normalizeEndpoints(injectedEndpoints);
   return (
     isOfficial: isOfficial,
     endpoints: normalizeEndpoints([
-      if (isOfficial) ...storedEndpoints,
-      ...injectedEndpoints,
-      if (isOfficial) ...builtInEndpoints,
+      if (injected.isNotEmpty && isOfficial) ...storedEndpoints,
+      ...injected,
     ]),
   );
 }
@@ -53,13 +45,13 @@ List<String> normalizeEndpoints(Iterable<String> raw) {
     if (uri == null ||
         !(uri.scheme == 'http' || uri.scheme == 'https') ||
         uri.host.isEmpty ||
+        uri.userInfo.isNotEmpty ||
         (uri.path.isNotEmpty && uri.path != '/') ||
         uri.hasQuery ||
         uri.hasFragment) {
       continue;
     }
-    final base =
-        '${uri.scheme}://${uri.host}${uri.hasPort ? ':${uri.port}' : ''}';
+    final base = uri.origin;
     if (!out.contains(base)) out.add(base);
   }
   return out;

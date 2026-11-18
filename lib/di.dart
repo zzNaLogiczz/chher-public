@@ -94,6 +94,8 @@ void setupDependencies() {
   unawaited(_attachLogStore());
   // 图片缓存目录同样异步解析,就绪前图片照常直连下载
   unawaited(_attachImageCache());
+  chhSession.addListener(_syncMeCache);
+  unawaited(_attachMeCache());
   // 已读账本放在 filesDir(系统不得回收),同样异步解析;就绪前的标记留在内存,接线时补写
   unawaited(_attachReadIndex());
   unawaited(_attachUserBlocks());
@@ -169,6 +171,23 @@ Future<void> _attachReadIndex() async {
   await threadReadIndex.attach(File('${dir.path}/threads-v1.json'));
 }
 
+bool _meWasLoggedIn = false;
+void _syncMeCache() {
+  if (chhSession.loggedIn && chhSession.badges.uid != null) {
+    spaceRepo.meCache.select(chhSession.badges.uid);
+  } else if (_meWasLoggedIn && !chhSession.loggedIn) {
+    spaceRepo.meCache.select(null);
+  }
+  _meWasLoggedIn = chhSession.loggedIn;
+}
+
+Future<void> _attachMeCache() async {
+  final dir = await AppPaths.instance.subdir('account');
+  if (dir != null) {
+    await spaceRepo.meCache.attach(File('${dir.path}/me-v1.json'));
+  }
+}
+
 Future<void> _attachUserBlocks() async {
   final dir = await AppPaths.instance.subdir('blocks');
   if (dir != null) {
@@ -201,6 +220,7 @@ class LifecycleFlusher with WidgetsBindingObserver {
       unawaited(threadReadIndex.flush());
       unawaited(userBlockIndex.flush());
       unawaited(favoriteIndex.flush());
+      unawaited(spaceRepo.meCache.flush());
       unawaited(pollRepo.flush());
       unawaited(AppLog.flush());
     }

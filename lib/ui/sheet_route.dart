@@ -14,6 +14,7 @@ class AppSheetRoute<T> extends ModalSheetRoute<T> {
     required super.barrierColor,
     super.barrierLabel = '关闭',
     this.reduced = false,
+    this.holdViewInsetsOnExit = false,
   }) : super(
          swipeDismissible: false,
          transitionCurve: Curves.linear,
@@ -21,6 +22,8 @@ class AppSheetRoute<T> extends ModalSheetRoute<T> {
        );
 
   final bool reduced;
+  final bool holdViewInsetsOnExit;
+  MediaQueryData? _lastViewportMedia;
   double? _dragStart;
   bool _closingSheet = false;
   bool _dragCancelled = false;
@@ -40,15 +43,34 @@ class AppSheetRoute<T> extends ModalSheetRoute<T> {
         );
 
   @override
-  Widget buildViewport(BuildContext context, Widget child) => SheetViewport(
-    padding: EdgeInsets.fromLTRB(
-      AppSheetTokens.inset,
-      MediaQuery.viewPaddingOf(context).top + AppSheetTokens.inset,
-      AppSheetTokens.inset,
-      AppSheetTokens.inset,
-    ),
-    child: child,
-  );
+  Widget buildViewport(BuildContext context, Widget child) {
+    final viewport = SheetViewport(
+      padding: EdgeInsets.fromLTRB(
+        AppSheetTokens.inset,
+        MediaQuery.viewPaddingOf(context).top + AppSheetTokens.inset,
+        AppSheetTokens.inset,
+        AppSheetTokens.inset,
+      ),
+      child: child,
+    );
+    if (!holdViewInsetsOnExit) return viewport;
+    return Builder(
+      builder: (context) {
+        final media = MediaQuery.of(context);
+        if (isActive) _lastViewportMedia = media;
+        final previous = _lastViewportMedia ?? media;
+        // Keep the outgoing sheet at the height from which it started its
+        // exit, while the IME runs its own hide animation.
+        return MediaQuery(
+          data: media.copyWith(
+            viewInsets: previous.viewInsets,
+            padding: previous.padding,
+          ),
+          child: RepaintBoundary(child: viewport),
+        );
+      },
+    );
+  }
 
   @override
   Widget buildSheet(BuildContext context) {

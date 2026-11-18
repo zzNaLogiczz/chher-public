@@ -8,6 +8,7 @@ import 'dart:math' as math;
 import 'dart:ui' show FramePhase, FrameTiming;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/painting.dart';
 import 'package:flutter/scheduler.dart';
 
 import 'display_refresh.dart';
@@ -181,6 +182,19 @@ abstract final class FrameMetrics {
         ? 'release'
         : 'debug',
     ..._buffer.snapshot(includeFrames: includeFrames),
+    'scheduler': {
+      'transientCallbackCount':
+          SchedulerBinding.instance.transientCallbackCount,
+      'hasScheduledFrame': SchedulerBinding.instance.hasScheduledFrame,
+    },
+    'imageCache': {
+      'currentSize': PaintingBinding.instance.imageCache.currentSize,
+      'currentSizeBytes': PaintingBinding.instance.imageCache.currentSizeBytes,
+      'maximumSizeBytes': PaintingBinding.instance.imageCache.maximumSizeBytes,
+      'liveImageCount': PaintingBinding.instance.imageCache.liveImageCount,
+      'pendingImageCount':
+          PaintingBinding.instance.imageCache.pendingImageCount,
+    },
   };
 
   /// Service protocol: ext.chh.frameMetrics?isolateId=...&action=reset|read.

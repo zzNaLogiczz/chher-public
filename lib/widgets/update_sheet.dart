@@ -256,6 +256,7 @@ class UpdateCheckLink extends StatelessWidget {
     return ListenableBuilder(
       listenable: c,
       builder: (context, _) {
+        if (!c.available) return const SizedBox.shrink();
         final label = _label(c);
         return Semantics(
           button: true,

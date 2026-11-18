@@ -83,8 +83,10 @@ void main() {
       tester.getCenter(find.text('设置')),
     );
     await tester.pump();
-    expect(paintsPressed(tester, find.byType(GroupedRow)), isTrue);
+    expect(paintsPressed(tester, find.byType(GroupedRow)), isFalse);
     await gesture.up();
+    await tester.pump();
+    expect(paintsPressed(tester, find.byType(GroupedRow)), isTrue);
     await tester.pumpAndSettle();
     expect(taps, 1);
     expect(tester.getSize(find.byType(GroupedRow)).height, 44);

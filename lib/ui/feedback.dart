@@ -1,6 +1,7 @@
 /// 反馈与状态:顶部提示条与整组骨架。
 library;
 
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -152,36 +153,100 @@ class _ToastViewState extends State<_ToastView> with TickerProviderStateMixin {
   }
 }
 
+/// Reserve the waiting layout without flashing a placeholder for fast reads.
+/// This never delays data: removing the widget cancels the one-shot timer.
+class LoadingPlaceholder extends StatefulWidget {
+  final bool active;
+  final Widget child;
+  const LoadingPlaceholder({
+    super.key,
+    this.active = true,
+    required this.child,
+  });
+
+  @override
+  State<LoadingPlaceholder> createState() => _LoadingPlaceholderState();
+}
+
+class _LoadingPlaceholderState extends State<LoadingPlaceholder> {
+  Timer? _delay;
+  bool _visible = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _wait();
+  }
+
+  void _wait() {
+    if (!widget.active) return;
+    _delay = Timer(AppMotion.skeletonDelay, () {
+      if (mounted) setState(() => _visible = true);
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant LoadingPlaceholder oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.active == oldWidget.active) return;
+    _delay?.cancel();
+    _visible = false;
+    _wait();
+  }
+
+  @override
+  void dispose() {
+    _delay?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Visibility(
+    visible: _visible && widget.active,
+    maintainState: true,
+    maintainAnimation: true,
+    maintainSize: true,
+    child: TickerMode(
+      enabled: _visible && widget.active,
+      child: IgnorePointer(child: widget.child),
+    ),
+  );
+}
+
 /// Loading breathes as one cached layer; scroll and TickerMode stop hidden work.
-class SkeletonPulse extends StatefulWidget {
+class SkeletonPulse extends StatelessWidget {
   final bool active;
   final Widget child;
   const SkeletonPulse({super.key, this.active = true, required this.child});
 
   @override
-  State<SkeletonPulse> createState() => _SkeletonPulseState();
+  Widget build(BuildContext context) => LoadingPlaceholder(
+    active: active,
+    child: _SkeletonBreath(active: active, child: child),
+  );
 }
 
-class _SkeletonPulseState extends State<SkeletonPulse>
+class _SkeletonBreath extends StatefulWidget {
+  final bool active;
+  final Widget child;
+  const _SkeletonBreath({required this.active, required this.child});
+
+  @override
+  State<_SkeletonBreath> createState() => _SkeletonBreathState();
+}
+
+class _SkeletonBreathState extends State<_SkeletonBreath>
     with SingleTickerProviderStateMixin {
   late final _clock = AnimationController(
     vsync: this,
-    duration: AppMotion.skeletonDelay,
-  )..addStatusListener(_status);
+    duration: AppMotion.skeletonCycle,
+  );
   final _bounds = GlobalKey();
   ScrollPosition? _position;
   Animation<double>? _routeAnimation;
-  bool _waiting = true;
   bool _visible = false;
   bool _scheduled = false;
   bool _enabled = false;
-
-  void _status(AnimationStatus status) {
-    if (status == AnimationStatus.completed && _waiting) {
-      setState(() => _waiting = false);
-      _sync();
-    }
-  }
 
   @override
   void didChangeDependencies() {
@@ -206,7 +271,7 @@ class _SkeletonPulseState extends State<SkeletonPulse>
   }
 
   @override
-  void didUpdateWidget(covariant SkeletonPulse oldWidget) {
+  void didUpdateWidget(covariant _SkeletonBreath oldWidget) {
     super.didUpdateWidget(oldWidget);
     _sync();
   }
@@ -238,11 +303,7 @@ class _SkeletonPulseState extends State<SkeletonPulse>
     if (!widget.active || !_enabled || !_visible) {
       _clock.stop();
     } else if (!_clock.isAnimating) {
-      if (_waiting) {
-        _clock.forward();
-      } else {
-        _clock.repeat(period: AppMotion.skeletonCycle);
-      }
+      _clock.repeat(period: AppMotion.skeletonCycle);
     }
   }
 
@@ -261,7 +322,7 @@ class _SkeletonPulseState extends State<SkeletonPulse>
       animation: _clock,
       child: widget.child,
       builder: (context, child) => Opacity(
-        opacity: _waiting || !_enabled
+        opacity: !_enabled
             ? 1
             : AppMotion.skeletonMinOpacity +
                   (1 - AppMotion.skeletonMinOpacity) *
@@ -338,9 +399,6 @@ class _SkeletonContentState extends State<SkeletonContent>
               child: RepaintBoundary(
                 child: ColoredBox(
                   color: widget.background ?? AppTokens.of(context).bg,
-                  child: ExcludeSemantics(
-                    child: TickerMode(enabled: false, child: widget.skeleton),
-                  ),
                 ),
               ),
             ),

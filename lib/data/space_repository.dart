@@ -6,10 +6,13 @@ import '../models/models.dart';
 import '../network/chh_client.dart';
 import '../parser/misc_parser.dart';
 import '../parser/space_parser.dart';
+import 'me_profile_cache.dart';
 
 class SpaceRepository {
   final ChhClient client;
   const SpaceRepository(this.client);
+  static final _meCaches = Expando<MeProfileCache>();
+  MeProfileCache get meCache => _meCaches[this] ??= MeProfileCache();
 
   Future<UserProfile> profile(String uid, {bool refresh = false}) async {
     return parseUserProfile(

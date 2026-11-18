@@ -270,6 +270,153 @@ void main() {
     },
   );
 
+  testWidgets(
+    'cached stats render immediately and background data waits for re-entry',
+    (tester) async {
+      await tester.pumpWidget(_app());
+      await tester.pumpAndSettle();
+      final pending = Completer<UserProfile>();
+      profiles.respond = (_) => pending.future;
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpWidget(_app());
+      expect(find.text('3139'), findsOneWidget);
+      expect(_placeholder, findsNothing);
+      pending.complete(
+        const UserProfile(
+          uid: '42',
+          name: '本地账号',
+          credits: 9999,
+          threads: 41,
+          replies: 400,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('3139'), findsOneWidget);
+      expect(find.text('9999'), findsNothing);
+      await tester.pumpWidget(const SizedBox.shrink());
+      profiles.respond = (_) => Completer<UserProfile>().future;
+      await tester.pumpWidget(_app());
+      expect(find.text('9999'), findsOneWidget);
+      expect(_placeholder, findsNothing);
+    },
+  );
+
+  testWidgets(
+    'logged-in UID hydration preserves but does not expose the cached identity',
+    (tester) async {
+      profiles.meCache.select('42');
+      profiles.meCache.put(_profile('42'));
+      _session(uid: null);
+      profiles.respond = (_) => Completer<UserProfile>().future;
+      await tester.pumpWidget(_app());
+      expect(_stats, findsNothing);
+      expect(find.text('UID 42'), findsNothing);
+      expect(profiles.requests, isEmpty);
+      expect(profiles.meCache.forUser('42')?.credits, 3139);
+      _session(uid: '42');
+      await tester.pump();
+      expect(find.text('3139'), findsOneWidget);
+      expect(_placeholder, findsNothing);
+    },
+  );
+
+  testWidgets(
+    'disposed older cache generation cannot replace a newer snapshot',
+    (tester) async {
+      final old = Completer<UserProfile>();
+      profiles.respond = (_) => old.future;
+      await tester.pumpWidget(_app());
+      await tester.pumpWidget(const SizedBox.shrink());
+      profiles.client.clearCache();
+      profiles.respond = (_) async => const UserProfile(
+        uid: '42',
+        name: '本地账号',
+        credits: 9999,
+        threads: 41,
+        replies: 400,
+      );
+      await tester.pumpWidget(_app());
+      await tester.pumpAndSettle();
+      expect(find.text('9999'), findsOneWidget);
+      old.complete(_profile('42'));
+      await tester.pumpAndSettle();
+      expect(profiles.meCache.forUser('42')?.credits, 9999);
+    },
+  );
+
+  testWidgets(
+    'rejected current generation releases loading for the next activation',
+    (tester) async {
+      final old = Completer<UserProfile>();
+      profiles.respond = (_) => old.future;
+      Widget view(bool active) => _app(
+        page: TickerMode(
+          enabled: active,
+          child: MePage(repository: profiles),
+        ),
+      );
+      await tester.pumpWidget(view(true));
+      profiles.client.clearCache();
+      old.complete(_profile('42'));
+      await tester.pumpAndSettle();
+      expect(_stats, findsNothing);
+      expect(_placeholder, findsNothing);
+      await tester.pumpWidget(view(false));
+      profiles.respond = (_) async => _profile('42');
+      await tester.pumpWidget(view(true));
+      await tester.pumpAndSettle();
+      expect(_stats, findsOneWidget);
+      expect(profiles.requests.length, 2);
+    },
+  );
+
+  testWidgets(
+    'returning to a retained tab adopts the last background snapshot',
+    (tester) async {
+      Widget view(bool active) => _app(
+        page: TickerMode(
+          enabled: active,
+          child: MePage(repository: profiles),
+        ),
+      );
+      await tester.pumpWidget(view(true));
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(view(false));
+      final pending = Completer<UserProfile>();
+      profiles.respond = (_) => pending.future;
+      await tester.pumpWidget(view(true));
+      expect(find.text('3139'), findsOneWidget);
+      pending.complete(
+        const UserProfile(
+          uid: '42',
+          name: '本地账号',
+          credits: 9999,
+          threads: 41,
+          replies: 400,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('3139'), findsOneWidget);
+      await tester.pumpWidget(view(false));
+      profiles.respond = (_) => Completer<UserProfile>().future;
+      await tester.pumpWidget(view(true));
+      expect(find.text('9999'), findsOneWidget);
+    },
+  );
+
+  testWidgets('failed background refresh retains the cached counters', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_app());
+    await tester.pumpAndSettle();
+    await tester.pumpWidget(const SizedBox.shrink());
+    profiles.respond = (_) async => throw StateError('offline');
+    await tester.pumpWidget(_app());
+    await tester.pumpAndSettle();
+    expect(find.text('3139'), findsOneWidget);
+    expect(_placeholder, findsNothing);
+  });
+
   testWidgets('account replacement and logout discard late profile responses', (
     tester,
   ) async {
@@ -393,31 +540,32 @@ void main() {
     expect(position().pixels, 24);
   });
 
-  testWidgets('repository reuses profile cache and refresh bypasses it', (
-    tester,
-  ) async {
-    headers.html =
-        '''<div id="ct"><div class="u_profile"><h2 class="mbn">本地账号</h2>
+  testWidgets(
+    're-entry refreshes behind the cached profile and manual refresh bypasses it',
+    (tester) async {
+      headers.html =
+          '''<div id="ct"><div class="u_profile"><h2 class="mbn">本地账号</h2>
       <ul><li><em>统计信息</em><a>主题数 31</a><a>回帖数 377</a></li></ul>
       <div><h2>活跃概况</h2><ul><li><em>用户组</em><a>测试用户组</a></li></ul></div>
       <ul id="psts"><li><em>积分</em>3139</li></ul></div></div>''';
-    final repository = SpaceRepository(chhClient);
-    Widget app() => _app(page: MePage(repository: repository));
-    await tester.pumpWidget(app());
-    await tester.pumpAndSettle();
-    expect(find.text('3139'), findsOneWidget);
-    expect(headers.calls, 1);
-    await tester.pumpWidget(_app(page: const SizedBox()));
-    await tester.pumpWidget(app());
-    await tester.pumpAndSettle();
-    expect(headers.calls, 1);
-    await tester
-        .widget<LacquerTabScaffold>(find.byType(LacquerTabScaffold))
-        .onRefresh!();
-    await tester.pumpAndSettle();
-    expect(headers.calls, 3);
-    expect(_stats, findsOneWidget);
-  });
+      final repository = SpaceRepository(chhClient);
+      Widget app() => _app(page: MePage(repository: repository));
+      await tester.pumpWidget(app());
+      await tester.pumpAndSettle();
+      expect(find.text('3139'), findsOneWidget);
+      expect(headers.calls, 1);
+      await tester.pumpWidget(_app(page: const SizedBox()));
+      await tester.pumpWidget(app());
+      await tester.pumpAndSettle();
+      expect(headers.calls, 2);
+      await tester
+          .widget<LacquerTabScaffold>(find.byType(LacquerTabScaffold))
+          .onRefresh!();
+      await tester.pumpAndSettle();
+      expect(headers.calls, 4);
+      expect(_stats, findsOneWidget);
+    },
+  );
 
   testWidgets('misty card fits 320dp and double text with reduced motion', (
     tester,

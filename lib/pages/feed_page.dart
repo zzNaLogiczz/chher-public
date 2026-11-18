@@ -19,6 +19,7 @@ import '../design/motion.dart';
 import '../widgets/shelf_scroll_physics.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
 import '../ui/app_button.dart';
+import '../ui/feedback.dart';
 import '../design/typography.dart';
 import '../ui/picker.dart';
 import '../ui/segmented.dart';
@@ -242,14 +243,16 @@ class _FeedPageState extends State<FeedPage> {
               AppSpace.screen,
               16,
             ),
-            child: Container(
-              key: const ValueKey('feed-highlights-skeleton'),
-              height: HomeTokens.featureHeight(
-                MediaQuery.sizeOf(context).width,
-              ),
-              decoration: ShapeDecoration(
-                color: t.fill,
-                shape: appShape(AppRadii.lg),
+            child: LoadingPlaceholder(
+              child: Container(
+                key: const ValueKey('feed-highlights-skeleton'),
+                height: HomeTokens.featureHeight(
+                  MediaQuery.sizeOf(context).width,
+                ),
+                decoration: ShapeDecoration(
+                  color: t.fill,
+                  shape: appShape(AppRadii.lg),
+                ),
               ),
             ),
           );

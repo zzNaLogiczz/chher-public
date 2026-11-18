@@ -6,7 +6,7 @@
 #   tool/build_release.sh 1.0.6 --universal # 兼容旧命令，结果相同
 #
 # 输出 build/release/<版本>/chher-<版本>.apk；symbols/ 中的符号用于崩溃解析。
-# CHH_UPDATE_ENDPOINTS 可覆盖内置更新地址（逗号分隔）。
+# 可选 config/update.local.json 仅供本机正式构建注入更新地址。
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -24,7 +24,10 @@ mkdir -p "$OUT/symbols"
 STAMP=$(date +%Y%m%d%H%M)
 AAPT2=$(ls -d "${ANDROID_HOME:-$HOME/Library/Android/sdk}"/build-tools/*/aapt2 | tail -1)
 DEFINES=(--dart-define=app_version="$NAME" --dart-define=build_stamp="$STAMP")
-[[ -n ${CHH_UPDATE_ENDPOINTS:-} ]] && DEFINES+=(--dart-define=CHH_UPDATE_ENDPOINTS="$CHH_UPDATE_ENDPOINTS")
+if [[ -f config/update.local.json ]]; then
+  python3 tool/update_build_config.py config/update.local.json
+  DEFINES+=(--dart-define-from-file=config/update.local.json)
+fi
 
 flutter build apk --release --target-platform android-arm,android-arm64,android-x64 \
   --build-name="$NAME" --build-number="$CODE" --split-debug-info="$OUT/symbols" "${DEFINES[@]}"

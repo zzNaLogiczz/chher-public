@@ -137,7 +137,9 @@ void main() {
         await tester.pump(const Duration(milliseconds: 200));
         await tester.pump();
         expect(
-          tester.widget<PopScope>(find.byType(PopScope).last).canPop,
+          tester
+              .widget<PopScope<PostResult>>(find.byType(PopScope<PostResult>))
+              .canPop,
           isFalse,
         );
       }
@@ -167,6 +169,44 @@ void main() {
       debugDefaultTargetPlatformOverride = null;
     });
   }
+
+  testWidgets('disposing an outgoing reply keeps the next IME back active', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    const channel = MethodChannel('chh/composer_back');
+    final messenger = tester.binding.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(channel, (_) async => null);
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    await _open(tester, quote: '引用');
+    tester.view.viewInsets = const FakeViewPadding(bottom: 310);
+    await tester.pumpAndSettle();
+    final open = tester
+        .widget<TextButton>(find.widgetWithText(TextButton, '打开写作画布'))
+        .onPressed!;
+    final old = tester.state(find.byType(ExpressiveComposer));
+    final navigator = Navigator.of(old.context);
+
+    await navigator.maybePop();
+    await tester.pump();
+    open();
+    await tester.pump();
+    expect(old.mounted, isTrue);
+    await tester.pumpAndSettle();
+    expect(old.mounted, isFalse);
+    expect(find.byType(ExpressiveComposer), findsOneWidget);
+
+    await messenger.handlePlatformMessage(
+      'chh/composer_back',
+      const StandardMethodCodec().encodeMethodCall(const MethodCall('back')),
+      (_) {},
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(ExpressiveComposer), findsNothing);
+    expect(tester.takeException(), isNull);
+    debugDefaultTargetPlatformOverride = null;
+  });
 
   testWidgets('composer cancel uses secondary text, not accent', (
     tester,

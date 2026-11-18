@@ -206,8 +206,8 @@ class _PhotoVM {
 
 class _ImageStackGalleryState extends State<ImageStackGallery>
     with TickerProviderStateMixin {
-  static const _storageId = 'image-stack-state';
   late List<_PhotoVM> _photos;
+  late List<double?> _knownRatios;
   final _probes = <_PhotoVM, (ImageStream, ImageStreamListener)>{};
   late final AnimationController _position, _flip, _pop, _hint;
   final _scrollSignal = ValueNotifier(0);
@@ -224,6 +224,7 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
   final _flipIntervals = <int, Interval>{};
   double _width = 0, _dragStart = 0, _dragX = 0;
   bool _expanded = false, _restored = false, _preferencesApplied = false;
+  bool _restoredExpansion = false;
   bool _metricsPending = false, _hintStarted = false;
   int _index = 0, _geometryBuilds = 0, _frameVisits = 0;
   double? _galleryOrigin;
@@ -280,6 +281,9 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
       for (var i = 0; i < widget.urls.length; i++)
         _PhotoVM(widget.urls[i], widget.aspectRatios?[i]),
     ];
+    _knownRatios = [
+      for (final photo in _photos) photo.known ? photo.ratio : null,
+    ];
     _position = AnimationController.unbounded(vsync: this)
       ..addListener(_onPosition);
     _flip = AnimationController(vsync: this, value: 1);
@@ -293,15 +297,32 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
     _photoWidgets.clear();
     if (!_restored) {
       _restored = true;
-      final saved = PageStorage.maybeOf(
-        context,
-      )?.readState(context, identifier: _storageId);
+      // Use the group's PageStorageKey path; a shared identifier aliases all decks.
+      final saved = PageStorage.maybeOf(context)?.readState(context);
       if (saved is Map) {
-        _expanded = saved['expanded'] == true;
+        if (saved['expanded'] case final bool expanded) {
+          _expanded = expanded;
+          _restoredExpansion = true;
+        }
         if (saved['urls'] is List &&
-            listEquals(saved['urls'] as List, widget.urls) &&
-            saved['ratios'] is List<double>) {
-          _frameRatios = saved['ratios'] as List<double>;
+            listEquals(saved['urls'] as List, widget.urls)) {
+          if (saved['ratios'] is List<double>) {
+            _frameRatios = saved['ratios'] as List<double>;
+          }
+          final ratios = saved['photoRatios'];
+          if (ratios is List && ratios.length == _photos.length) {
+            for (var i = 0; i < _photos.length; i++) {
+              final ratio = ratios[i];
+              if (!_photos[i].known &&
+                  ratio is num &&
+                  ratio.isFinite &&
+                  ratio > 0) {
+                _photos[i].ratio = ratio.toDouble();
+                _photos[i].known = true;
+                _knownRatios[i] = ratio.toDouble();
+              }
+            }
+          }
         }
         if (saved['current'] is int) {
           _index = (saved['current'] as int).clamp(0, _photos.length - 1);
@@ -315,7 +336,14 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
     final prefs = ReadingScope.maybeOf(context);
     if (!_preferencesApplied && (prefs?.ready ?? true)) {
       _preferencesApplied = true;
-      _expanded = widget.expanded ?? prefs?.prefs.imagesExpanded ?? _expanded;
+      // The preference is a default for unseen groups, never a replacement for
+      // a recycled group's own choice. Changing an offscreen group from a deck
+      // to a full column invalidates the sliver's retained scroll geometry.
+      _expanded =
+          widget.expanded ??
+          (_restoredExpansion
+              ? _expanded
+              : prefs?.prefs.imagesExpanded ?? _expanded);
     }
     final scroll = Scrollable.maybeOf(context, axis: Axis.vertical)?.position;
     if (!identical(scroll, _scroll)) {
@@ -349,6 +377,9 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
         for (var i = 0; i < widget.urls.length; i++)
           _PhotoVM(widget.urls[i], widget.aspectRatios?[i]),
       ];
+      _knownRatios = [
+        for (final photo in _photos) photo.known ? photo.ratio : null,
+      ];
       _frameRatios = null;
       _reservedFrameHeight = null;
       _frameCache = null;
@@ -374,7 +405,10 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
     'expanded': _expanded,
     'urls': widget.urls,
     'ratios': _frameRatios,
-  }, identifier: _storageId);
+    // Keep one shared snapshot; each completed probe updates its own slot.
+    // No full-gallery copy or extra write is needed on every decode/scroll.
+    'photoRatios': _knownRatios,
+  });
 
   void _probeAround(int center) {
     for (
@@ -399,6 +433,7 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
           if (!vm.known) vm.ratio = info.image.width / info.image.height;
           vm.known = true;
           vm.decoded = true;
+          _knownRatios[i] = vm.ratio;
           PhotoAtmosphere.fromImage(
             '${vm.url}:${provider.hashCode}',
             info.image,
@@ -1093,56 +1128,66 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
           maintainState: true,
           maintainAnimation: true,
           maintainSize: true,
-          child: Transform.translate(
-            offset: Offset(x, y),
-            child: Transform.rotate(
-              angle: angle,
-              child: Transform(
-                alignment: Alignment.topLeft,
-                transform: Matrix4.diagonal3Values(sx, sy, 1),
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    if (!_expanded)
-                      IgnorePointer(
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(
-                              widget.compact
-                                  ? ImageStackTokens.compactPaperRadius
-                                  : ImageStackTokens.paperRadius,
-                            ),
-                            boxShadow: [
-                              for (final shadow in ImageStackTokens.liftShadow)
-                                shadow.copyWith(
-                                  color: shadow.color.withValues(
-                                    alpha:
-                                        shadow.color.a *
-                                        ((_livePosition - _livePosition.round())
-                                                    .abs() *
-                                                8)
-                                            .clamp(0.0, 1.0),
+          child: ClipRect(
+            clipBehavior: _expanded ? Clip.none : Clip.hardEdge,
+            clipper: _DeckLeadingClipper(
+              -_travel * (1 + i - _livePosition).clamp(0.0, 1.0),
+            ),
+            child: Transform.translate(
+              offset: Offset(x, y),
+              child: Transform.rotate(
+                angle: angle,
+                child: Transform(
+                  alignment: Alignment.topLeft,
+                  transform: Matrix4.diagonal3Values(sx, sy, 1),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      if (!_expanded)
+                        IgnorePointer(
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(
+                                widget.compact
+                                    ? ImageStackTokens.compactPaperRadius
+                                    : ImageStackTokens.paperRadius,
+                              ),
+                              boxShadow: [
+                                for (final shadow
+                                    in ImageStackTokens.liftShadow)
+                                  shadow.copyWith(
+                                    color: shadow.color.withValues(
+                                      alpha:
+                                          shadow.color.a *
+                                          ((_livePosition -
+                                                          _livePosition.round())
+                                                      .abs() *
+                                                  8)
+                                              .clamp(0.0, 1.0),
+                                    ),
                                   ),
-                                ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    _photoWidgets.putIfAbsent(i, () => _photoCard(i)),
-                    if (dim > 0)
-                      IgnorePointer(
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            color: ImageStackTokens.ink.withValues(alpha: dim),
-                            borderRadius: BorderRadius.circular(
-                              widget.compact
-                                  ? ImageStackTokens.compactPaperRadius
-                                  : ImageStackTokens.paperRadius,
+                              ],
                             ),
                           ),
                         ),
-                      ),
-                  ],
+                      _photoWidgets.putIfAbsent(i, () => _photoCard(i)),
+                      if (dim > 0)
+                        IgnorePointer(
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              color: ImageStackTokens.ink.withValues(
+                                alpha: dim,
+                              ),
+                              borderRadius: BorderRadius.circular(
+                                widget.compact
+                                    ? ImageStackTokens.compactPaperRadius
+                                    : ImageStackTokens.paperRadius,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -1255,6 +1300,28 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
       ],
     );
   }
+}
+
+/// A rotated portrait can still protrude at d == -1. Reveal it continuously
+/// through the leading edge before its offscreen slot is hidden, so a spring
+/// crossing an integer cannot flash the corner of an unrelated earlier photo.
+class _DeckLeadingClipper extends CustomClipper<Rect> {
+  final double left;
+  const _DeckLeadingClipper(this.left);
+
+  @override
+  Rect getClip(Size size) {
+    final margin = size.longestSide + ImageStackTokens.travelExtra;
+    return Rect.fromLTRB(
+      left,
+      -margin,
+      size.width + margin,
+      size.height + margin,
+    );
+  }
+
+  @override
+  bool shouldReclip(_DeckLeadingClipper oldClipper) => left != oldClipper.left;
 }
 
 class _PreviousPhotoIntent extends Intent {

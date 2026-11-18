@@ -35,6 +35,7 @@ Future<NativePair> mountPair(WidgetTester tester) async {
           child: RepaintBoundary(
             key: production,
             child: ImageStackGallery(
+              key: const PageStorageKey('native-gallery'),
               urls: List.generate(6, (i) => 'photo-$i'),
               gallery: List.generate(6, (i) => 'photo-$i'),
               galleryStartIndex: 0,

@@ -4,6 +4,7 @@ library;
 import 'package:flutter/material.dart';
 import 'source_page_drawer.dart';
 import '../ui/app_button.dart';
+import '../ui/feedback.dart';
 import '../ui/press.dart';
 import 'package:flutter/cupertino.dart' show CupertinoIcons;
 import 'package:flutter/services.dart';
@@ -325,7 +326,9 @@ class _ArticlePageState extends State<ArticlePage> {
                           : StateView.error(error, onRetry: _reader.retry),
                     )
                   else
-                    SliverToBoxAdapter(child: _readingPlaceholder()),
+                    SliverToBoxAdapter(
+                      child: LoadingPlaceholder(child: _readingPlaceholder()),
+                    ),
                   const SliverToBoxAdapter(child: SizedBox(height: 110)),
                 ],
               ),

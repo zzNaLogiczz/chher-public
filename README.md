@@ -9,7 +9,7 @@
 <p align="center">一个用 Flutter 构建的非官方 Android 客户端，把帖子、评测和讨论带进原生界面。</p>
 
 <p align="center">
-  <a href="pubspec.yaml"><img src="https://img.shields.io/badge/version-1.0.12-646464?labelColor=60646c" alt="Version 1.0.12" /></a>
+  <a href="pubspec.yaml"><img src="https://img.shields.io/badge/version-1.0.14-646464?labelColor=60646c" alt="Version 1.0.14" /></a>
   <a href="https://flutter.dev/"><img src="https://img.shields.io/badge/Flutter-3.44.2-0d74ce?logo=flutter&amp;labelColor=60646c" alt="Flutter 3.44.2" /></a>
   <a href="https://dart.dev/"><img src="https://img.shields.io/badge/Dart-3.12.2-0d74ce?logo=dart&amp;labelColor=60646c" alt="Dart 3.12.2" /></a>
   <a href="https://developer.android.com/about/versions/pie"><img src="https://img.shields.io/badge/Android-9.0%2B-218358?logo=android&amp;logoColor=ffffff&amp;labelColor=60646c" alt="Android 9.0+" /></a>
@@ -73,12 +73,16 @@ cp android/key.properties.example android/key.properties
 在 `android/key.properties` 中填写 keystore 路径、别名和密码，然后构建：
 
 ```sh
-tool/build_release.sh 1.0.13             # 生成包含全部支持架构的通用包
+tool/build_release.sh 1.0.14             # 生成包含全部支持架构的通用包
 ```
 
-安装包位于 `build/release/1.0.13/chher-1.0.13.apk`，同时包含 ARM64、ARMv7 和 x86_64。新旧客户端统一获取通用包，无需按原安装包类型分组。
+安装包位于 `build/release/1.0.14/chher-1.0.14.apk`，同时包含 ARM64、ARMv7 和 x86_64。新旧客户端统一获取通用包，无需按原安装包类型分组。
 
-原生库采用压缩打包，调试符号单独保存在同目录的 `symbols/` 中，维护者应保留它们以便解析崩溃日志。版本号 `1.0.13` 对应 versionCode `10013`，不要使用会增加版本号偏移的 `--split-per-abi`。
+原生库采用压缩打包，调试符号单独保存在同目录的 `symbols/` 中，维护者应保留它们以便解析崩溃日志。版本号 `1.0.14` 对应 versionCode `10014`，不要使用会增加版本号偏移的 `--split-per-abi`。
+
+默认构建不连接更新服务器，也不显示检查更新入口。需要自己的更新服务时，将 `config/update.example.json` 复制为 `config/update.local.json`，在 `CHH_UPDATE_ENDPOINTS` 中填写 http(s) 服务根地址，多个地址用逗号分隔。正式构建脚本自动读取本地配置；配置缺失或地址为空时关闭更新，格式无效时停止构建。`flutter run` 和测试包脚本不自动读取此文件。自建服务还需使用自己的响应签名密钥，并对应修改 `lib/update/update_endpoints.dart` 的验签公钥。
+
+`config/*.local.json` 已被 Git 忽略，不得作为资源文件加入 `pubspec.yaml`。公开仓库只保留空白示例；构建日志不要输出配置内容。地址启用后会编译进 APK，安装包中的地址仍可被提取，本地配置用于避免公开源码泄露，并不提供安装包内的地址保密。
 
 自行签名的包不能覆盖维护者签名的版本。分发衍生版本时，请使用自己的应用标识、签名及更新服务，并遵守项目许可。
 
@@ -115,7 +119,7 @@ flutter test
 
 Chher 是个人维护的非官方项目，与 Chiphell 官方没有隶属或背书关系。站点内容直接由客户端访问，登录使用原站网页，发帖与上传仍遵循原站的账号权限和规则。源站页面结构变化可能影响解析兼容性。
 
-登录状态保存在设备本地。应用更新由独立服务提供；检查更新时会发送应用版本、CPU 架构和本地生成的安装标识，用于版本匹配与更新统计。
+登录状态保存在设备本地。启用本地构建配置后，应用更新由配置的独立服务提供；检查更新时会发送应用版本、CPU 架构和本地生成的安装标识，用于版本匹配与更新统计。
 
 ## 使用许可
 

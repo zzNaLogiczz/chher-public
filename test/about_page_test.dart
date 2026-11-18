@@ -83,17 +83,8 @@ void main() {
       lessThan(tester.getTopLeft(intro).dy),
     );
 
-    // 检查更新就在版本号右边,同一行
-    final link = find.byKey(const ValueKey('update-check-link'));
-    expect(
-      find.descendant(of: link, matching: find.text('检查更新')),
-      findsOneWidget,
-    );
-    expect(tester.getCenter(link).dy, closeTo(tester.getCenter(version).dy, 2));
-    expect(
-      tester.getTopLeft(link).dx,
-      greaterThan(tester.getTopRight(version).dx),
-    );
+    // Public builds have no update service or check entry.
+    expect(find.byKey(const ValueKey('update-check-link')), findsNothing);
     expect(find.textContaining('公益项目'), findsOneWidget);
     expect(find.text(feedbackEmail), findsOneWidget);
     await tester.scrollUntilVisible(

@@ -594,10 +594,7 @@ void main() {
         );
         final context = tester.element(galleries);
         final current =
-            (PageStorage.of(
-                      context,
-                    ).readState(context, identifier: 'image-stack-state')
-                    as Map)['current']
+            (PageStorage.of(context).readState(context) as Map)['current']
                 as int;
         expect(current, inInclusiveRange(0, 999));
         expect(semantic('连续图片，第 ${current + 1} 张，共 1000 张'), findsOneWidget);

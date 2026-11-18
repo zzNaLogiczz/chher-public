@@ -87,6 +87,7 @@ Future<void> mountStack(
   List<MemoryImage>? photos,
   Set<String>? requested,
   PageStorageBucket? bucket,
+  String storageKey = 'native-gallery',
   bool show = true,
   bool? expanded,
   ValueChanged<bool>? onExpandedChanged,
@@ -122,7 +123,7 @@ Future<void> mountStack(
               padding: const EdgeInsets.all(20),
               child: show
                   ? ImageStackGallery(
-                      key: const PageStorageKey('native-gallery'),
+                      key: PageStorageKey(storageKey),
                       urls: List.generate(count, (i) => 'photo-$i'),
                       gallery: List.generate(count + 3, (i) => 'full-$i'),
                       galleryStartIndex: 2,
@@ -183,11 +184,7 @@ Future<void> swipe(WidgetTester tester, {bool previous = false}) async {
 
 int storedIndex(WidgetTester tester) {
   final context = tester.element(find.byType(ImageStackGallery));
-  return (PageStorage.of(
-            context,
-          ).readState(context, identifier: 'image-stack-state')
-          as Map)['current']
-      as int;
+  return (PageStorage.of(context).readState(context) as Map)['current'] as int;
 }
 
 Rect photoRect(WidgetTester tester, int index) {
@@ -444,6 +441,36 @@ void main() {
     await mountStack(tester, bucket: bucket, photos: photos);
     expect(storedIndex(tester), 2);
     expect(find.bySemanticsLabel('连续图片，第 3 张，共 6 张'), findsOneWidget);
+  });
+
+  testWidgets('lazy image groups retain independent selection and expansion', (
+    tester,
+  ) async {
+    final bucket = PageStorageBucket();
+    final photos = await makePhotos(tester);
+    Future<void> mount(String key) =>
+        mountStack(tester, bucket: bucket, photos: photos, storageKey: key);
+
+    // Identical URL lists in distinct posts must still have separate state.
+    await mount('post-1-image-stack-0');
+    await swipe(tester);
+    await swipe(tester);
+    await mount('post-2-image-stack-0');
+    expect(find.bySemanticsLabel('连续图片，第 1 张，共 6 张'), findsOneWidget);
+    await swipe(tester);
+    await mount('post-1-image-stack-8');
+    expect(find.bySemanticsLabel('连续图片，第 1 张，共 6 张'), findsOneWidget);
+    await swipe(tester);
+    await mount('post-1-image-stack-0');
+    expect(find.bySemanticsLabel('连续图片，第 3 张，共 6 张'), findsOneWidget);
+    await tester.tap(find.byType(ImageStackModeToggle));
+    await tester.pumpAndSettle();
+    await mount('post-2-image-stack-0');
+    expect(find.bySemanticsLabel('连续图片，第 2 张，共 6 张'), findsOneWidget);
+    expect(find.text('展开全部'), findsOneWidget);
+    await mount('post-1-image-stack-0');
+    expect(find.text('收起'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('shrinking a URL list clamps the saved selection safely', (

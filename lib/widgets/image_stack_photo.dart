@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import '../design/image_stack_tokens.dart';
 import '../design/tokens.dart';
 import '../design/typography.dart';
+import 'image_grid.dart' show imageHeroPlaceholder;
 
 /// Small, preblurred pixels and a color sample from an already decoded photo.
 /// No provider is resolved here; the gallery owns the original image request.
@@ -258,18 +259,26 @@ class ImageStackPhoto extends StatelessWidget {
             ),
           ),
         );
-        final photo =
-            heroTag != null && !MediaQuery.disableAnimationsOf(context)
-            ? Hero(tag: heroTag!, child: image)
-            : image;
+        final wellRadius = BorderRadius.circular(
+          expanded
+              ? ImageStackTokens.expandedRadius
+              : compact
+              ? ImageStackTokens.compactWellRadius
+              : ImageStackTokens.wellRadius,
+        );
+        Widget clippedPhoto(BorderRadius radius) {
+          final clipped = ClipRRect(borderRadius: radius, child: image);
+          return heroTag != null && !MediaQuery.disableAnimationsOf(context)
+              ? Hero(
+                  tag: heroTag!,
+                  placeholderBuilder: imageHeroPlaceholder,
+                  child: clipped,
+                )
+              : clipped;
+        }
+
         return ClipRRect(
-          borderRadius: BorderRadius.circular(
-            expanded
-                ? ImageStackTokens.expandedRadius
-                : compact
-                ? ImageStackTokens.compactWellRadius
-                : ImageStackTokens.wellRadius,
-          ),
+          borderRadius: wellRadius,
           child: ColoredBox(
             color: t.fill,
             child: Stack(
@@ -286,7 +295,7 @@ class ImageStackPhoto extends StatelessWidget {
                   ColoredBox(color: ImageStackTokens.mist(t)),
                 ],
                 if (fill)
-                  photo
+                  clippedPhoto(wellRadius)
                 else
                   Positioned.fromRect(
                     rect: mountedRect(well, ratio),
@@ -297,11 +306,8 @@ class ImageStackPhoto extends StatelessWidget {
                         ),
                         boxShadow: ImageStackTokens.photoShadow,
                       ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(
-                          ImageStackTokens.photoRadius,
-                        ),
-                        child: photo,
+                      child: clippedPhoto(
+                        BorderRadius.circular(ImageStackTokens.photoRadius),
                       ),
                     ),
                   ),

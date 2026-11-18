@@ -118,7 +118,7 @@ void main() {
     await gesture.up();
   });
 
-  testWidgets('starting ancestor scroll clears held row without fade', (
+  testWidgets('a held scroll row stays clear when ancestor scrolling starts', (
     tester,
   ) async {
     final scroll = ScrollController();
@@ -138,7 +138,7 @@ void main() {
       tester.getCenter(find.byType(PressHighlight)),
     );
     await tester.pump();
-    expect(tintOf(tester), AppTokens.light.pressed);
+    expect(tintOf(tester).a, 0);
     final scrolling = scroll.animateTo(
       100,
       duration: const Duration(milliseconds: 100),

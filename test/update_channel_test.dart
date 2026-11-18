@@ -14,7 +14,6 @@ import 'package:flutter_test/flutter_test.dart';
 const _officialPackage = 'com.chhreader.chh_app';
 const _injected = 'https://injected.invalid';
 const _stored = 'https://stored.invalid';
-const _builtIn = 'https://built-in.invalid';
 const _pushed = 'https://pushed.invalid';
 
 const _release = UpdateRelease(
@@ -32,17 +31,24 @@ const _release = UpdateRelease(
 );
 
 void main() {
+  test('service roots reject credentials and preserve IPv6 authority', () {
+    expect(
+      normalizeEndpoints(['https://user:secret@example.invalid']),
+      isEmpty,
+    );
+    expect(normalizeEndpoints(['http://[::1]:8080/']), ['http://[::1]:8080']);
+  });
+
   group('update channel selection', () {
-    test('official releases retain stored, injected and built-in order', () {
+    test('official releases retain stored and injected order', () {
       final channel = resolveUpdateChannel(
         packageName: _officialPackage,
         isRelease: true,
         injectedEndpoints: const [' $_injected/ ', _stored],
         storedEndpoints: const [_stored, _stored],
-        builtInEndpoints: const [_builtIn, _injected],
       );
       expect(channel.isOfficial, isTrue);
-      expect(channel.endpoints, [_stored, _injected, _builtIn]);
+      expect(channel.endpoints, [_stored, _injected]);
     });
 
     for (final (packageName, isRelease) in [
@@ -58,7 +64,6 @@ void main() {
           isRelease: isRelease,
           injectedEndpoints: const [' $_injected/ ', _injected],
           storedEndpoints: const [_stored],
-          builtInEndpoints: const [_builtIn],
         );
         expect(channel.isOfficial, isFalse);
         expect(channel.endpoints, [_injected]);
@@ -70,11 +75,23 @@ void main() {
           isRelease: isRelease,
           injectedEndpoints: const [],
           storedEndpoints: const [_stored],
-          builtInEndpoints: const [_builtIn],
         );
         expect(channel.endpoints, isEmpty);
       });
     }
+
+    test(
+      'official releases without configuration ignore persisted addresses',
+      () {
+        final channel = resolveUpdateChannel(
+          packageName: _officialPackage,
+          isRelease: true,
+          injectedEndpoints: const [],
+          storedEndpoints: const [_stored],
+        );
+        expect(channel.endpoints, isEmpty);
+      },
+    );
 
     test('invalid injected addresses do not enable a test channel', () {
       final channel = resolveUpdateChannel(
@@ -82,7 +99,6 @@ void main() {
         isRelease: false,
         injectedEndpoints: const ['', 'ftp://invalid', 'https://host/path'],
         storedEndpoints: const [_stored],
-        builtInEndpoints: const [_builtIn],
       );
       expect(channel.endpoints, isEmpty);
     });
@@ -101,7 +117,6 @@ void main() {
         platform: platform,
         client: client,
         injectedEndpoints: injected,
-        builtInEndpoints: const [_builtIn],
         isRelease: isRelease,
         storeFor: (_) => store,
       );
@@ -177,6 +192,36 @@ void main() {
     }
 
     test(
+      'default official build stays offline despite saved endpoints',
+      () async {
+        store.state = store.state.copyWith(
+          endpoints: const [_stored],
+          knownLatestVersionCode: 154,
+        );
+        final c = UpdateController(
+          platform: platform,
+          client: client,
+          isRelease: true,
+          storeFor: (_) => store,
+        );
+        addTearDown(c.dispose);
+        expect(await c.checkOnLaunch(), isFalse);
+        await c.checkManually();
+        c.release = _release;
+        await c.download();
+        await c.install();
+        await c.openInstallPermission();
+        expect(c.available, isFalse);
+        expect(c.endpoints, isEmpty);
+        expect(c.hasUpdate, isFalse);
+        expect(client.checks, isEmpty);
+        expect(client.releases, isEmpty);
+        expect(client.downloads, 0);
+        expect(store.savedStates, isEmpty);
+      },
+    );
+
+    test(
       'test channel does not persist newly pushed addresses in a fresh store',
       () async {
         platform.packageName = 'com.chhreader.chh_app.preview';
@@ -198,9 +243,9 @@ void main() {
           ..reply = _check(endpoints: const [_pushed], update: true);
         final c = controller();
         await c.checkManually();
-        expect(client.checks.single, [_stored, _injected, _builtIn]);
-        expect(client.releases.single, [_injected, _pushed, _builtIn]);
-        expect(c.endpoints, [_injected, _pushed, _builtIn]);
+        expect(client.checks.single, [_stored, _injected]);
+        expect(client.releases.single, [_injected, _pushed]);
+        expect(c.endpoints, [_injected, _pushed]);
         expect(store.state.endpoints, [_pushed]);
         expect(store.state.endpointsIssuedAt, 1000);
         expect(store.state.checkIntervalHours, 12);
@@ -211,8 +256,8 @@ void main() {
           ..reply = _check(endpoints: const [_stored], issuedAt: 999);
         final next = controller();
         await next.checkManually();
-        expect(client.checks.last, [_pushed, _injected, _builtIn]);
-        expect(next.endpoints, [_pushed, _injected, _builtIn]);
+        expect(client.checks.last, [_pushed, _injected]);
+        expect(next.endpoints, [_pushed, _injected]);
         expect(store.state.endpoints, [_pushed]);
         expect(store.state.endpointsIssuedAt, 1000);
       },
@@ -236,7 +281,7 @@ void main() {
         pendingIdentity.complete(platform.id);
         await checking;
         expect(client.checks, [
-          const [_injected, _builtIn],
+          const [_injected],
         ]);
       },
     );

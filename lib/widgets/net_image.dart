@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'cached_net_image.dart';
 import 'pixel_budget_image.dart';
 import 'expressive_controls.dart';
+import 'viewport_ticker_mode.dart';
 
 import '../core/chh_urls.dart';
 import '../design/tokens.dart';
@@ -64,41 +65,43 @@ class NetImage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final logicalWidth = width?.isFinite == true
-            ? width!
-            : constraints.maxWidth.isFinite
-            ? constraints.maxWidth
-            : MediaQuery.sizeOf(context).width;
-        return RepaintBoundary(
-          child: Image(
-            image: boundedNetworkImage(
-              url,
-              decodeWidth ??
-                  boundedImageDecodeWidth(
-                    logicalWidth,
-                    MediaQuery.devicePixelRatioOf(context),
-                  ),
+    return ViewportTickerMode(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final logicalWidth = width?.isFinite == true
+              ? width!
+              : constraints.maxWidth.isFinite
+              ? constraints.maxWidth
+              : MediaQuery.sizeOf(context).width;
+          return RepaintBoundary(
+            child: Image(
+              image: boundedNetworkImage(
+                url,
+                decodeWidth ??
+                    boundedImageDecodeWidth(
+                      logicalWidth,
+                      MediaQuery.devicePixelRatioOf(context),
+                    ),
+              ),
+              fit: fit,
+              width: width,
+              height: height,
+              gaplessPlayback: true,
+              // 加载中先占位,避免瀑布流在图片到位时整列跳动
+              frameBuilder: (context, child, frame, synchronous) =>
+                  synchronous || frame != null
+                  ? child
+                  : Container(height: height ?? 150, color: t.fill),
+              errorBuilder: (context, _, _) => Container(
+                height: height ?? 90,
+                color: t.fill,
+                alignment: Alignment.center,
+                child: Icon(AppIcons.image, size: 18, color: t.text3),
+              ),
             ),
-            fit: fit,
-            width: width,
-            height: height,
-            gaplessPlayback: true,
-            // 加载中先占位,避免瀑布流在图片到位时整列跳动
-            frameBuilder: (context, child, frame, synchronous) =>
-                synchronous || frame != null
-                ? child
-                : Container(height: height ?? 150, color: t.fill),
-            errorBuilder: (context, _, _) => Container(
-              height: height ?? 90,
-              color: t.fill,
-              alignment: Alignment.center,
-              child: Icon(AppIcons.image, size: 18, color: t.text3),
-            ),
-          ),
-        );
-      },
+          );
+        },
+      ),
     );
   }
 }

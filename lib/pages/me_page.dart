@@ -15,8 +15,6 @@ import '../widgets/account_widgets.dart';
 import '../widgets/level_badge.dart';
 import '../design/level_tokens.dart';
 import '../design/tokens.dart';
-import '../design/motion.dart';
-import '../widgets/expressive_controls.dart' show ContentFade;
 import '../design/icons.dart';
 import '../design/shapes.dart';
 import '../design/typography.dart';
@@ -203,26 +201,55 @@ class _ProfileMeState extends State<_ProfileMe> {
   int _request = 0;
   bool _logged = false;
   bool _loading = false;
+  bool _active = false;
 
   @override
   void initState() {
     super.initState();
     chhSession.addListener(_sessionChanged);
+    widget.repository.meCache.addListener(_cacheLoaded);
     _syncSession(initial: true);
+  }
+
+  void _cacheLoaded() {
+    if (!mounted || _profile != null || _uid == null) return;
+    final cached = widget.repository.meCache.forUser(_uid!);
+    if (cached != null) setState(() => _profile = cached);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final active =
+        TickerMode.valuesOf(context).enabled &&
+        (ModalRoute.isCurrentOf(context) ?? true);
+    if (active && !_active && _uid != null) {
+      _profile = widget.repository.meCache.forUser(_uid!) ?? _profile;
+      if (!_loading) unawaited(_load(refresh: true, background: true));
+    }
+    _active = active;
   }
 
   void _syncSession({bool initial = false}) {
     final logged = chhSession.loggedIn;
-    final uid = logged ? chhSession.badges.uid : null;
     final auth = chhSession.authenticationRevision;
+    final uid = logged
+        ? chhSession.badges.uid ?? (auth == _auth ? _uid : null)
+        : null;
     if (logged == _logged && uid == _uid && auth == _auth) return;
+    final sameAccount = logged && _logged && uid != null && uid == _uid;
     _logged = logged;
     _uid = uid;
     _auth = auth;
     _request++;
-    _profile = null;
+    if (!logged || uid != null) widget.repository.meCache.select(uid);
+    _profile = sameAccount
+        ? _profile
+        : (uid == null ? null : widget.repository.meCache.forUser(uid));
     _loading = false;
-    if (uid != null) unawaited(_load(refresh: !initial));
+    if (uid != null) {
+      unawaited(_load(refresh: !initial || _profile != null, background: true));
+    }
   }
 
   void _sessionChanged() {
@@ -230,24 +257,39 @@ class _ProfileMeState extends State<_ProfileMe> {
     if (mounted) setState(() {});
   }
 
-  Future<void> _load({required bool refresh}) async {
+  Future<void> _load({required bool refresh, bool background = false}) async {
     final uid = _uid;
     if (uid == null) return;
+    final auth = _auth;
+    final repository = widget.repository;
+    final generation = repository.client.cacheGeneration;
     final request = ++_request;
     _loading = true;
     try {
-      final profile = await widget.repository.profile(uid, refresh: refresh);
-      if (!mounted || request != _request) return;
+      final profile = await repository.profile(uid, refresh: refresh);
+      if (request != _request ||
+          generation != repository.client.cacheGeneration ||
+          auth != chhSession.authenticationRevision ||
+          !chhSession.loggedIn ||
+          (chhSession.badges.uid != null && chhSession.badges.uid != uid)) {
+        return;
+      }
+      if (profile.uid != uid) {
+        if (mounted) setState(() => _loading = false);
+        return;
+      }
+      repository.meCache.put(profile);
+      if (!mounted) return;
       setState(() {
-        _profile = profile.uid == uid ? profile : null;
+        if (!background || _profile == null) _profile = profile;
         _loading = false;
       });
     } catch (_) {
-      if (!mounted || request != _request) return;
-      setState(() {
-        _profile = null;
-        _loading = false;
-      });
+      // A failed background read leaves the displayed snapshot unchanged.
+    } finally {
+      if (mounted && request == _request && _loading) {
+        setState(() => _loading = false);
+      }
     }
   }
 
@@ -267,13 +309,22 @@ class _ProfileMeState extends State<_ProfileMe> {
 
   @override
   void dispose() {
+    widget.repository.meCache.removeListener(_cacheLoaded);
     chhSession.removeListener(_sessionChanged);
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final me = chhSession.badges;
+    final header = chhSession.badges;
+    final me = _logged && _uid != null
+        ? HeaderBadges(
+            notices: header.notices,
+            messages: header.messages,
+            uid: _uid,
+            userName: header.userName ?? _profile?.name,
+          )
+        : header;
     final logged = _logged;
     if (!widget.fallback &&
         AppTokens.of(context).style != AppearanceStyle.misty) {
@@ -564,57 +615,41 @@ class _MistyIdentity extends StatelessWidget {
                       MediaQuery.textScalerOf(context).scale(1),
                 )
               else
-                TweenAnimationBuilder<double>(
-                  key: ValueKey((
-                    profile!.credits,
-                    profile!.threads,
-                    profile!.replies,
-                  )),
-                  tween: Tween(begin: 0, end: 1),
-                  duration: MediaQuery.disableAnimationsOf(context)
-                      ? AppMotion.reducedFade
-                      : AppMotion.fade,
-                  builder: (context, value, child) => ContentFade(
-                    opacity: AlwaysStoppedAnimation(value),
-                    background: t.surface,
-                    child: child!,
+                ConstrainedBox(
+                  key: const ValueKey('me-stats'),
+                  constraints: BoxConstraints(
+                    minHeight:
+                        MeTokens.statsHeight *
+                        MediaQuery.textScalerOf(context).scale(1),
                   ),
-                  child: ConstrainedBox(
-                    key: const ValueKey('me-stats'),
-                    constraints: BoxConstraints(
-                      minHeight:
-                          MeTokens.statsHeight *
-                          MediaQuery.textScalerOf(context).scale(1),
-                    ),
-                    child: Row(
-                      children: [
-                        for (final stat in [
-                          ('积分', profile!.credits!),
-                          ('主题', profile!.threads!),
-                          ('回帖', profile!.replies!),
-                        ])
-                          Expanded(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  '${stat.$2}',
-                                  style: MeTokens.statNumber.copyWith(
-                                    color: t.text,
-                                  ),
+                  child: Row(
+                    children: [
+                      for (final stat in [
+                        ('积分', profile!.credits!),
+                        ('主题', profile!.threads!),
+                        ('回帖', profile!.replies!),
+                      ])
+                        Expanded(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                '${stat.$2}',
+                                style: MeTokens.statNumber.copyWith(
+                                  color: t.text,
                                 ),
-                                const SizedBox(height: MeTokens.labelGap),
-                                Text(
-                                  stat.$1,
-                                  style: MeTokens.statLabel.copyWith(
-                                    color: t.text3,
-                                  ),
+                              ),
+                              const SizedBox(height: MeTokens.labelGap),
+                              Text(
+                                stat.$1,
+                                style: MeTokens.statLabel.copyWith(
+                                  color: t.text3,
                                 ),
-                              ],
-                            ),
+                              ),
+                            ],
                           ),
-                      ],
-                    ),
+                        ),
+                    ],
                   ),
                 ),
             ],

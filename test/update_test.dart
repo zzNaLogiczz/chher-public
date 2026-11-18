@@ -188,7 +188,7 @@ void main() {
       },
       retryDelay: Duration.zero,
     ),
-    builtInEndpoints: endpoints ?? [server.base],
+    injectedEndpoints: endpoints ?? [server.base],
     isRelease: true,
     now: () => clock,
   );
@@ -447,12 +447,24 @@ void main() {
   test('without native support the feature stays quiet', () async {
     final c = UpdateController(
       platform: _BrokenPlatform(),
-      builtInEndpoints: [server.base],
+      injectedEndpoints: [server.base],
     );
     expect(await c.checkOnLaunch(), isFalse);
     await c.checkManually();
     expect(c.failure, UpdateFailure.notConfigured);
     expect(server.requests, isEmpty);
+  });
+
+  testWidgets('configured service exposes the check entry', (tester) async {
+    final c = controller();
+    await tester.runAsync(c.takeJustUpdated);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: UpdateCheckLink(controller: c)),
+      ),
+    );
+    expect(find.byKey(const ValueKey('update-check-link')), findsOneWidget);
+    expect(find.text('检查更新'), findsOneWidget);
   });
 
   group('sheet', () {
@@ -469,6 +481,7 @@ void main() {
     }
 
     Future<void> pumpSheet(WidgetTester tester, UpdateController c) async {
+      await tester.runAsync(c.takeJustUpdated);
       await tester.pumpWidget(
         MaterialApp(
           theme: buildAppTheme(Brightness.light),
@@ -521,7 +534,9 @@ void main() {
       c.notifyListeners();
       await tester.pumpAndSettle();
       expect(find.text('需要允许 Chher 安装应用'), findsOneWidget);
+      expect(c.available, isTrue);
       await tester.tap(find.text('去开启'));
+      await tester.pumpAndSettle();
       expect(platform.permissionOpened, 1);
     });
   });

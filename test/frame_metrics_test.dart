@@ -1,10 +1,11 @@
 import 'dart:convert';
 import 'dart:developer' as developer;
-import 'dart:ui' show FrameTiming;
 
 import 'package:chh_app/core/display_refresh.dart';
 import 'package:chh_app/core/frame_metrics.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/painting.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 FrameTiming frame({
@@ -24,6 +25,22 @@ FrameTiming frame({
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test(
+    'resource snapshots are on demand and do not schedule animation work',
+    () {
+      final scheduler = SchedulerBinding.instance;
+      final callbacks = scheduler.transientCallbackCount;
+      final scheduled = scheduler.hasScheduledFrame;
+      final result = FrameMetrics.read();
+      expect((result['scheduler'] as Map)['transientCallbackCount'], callbacks);
+      expect(
+        (result['imageCache'] as Map)['currentSizeBytes'],
+        PaintingBinding.instance.imageCache.currentSizeBytes,
+      );
+      expect(scheduler.transientCallbackCount, callbacks);
+      expect(scheduler.hasScheduledFrame, scheduled);
+    },
+  );
   test('retained raw frames stay chronological and expose severe stalls', () {
     final buffer = FrameMetricsBuffer(capacity: 3);
     buffer.addTimings([

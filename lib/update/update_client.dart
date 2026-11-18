@@ -130,7 +130,7 @@ class UpdateClient {
         }, 'http $status');
       } on UpdateException catch (error) {
         last = error;
-        AppLog.w('UPDATE', '$base 响应未通过验签');
+        AppLog.w('UPDATE', '更新响应未通过验签');
       } on DioException catch (error) {
         last = UpdateException(UpdateFailure.network, error.type.name);
       }

@@ -126,6 +126,8 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
   /// 顶栏渐隐与居中小标题跟随的滚动距离
   final _navOffset = ValueNotifier<double>(0);
   final _readingProgress = ValueNotifier<double>(0);
+  int? _readingTotalPosts;
+  final _entryProgress = <String, ({double start, double span})>{};
   final _titleKey = GlobalKey();
   double _titleAt = 140;
   late final _barProgress = ScrollDeltaProgress(
@@ -455,10 +457,88 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     for (var i = 0; i < _entries.length; i++) {
       _entryIndices[_entries[i].key] = i + 1;
     }
+    _rebuildProgressIndex();
     if (_centerEntryKey != null &&
         !_entryIndices.containsKey(_centerEntryKey)) {
       _centerEntryKey = null;
       if (_scroll.hasClients) _scroll.position.correctPixels(0);
+    }
+  }
+
+  void _rebuildProgressIndex() {
+    _entryProgress.clear();
+    final total = _readingTotalPosts;
+    if (total == null || total <= 0) return;
+    final counts = <int, int>{};
+    for (final entry in _entries) {
+      if (!entry.nested &&
+          entry.kind != _ThreadEntryKind.commentsHeading &&
+          entry.kind != _ThreadEntryKind.replies) {
+        counts.update(entry.post.pid, (n) => n + 1, ifAbsent: () => 1);
+      }
+    }
+    final offsets = <int, int>{};
+    var rootFloor = 0;
+    for (final entry in _entries) {
+      final post = entry.post;
+      if (!post.floorIsKnown) continue;
+      if (entry.nested || entry.kind == _ThreadEntryKind.replies) {
+        // A later quoted floor stays at its root's position in comment mode.
+        _entryProgress[entry.key] = (start: rootFloor / total, span: 0);
+      } else if (entry.kind == _ThreadEntryKind.commentsHeading) {
+        _entryProgress[entry.key] = (
+          start: (post.floor - (postIsOpening(post) ? 0 : 1)) / total,
+          span: 0,
+        );
+      } else {
+        rootFloor = post.floor;
+        final count = counts[post.pid]!;
+        final offset = offsets[post.pid] ?? 0;
+        offsets[post.pid] = offset + 1;
+        _entryProgress[entry.key] = (
+          start: (post.floor - 1 + offset / count) / total,
+          span: 1 / count / total,
+        );
+      }
+    }
+  }
+
+  void _syncReadingProgress(double top) {
+    final position = _scroll.position;
+    final total = _readingTotalPosts;
+    final last = _orderedPosts.lastOrNull;
+    if (_entryProgress.isEmpty) {
+      _readingProgress.value = 0;
+      return;
+    }
+    if (total != null &&
+        _authorUid == null &&
+        !_hasNext &&
+        _pages.isNotEmpty &&
+        !_pages[_lastPage]!.page.hasNext &&
+        position.extentBefore > 0 &&
+        position.extentAfter <= 1 &&
+        last != null &&
+        last.floorIsKnown &&
+        last.floor >= total) {
+      _readingProgress.value = 1;
+      return;
+    }
+    if (_scroll.position.pixels <= _scroll.position.minScrollExtent &&
+        _centerEntryKey == null &&
+        _pages.containsKey(1)) {
+      _readingProgress.value = 0;
+      return;
+    }
+    for (final row in _mountedReadingRows()) {
+      if (row.height <= 0 || row.y + row.height <= top) continue;
+      final progress = _entryProgress[row.key];
+      if (progress == null) continue;
+      final fraction = ((top - row.y) / row.height).clamp(0.0, 1.0);
+      // Stale counts or floor gaps cannot claim completion before the real end.
+      _readingProgress.value = (progress.start + progress.span * fraction)
+          .clamp(0.0, .999);
+      return;
     }
   }
 
@@ -565,6 +645,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
       _finishReplyReveal();
       _expandingRoot = null;
       _loadedDetail = null;
+      _readingTotalPosts = null;
       _openingAuthor = null;
       _authorUid = null;
       _pendingMode = null;
@@ -590,12 +671,6 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     if (_scroll.hasClients) {
       final collapsed = _scroll.offset >= _titleAt;
       final position = _scroll.position;
-      _readingProgress.value =
-          position.maxScrollExtent <= position.minScrollExtent
-          ? 0
-          : ((position.pixels - position.minScrollExtent) /
-                    (position.maxScrollExtent - position.minScrollExtent))
-                .clamp(0.0, 1.0);
       if (position.extentAfter <= 1 ||
           position.pixels <= position.minScrollExtent) {
         _barProgress.show();
@@ -649,13 +724,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
             _scroll.offset + comments.localToGlobal(Offset.zero).dy - barBottom;
       }
       _collapsedTitle.value = _scroll.offset >= _titleAt;
-      final position = _scroll.position;
-      _readingProgress.value =
-          position.maxScrollExtent <= position.minScrollExtent
-          ? 0
-          : ((position.pixels - position.minScrollExtent) /
-                    (position.maxScrollExtent - position.minScrollExtent))
-                .clamp(0.0, 1.0);
+      _syncReadingProgress(barBottom);
       _syncInComments();
     });
   }
@@ -1313,6 +1382,20 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
   }
 
   void _remember(ThreadDetail detail) {
+    // Page appends must not move the denominator while the viewport stays still.
+    _readingTotalPosts ??= detail.replyCount == null
+        ? null
+        : detail.replyCount! + 1;
+    if (_readingTotalPosts == null &&
+        _authorUid == null &&
+        detail.page.current == 1 &&
+        !detail.page.hasNext &&
+        detail.posts.every((post) => post.floorIsKnown)) {
+      _readingTotalPosts = detail.posts.fold<int>(
+        0,
+        (last, post) => post.floor > last ? post.floor : last,
+      );
+    }
     // 后续页可能省略统计；仅用实际返回的计数更新已经读到的数据。
     _loadedDetail = ThreadDetail(
       tid: detail.tid,
@@ -1366,6 +1449,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
       _update(() {
         // 主动刷新后,进入只看楼主前的旧楼层不再可信
         if (refresh) _beforeAuthor = null;
+        _readingTotalPosts = null;
         _resetPages(detail);
       });
       if (_preferAuthor) {
@@ -1517,12 +1601,15 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     }
 
     _readListKey.currentContext?.visitChildElements(visit);
+    // The sliver before the retained center grows in reverse child order.
+    rows.sort((a, b) => a.y.compareTo(b.y));
     return rows;
   }
 
   ({String key, double y})? _readingAnchor() {
     final top = MediaQuery.paddingOf(context).top + NavOverlay.barHeight;
     for (final row in _mountedReadingRows()) {
+      if (row.key == _ThreadReadEntry.headingKey) continue;
       if (row.y + row.height > top && row.height > 0) {
         return (key: row.key, y: row.y);
       }
@@ -1950,6 +2037,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
       final lastLoadedPage = _lastPage;
       _update(() {
         _sourceMayHaveChanged = true;
+        _readingTotalPosts = null;
         // 新回复不在进入只看楼主前的旧楼层里,退出时改为重新读取
         _beforeAuthor = null;
         _rebuildReadIndex();
@@ -2003,6 +2091,28 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
 
   @override
   Widget build(BuildContext context) {
+    final reader = Builder(builder: _buildReader);
+    return Builder(
+      builder: (context) {
+        final media = MediaQuery.of(context);
+        // The reply editor is a separate route and owns the keyboard insets.
+        // Keep the reader and its list anchored while the IME opens or closes.
+        return MediaQuery(
+          data: media.viewInsets.bottom == 0
+              ? media
+              : media.copyWith(
+                  viewInsets: media.viewInsets.copyWith(bottom: 0),
+                  padding: media.padding.copyWith(
+                    bottom: media.viewPadding.bottom,
+                  ),
+                ),
+          child: reader,
+        );
+      },
+    );
+  }
+
+  Widget _buildReader(BuildContext context) {
     final t = AppTokens.of(context);
     final metrics = ReadingMetrics.of(context);
     final top = MediaQuery.paddingOf(context).top;
@@ -2391,7 +2501,12 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
                                       content,
                                   ],
                                 );
-                                if (index <= heading) return row;
+                                if (index <= heading) {
+                                  return KeyedSubtree(
+                                    key: _ThreadRowKey(entry.key),
+                                    child: row,
+                                  );
+                                }
                                 final first = index == heading + 1;
                                 final last = index == _entries.length;
                                 return Padding(

@@ -102,14 +102,98 @@ void main() {
       )
       .opacity;
 
+  bool placeholderVisible(WidgetTester tester) => tester
+      .widget<Visibility>(
+        find
+            .descendant(
+              of: find.byType(LoadingPlaceholder),
+              matching: find.byType(Visibility),
+            )
+            .first,
+      )
+      .visible;
+
+  testWidgets('fast loading reserves layout without painting or ticking', (
+    tester,
+  ) async {
+    Widget loading(bool active) => surface(
+      Center(
+        child: LoadingPlaceholder(
+          active: active,
+          child: const SizedBox(
+            width: 200,
+            height: 100,
+            child: CircularProgressIndicator(),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpWidget(loading(true));
+    final size = tester.getSize(find.byType(LoadingPlaceholder));
+    expect(placeholderVisible(tester), isFalse);
+    expect(tester.binding.transientCallbackCount, 0);
+    await tester.pump(const Duration(milliseconds: 299));
+    expect(placeholderVisible(tester), isFalse);
+    await tester.pumpWidget(loading(false));
+    expect(tester.getSize(find.byType(LoadingPlaceholder)), size);
+    await tester.pump(const Duration(seconds: 1));
+    expect(placeholderVisible(tester), isFalse);
+    expect(tester.binding.transientCallbackCount, 0);
+    // A later read gets its own delay instead of inheriting the previous one.
+    await tester.pumpWidget(loading(true));
+    await tester.pump(const Duration(milliseconds: 299));
+    expect(placeholderVisible(tester), isFalse);
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(placeholderVisible(tester), isTrue);
+    expect(tester.binding.transientCallbackCount, 1);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('slow loading remains visible with reduced motion', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      surface(
+        MediaQuery(
+          data: const MediaQueryData(disableAnimations: true),
+          child: const SkeletonList(),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 299));
+    expect(placeholderVisible(tester), isFalse);
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(placeholderVisible(tester), isTrue);
+    expect(pulseOpacity(tester), 1);
+    expect(tester.binding.transientCallbackCount, 0);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('shared loading indicator uses the same deferred presentation', (
+    tester,
+  ) async {
+    await tester.pumpWidget(app(StateView.loading()));
+    expect(placeholderVisible(tester), isFalse);
+    expect(tester.binding.transientCallbackCount, 0);
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(placeholderVisible(tester), isTrue);
+    await tester.pumpWidget(app(const Text('已加载')));
+    expect(find.byType(LoadingPlaceholder), findsNothing);
+    await tester.pumpAndSettle();
+    expect(tester.binding.transientCallbackCount, 0);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('skeleton waits 300ms then breathes as one group', (
     tester,
   ) async {
     await tester.pumpWidget(surface(const SkeletonList()));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 299));
+    expect(placeholderVisible(tester), isFalse);
     expect(pulseOpacity(tester), 1);
     await tester.pump(const Duration(milliseconds: 2));
+    expect(placeholderVisible(tester), isTrue);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 800));
     expect(pulseOpacity(tester), closeTo(.55, .01));
@@ -199,6 +283,7 @@ void main() {
     final before = tester.getSize(find.byType(SkeletonContent));
     await tester.pumpWidget(content(false));
     expect(tester.getSize(find.byType(SkeletonContent)), before);
+    expect(find.byType(SkeletonPulse), findsNothing);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 180));
     expect(mounts, 1);
