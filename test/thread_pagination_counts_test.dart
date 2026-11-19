@@ -8,6 +8,7 @@ ThreadDetail _page(int page, {int? views, int? replies, bool more = true}) =>
     ThreadDetail(
       tid: 123,
       title: '分页统计',
+      forumName: '电脑讨论(新)',
       viewCount: views,
       replyCount: replies,
       posts: [
@@ -53,12 +54,15 @@ void main() {
         _page(4, replies: 0, more: false),
       ]);
       expect(find.text('1234 查看　56 回复'), findsOneWidget);
+      expect(find.text('电脑讨论'), findsOneWidget);
+      expect(find.text('电脑讨论(新)'), findsNothing);
       await _nextPage(tester);
       expect(find.text('1234 查看　56 回复'), findsOneWidget);
       await _nextPage(tester);
       expect(find.text('1300 查看　56 回复'), findsOneWidget);
       await _nextPage(tester);
-      expect(find.text('1300 查看　0 回复'), findsOneWidget);
+      expect(find.text('1300 查看'), findsOneWidget);
+      expect(find.textContaining('0 回复'), findsNothing);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
     },

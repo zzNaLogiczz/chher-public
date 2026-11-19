@@ -129,6 +129,13 @@ Future<void> showPm(WidgetTester tester, FakeMessages repository) async {
   await tester.pumpAndSettle();
 }
 
+Future<void> pullPmToRefresh(WidgetTester tester) async {
+  expect(find.byTooltip('刷新会话'), findsNothing);
+  await tester.drag(find.byType(ListView), const Offset(0, 450));
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 200));
+}
+
 void phone(WidgetTester tester) {
   tester.view.physicalSize = const Size(390, 844);
   tester.view.devicePixelRatio = 1;
@@ -387,7 +394,7 @@ void main() {
       expect(find.text('谢谢分享'), findsOneWidget);
       repository.refresh = null;
       repository.server = [_sent('new-1', '谢谢分享')];
-      await tester.tap(find.byTooltip('刷新会话'));
+      await pullPmToRefresh(tester);
       await tester.pumpAndSettle();
       expect(find.text('谢谢分享'), findsOneWidget);
       expect(repository.sends, 1);
@@ -400,7 +407,7 @@ void main() {
     final repository = _RefreshingMessages();
     await showPm(tester, repository);
     repository.refresh = Completer<List<PmMessage>>();
-    await tester.tap(find.byTooltip('刷新会话'));
+    await pullPmToRefresh(tester);
     await tester.pump();
     repository.pending = Completer<PostResult>();
     await _sendText(tester, '先到达的记录');
@@ -415,7 +422,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('先到达的记录'), findsOneWidget);
     expect(repository.sends, 1);
-    await tester.tap(find.byTooltip('刷新会话'));
+    await pullPmToRefresh(tester);
     await tester.pumpAndSettle();
     expect(find.text('先到达的记录'), findsOneWidget);
     expect(tester.takeException(), isNull);
@@ -437,12 +444,12 @@ void main() {
     repository.refresh = null;
     repository.server = [_sent('old', '收到'), _sent('new-1', '收到')];
     for (var i = 0; i < 2; i++) {
-      await tester.tap(find.byTooltip('刷新会话'));
+      await pullPmToRefresh(tester);
       await tester.pumpAndSettle();
       expect(find.text('收到'), findsNWidgets(3));
     }
     repository.server = [...repository.server, _sent('new-2', '收到')];
-    await tester.tap(find.byTooltip('刷新会话'));
+    await pullPmToRefresh(tester);
     await tester.pumpAndSettle();
     expect(find.text('收到'), findsNWidgets(3));
     expect(repository.sends, 2);
@@ -720,7 +727,7 @@ PmMessage _sent(String id, String text) => PmMessage(
 
 Future<void> _sendText(WidgetTester tester, String text) async {
   await tester.enterText(find.byKey(const ValueKey('pm-input')), text);
-  await tester.pumpAndSettle();
+  await tester.pump();
   await tester.tap(find.byKey(const ValueKey('pm-send')));
   await tester.pump();
   await tester.pump(const Duration(milliseconds: 100));

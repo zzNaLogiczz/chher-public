@@ -5,6 +5,7 @@ import 'tokens.dart';
 /// The fixed paper frame and its photo treatment, shared by both styles.
 abstract final class ImageStackTokens {
   static const collapseFill = Radix.slate12Light;
+  static const fallbackAspectRatio = 4 / 3;
   static const captionHeight = 52.0;
   static const deckFoot = 16.0;
   static const travelExtra = 70.0;

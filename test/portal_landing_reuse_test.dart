@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:chh_app/widgets/chhers_refresh_indicator.dart';
 import 'package:chh_app/data/forum_repository.dart';
 import 'package:chh_app/data/portal_repository.dart';
 import 'package:chh_app/design/theme.dart';
@@ -106,7 +107,7 @@ void main() {
           expect(find.text('已获取的落地首屏'), findsOneWidget);
           unawaited(
             tester
-                .widget<RefreshIndicator>(find.byType(RefreshIndicator))
+                .widget<ChhersRefreshIndicator>(find.byType(ChhersRefreshIndicator))
                 .onRefresh(),
           );
           await tester.pumpAndSettle();

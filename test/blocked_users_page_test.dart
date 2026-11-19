@@ -30,7 +30,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.textContaining('2026-11-04 加入'), findsOneWidget);
+    expect(find.textContaining('2026年11月4日 加入'), findsOneWidget);
     expect(tester.takeException(), isNull);
     final unblock = find.byKey(const ValueKey('unblock-42'));
     expect(tester.getSize(unblock).height, greaterThanOrEqualTo(44));

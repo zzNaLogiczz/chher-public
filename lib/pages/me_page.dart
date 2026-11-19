@@ -14,6 +14,7 @@ import '../widgets/lacquer_tab_scaffold.dart';
 import '../widgets/account_widgets.dart';
 import '../widgets/level_badge.dart';
 import '../design/level_tokens.dart';
+import '../design/brand.dart';
 import '../design/tokens.dart';
 import '../design/icons.dart';
 import '../design/shapes.dart';
@@ -51,7 +52,7 @@ class MeFallbackPage extends StatelessWidget {
   );
 }
 
-/// 名字是大标题，主页入口独立保留 44dp 命中区。
+/// 漆面身份资料与独立的主页或登录入口。
 class _MemberCard extends StatelessWidget {
   const _MemberCard({required this.me, required this.logged, this.profile});
   final UserProfile? profile;
@@ -61,7 +62,6 @@ class _MemberCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
-    final misty = t.style == AppearanceStyle.misty;
     final name = logged ? (me.userName ?? '已登录') : '登录 CHH';
     final onTap = !logged
         ? () => Navigator.of(context).pushNamed('/login')
@@ -107,77 +107,57 @@ class _MemberCard extends StatelessWidget {
           );
     final large = MediaQuery.textScalerOf(context).scale(1) >= 1.5;
     return Padding(
-      padding: EdgeInsets.fromLTRB(
-        misty ? AppSpace.groupInset : AppSpace.screen,
-        misty ? 0 : MeTokens.headerLead,
-        misty ? AppSpace.groupInset : AppSpace.screen,
-        misty ? 0 : MeTokens.headerTail,
+      padding: const EdgeInsets.fromLTRB(
+        AppSpace.screen,
+        MeTokens.identityTitleGap,
+        AppSpace.screen,
+        MeTokens.headerTail,
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
+      child: Row(
+        key: const ValueKey('me-identity-row'),
         children: [
-          Text(
-            '我的',
-            style: AppType.footnote.copyWith(
-              color: t.onLac2,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 1.2,
+          AccountAvatar(
+            name: name,
+            url: logged ? me.avatarUrl : null,
+            size: MeTokens.avatar,
+          ),
+          const SizedBox(width: 15),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  name,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppType.title1.copyWith(
+                    fontSize: MeTokens.nameSize,
+                    height: 1.15,
+                    color: t.onLac,
+                  ),
+                ),
+                if (logged && me.uid != null) ...[
+                  const SizedBox(height: 5),
+                  Wrap(
+                    spacing: MeTokens.metadataGap,
+                    runSpacing: MeTokens.labelGap,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      Text(
+                        'UID ${me.uid}',
+                        style: AppType.footnote.copyWith(color: t.onLac2),
+                      ),
+                      if (LevelDefinition.lookup(profile?.groupId) != null)
+                        LevelBadge(gid: profile!.groupId, onLacquer: true),
+                    ],
+                  ),
+                ],
+                if (large && action != null) action,
+              ],
             ),
           ),
-          SizedBox(height: misty ? TabChromeTokens.mistyIdentityGap : 12),
-          Row(
-            key: const ValueKey('me-identity-row'),
-            children: [
-              AccountAvatar(
-                name: name,
-                url: logged ? me.avatarUrl : null,
-                size: misty ? TabChromeTokens.mistyAvatar : MeTokens.avatar,
-              ),
-              const SizedBox(width: 15),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      name,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: misty
-                          ? TabChromeTokens.mistyName.copyWith(color: t.text)
-                          : AppType.title1.copyWith(
-                              fontSize: MeTokens.nameSize,
-                              height: 1.15,
-                              color: t.onLac,
-                            ),
-                    ),
-                    if (logged && me.uid != null) ...[
-                      const SizedBox(height: 5),
-                      Wrap(
-                        spacing: MeTokens.metadataGap,
-                        runSpacing: MeTokens.labelGap,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        children: [
-                          Text(
-                            'UID ${me.uid}',
-                            style: AppType.footnote.copyWith(color: t.onLac2),
-                          ),
-                          if (LevelDefinition.lookup(profile?.groupId) != null)
-                            LevelBadge(gid: profile!.groupId),
-                        ],
-                      ),
-                    ],
-                    if (large && action != null) action,
-                  ],
-                ),
-              ),
-              if (!large && action != null) ...[
-                const SizedBox(width: 8),
-                action,
-              ],
-            ],
-          ),
+          if (!large && action != null) ...[const SizedBox(width: 8), action],
         ],
       ),
     );
@@ -333,8 +313,12 @@ class _ProfileMeState extends State<_ProfileMe> {
           LacquerTabScaffold(
             mistyCompact: true,
             mistyContentGap: TabChromeTokens.mistyEntriesGap,
-            title: logged ? (me.userName ?? '已登录') : '登录 CHH',
-            header: _MemberCard(me: me, logged: logged, profile: _profile),
+            title: '我的',
+            headerBody: _MemberCard(me: me, logged: logged, profile: _profile),
+            compactTitle: SlidingCompactTitle(
+              title: logged ? (me.userName ?? '已登录') : '登录 CHH',
+              discussion: false,
+            ),
             compactLeading: logged
                 ? AccountAvatar(
                     name: me.userName ?? '已登录',
@@ -401,7 +385,7 @@ class _ProfileMeState extends State<_ProfileMe> {
         LacquerTabScaffold(
           mistyCompact: true,
           mistyContentGap: MeTokens.cardGap,
-          mistyHeaderBody: Padding(
+          headerBody: Padding(
             padding: const EdgeInsets.fromLTRB(
               AppSpace.groupInset,
               MeTokens.identityTitleGap,
@@ -535,26 +519,13 @@ class _MistyIdentity extends StatelessWidget {
             Row(
               key: const ValueKey('me-identity-row'),
               children: [
-                SizedBox.square(
+                KeyedSubtree(
                   key: const ValueKey('me-identity-avatar'),
-                  dimension: MeTokens.identityAvatar,
-                  child: logged
-                      ? AccountAvatar(
-                          name: name,
-                          url: me.avatarUrl,
-                          size: MeTokens.identityAvatar,
-                        )
-                      : DecoratedBox(
-                          decoration: BoxDecoration(
-                            color: t.fill3,
-                            shape: BoxShape.circle,
-                          ),
-                          child: Icon(
-                            AppIcons.person,
-                            size: MeTokens.guestIcon,
-                            color: t.text3,
-                          ),
-                        ),
+                  child: AccountAvatar(
+                    name: name,
+                    url: logged ? me.avatarUrl : null,
+                    size: MeTokens.identityAvatar,
+                  ),
                 ),
                 const SizedBox(width: MeTokens.identityGap),
                 Expanded(
@@ -673,32 +644,26 @@ class _Entries extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = AppTokens.of(context);
-    final misty = t.style == AppearanceStyle.misty;
     return LacEntryStrip(
       cells: [
         LacEntryCell(
           icon: AppIcons.articleBold,
           label: '我的帖子',
-          tint: misty ? t.mistyBlue : null,
           onTap: () => _push(context, const MyThreadsPage()),
         ),
         LacEntryCell(
           icon: AppIcons.bookmarkFilled,
           label: '我的收藏',
-          tint: misty ? t.mistyOrange : null,
           onTap: () => _push(context, const FavoritesPage()),
         ),
         LacEntryCell(
           icon: AppIcons.creditsBold,
           label: '积分记录',
-          tint: misty ? t.mistyGreen : null,
           onTap: () => _push(context, const CreditLogPage()),
         ),
         LacEntryCell(
           icon: AppIcons.medalBold,
           label: '勋章',
-          tint: misty ? t.mistyViolet : null,
           onTap: () => _push(context, const MedalsPage()),
         ),
       ],
@@ -728,7 +693,7 @@ class _Tools extends StatelessWidget {
               radius: MeTokens.innerRadius,
               child: GroupedRow(
                 title: '黑名单',
-                leading: const AccountToolWell(icon: AppIcons.forbiddenBold),
+                leading: const IconTile(icon: AppIcons.forbiddenBold),
                 onTap: () => _push(context, const BlockedUsersPage()),
               ),
             ),
@@ -739,7 +704,7 @@ class _Tools extends StatelessWidget {
                 child: GroupedRow(
                   key: const ValueKey('me-settings'),
                   title: '设置',
-                  leading: const AccountToolWell(icon: AppIcons.settingsBold),
+                  leading: const IconTile(icon: AppIcons.settingsBold),
                   dot: appUpdater.hasUpdate || !appearance.styleDotSeen,
                   onTap: () => Navigator.of(context).pushNamed('/settings'),
                 ),
@@ -794,26 +759,22 @@ class MeBody extends StatelessWidget {
               child: EntryGrid(
                 tiles: [
                   EntryTile(
-                    icon: AppIcons.article,
-                    tint: IconTints.mistyBlue,
+                    icon: AppIcons.articleBold,
                     label: '我的帖子',
                     onTap: () => _push(context, const MyThreadsPage()),
                   ),
                   EntryTile(
-                    icon: AppIcons.bookmark,
-                    tint: IconTints.mistyOrange,
+                    icon: AppIcons.bookmarkFilled,
                     label: '我的收藏',
                     onTap: () => _push(context, const FavoritesPage()),
                   ),
                   EntryTile(
-                    icon: AppIcons.credits,
-                    tint: IconTints.mistyGreen,
+                    icon: AppIcons.creditsBold,
                     label: '积分记录',
                     onTap: () => _push(context, const CreditLogPage()),
                   ),
                   EntryTile(
-                    icon: AppIcons.medal,
-                    tint: IconTints.mistyViolet,
+                    icon: AppIcons.medalBold,
                     label: '勋章',
                     onTap: () => _push(context, const MedalsPage()),
                   ),
@@ -847,7 +808,7 @@ class _Colophon extends StatelessWidget {
           : const EdgeInsets.symmetric(vertical: 40),
       child: Center(
         child: Text(
-          'CHHER',
+          appDisplayName,
           style: AppType.caption.copyWith(
             color: AppTokens.of(context).text3.withValues(alpha: .55),
             letterSpacing: 3.2,

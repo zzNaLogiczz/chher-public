@@ -41,9 +41,9 @@ class GroupedSection extends StatelessWidget {
           if (header != null)
             Padding(
               padding: const EdgeInsets.fromLTRB(
-                AppSpace.groupInset + AppSpace.rowInset,
+                AppSpace.groupLabelInset,
                 0,
-                AppSpace.groupInset + AppSpace.rowInset,
+                AppSpace.groupLabelInset,
                 7,
               ),
               child: Row(
@@ -91,9 +91,9 @@ class GroupedSection extends StatelessWidget {
           if (footer != null)
             Padding(
               padding: const EdgeInsets.fromLTRB(
-                AppSpace.groupInset + AppSpace.rowInset,
+                AppSpace.groupLabelInset,
                 6,
-                AppSpace.groupInset + AppSpace.rowInset,
+                AppSpace.groupLabelInset,
                 0,
               ),
               child: Text(
@@ -138,8 +138,8 @@ bool _fitsSingleRow(BuildContext context, Widget child, double width) {
   if (child is! GroupedRow || child.subtitle != null || child.leading != null) {
     return false;
   }
-  final contentWidth = width - AppSpace.rowInset - 12;
-  final leadingWidth = child.icon == null ? 0 : IconTile.size + 12;
+  final contentWidth = width - AppSpace.groupedRowInset - 12;
+  final leadingWidth = child.icon == null ? 0 : EntryIconTokens.size + 12;
   final trailingWidth =
       (child.dot ? 8 + DotBadge.size : 0) +
       ((child.chevron ?? child.onTap != null) ? 19 : 0);
@@ -183,6 +183,7 @@ class GroupedRow extends StatelessWidget {
   final String? subtitle;
   final String? value;
   final Color? valueColor;
+  final int? valueMaxLines;
   final IconTile? icon;
 
   /// 自定义前置(头像、勋章图等),与 [icon] 二选一
@@ -199,6 +200,7 @@ class GroupedRow extends StatelessWidget {
     this.subtitle,
     this.value,
     this.valueColor,
+    this.valueMaxLines,
     this.icon,
     this.leading,
     this.onTap,
@@ -208,8 +210,8 @@ class GroupedRow extends StatelessWidget {
 
   /// 分隔线从文字起点开始:有前置时跳过前置宽度
   double get separatorInset => (icon != null || leading != null)
-      ? AppSpace.rowInset + IconTile.size + 12
-      : AppSpace.rowInset;
+      ? AppSpace.groupedRowInset + EntryIconTokens.size + 12
+      : AppSpace.groupedRowInset;
 
   @override
   Widget build(BuildContext context) {
@@ -257,7 +259,7 @@ class GroupedRow extends StatelessWidget {
       ),
       child: Padding(
         padding: EdgeInsets.fromLTRB(
-          AppSpace.rowInset,
+          AppSpace.groupedRowInset,
           single ? 0 : 10,
           12,
           single ? 0 : 10,
@@ -285,6 +287,10 @@ class GroupedRow extends StatelessWidget {
                     Expanded(
                       child: Text(
                         value!,
+                        maxLines: valueMaxLines,
+                        overflow: valueMaxLines == null
+                            ? null
+                            : TextOverflow.ellipsis,
                         textAlign: TextAlign.right,
                         style: AppType.subhead.copyWith(
                           color: valueColor ?? t.text3,
@@ -339,37 +345,36 @@ class GroupedDestructiveRow extends StatelessWidget {
   }
 }
 
-/// 30dp 彩色小方块 + 白色线条图标,只用于设置类行
+/// 功能入口共用主题色图标方块。
 class IconTile extends StatelessWidget {
-  static const double size = 30;
   final IconData icon;
-  final Color tint;
-  const IconTile({super.key, required this.icon, required this.tint});
+  const IconTile({super.key, required this.icon});
 
   @override
-  Widget build(BuildContext context) => DecoratedBox(
-    decoration: BoxDecoration(
-      color: tint,
-      borderRadius: BorderRadius.circular(AppRadii.xs),
-    ),
-    child: SizedBox.square(
-      dimension: size,
-      child: Icon(icon, size: 17, color: Colors.white),
-    ),
-  );
+  Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: t.accentFill,
+        borderRadius: BorderRadius.circular(EntryIconTokens.radius),
+      ),
+      child: SizedBox.square(
+        dimension: EntryIconTokens.size,
+        child: Icon(icon, size: EntryIconTokens.glyphSize, color: t.accent),
+      ),
+    );
+  }
 }
 
-/// "我的"页的入口方块:白色卡片 + 左上彩色方块图标 + 粗标签,
+/// "我的"页的入口方块:白色卡片 + 左上主题色图标 + 粗标签,
 /// 按下弹性缩放。薄雾白与推送路由沿用此入口形态;朱漆红首页使用漆面凹槽。
 class EntryTile extends StatelessWidget {
   final IconData icon;
-  final Color tint;
   final String label;
   final VoidCallback? onTap;
   const EntryTile({
     super.key,
     required this.icon,
-    required this.tint,
     required this.label,
     this.onTap,
   });
@@ -390,7 +395,7 @@ class EntryTile extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              IconTile(icon: icon, tint: tint),
+              IconTile(icon: icon),
               const SizedBox(height: 18),
               Text(
                 label,

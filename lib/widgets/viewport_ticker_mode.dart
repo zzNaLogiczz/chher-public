@@ -6,10 +6,12 @@ import 'package:flutter/rendering.dart'
 class ViewportTickerMode extends StatefulWidget {
   final Widget child;
   final bool initiallyVisible;
+  final bool trackVisibility;
   const ViewportTickerMode({
     super.key,
     required this.child,
     this.initiallyVisible = false,
+    this.trackVisibility = true,
   });
 
   @override
@@ -29,19 +31,24 @@ class _ViewportTickerModeState extends State<ViewportTickerMode> {
     _active =
         TickerMode.valuesOf(context).enabled &&
         (ModalRoute.isCurrentOf(context) ?? true);
-    for (final animation in _routeAnimations) {
-      animation.removeListener(_checkAfterLayout);
-    }
+    _updateListeners();
+  }
+
+  @override
+  void didUpdateWidget(covariant ViewportTickerMode oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.trackVisibility != oldWidget.trackVisibility) _updateListeners();
+  }
+
+  void _updateListeners() {
+    _removeListeners();
+    if (!widget.trackVisibility) return;
     final route = ModalRoute.of(context);
     _routeAnimations = [?route?.animation, ?route?.secondaryAnimation];
     for (final animation in _routeAnimations) {
       animation.addListener(_checkAfterLayout);
     }
     Scrollable.maybeOf(context);
-    for (final position in _positions) {
-      position.removeListener(_checkAfterLayout);
-    }
-    _positions.clear();
     context.visitAncestorElements((ancestor) {
       if (ancestor is StatefulElement && ancestor.state is ScrollableState) {
         _positions.add((ancestor.state as ScrollableState).position);
@@ -55,19 +62,22 @@ class _ViewportTickerModeState extends State<ViewportTickerMode> {
   }
 
   void _checkAfterLayout() {
-    if (_scheduled) return;
+    if (!widget.trackVisibility || _scheduled) return;
     _scheduled = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _scheduled = false;
       if (!mounted) return;
       final box = context.findRenderObject();
       if (box is! RenderBox || !box.attached || !box.hasSize) return;
+      final view = View.of(context);
+      final viewBounds =
+          Offset.zero & (view.physicalSize / view.devicePixelRatio);
       var visible =
           !box.size.isEmpty &&
           MatrixUtils.transformRect(
             box.getTransformTo(null),
             box.paintBounds,
-          ).overlaps(Offset.zero & MediaQuery.sizeOf(context));
+          ).overlaps(viewBounds);
       for (
         var ancestor = box.parent;
         visible && ancestor != null;
@@ -86,14 +96,20 @@ class _ViewportTickerModeState extends State<ViewportTickerMode> {
     });
   }
 
-  @override
-  void dispose() {
+  void _removeListeners() {
     for (final position in _positions) {
       position.removeListener(_checkAfterLayout);
     }
+    _positions.clear();
     for (final animation in _routeAnimations) {
       animation.removeListener(_checkAfterLayout);
     }
+    _routeAnimations = const [];
+  }
+
+  @override
+  void dispose() {
+    _removeListeners();
     super.dispose();
   }
 

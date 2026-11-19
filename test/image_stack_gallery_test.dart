@@ -85,6 +85,7 @@ Future<void> mountStack(
   bool reduced = false,
   bool compact = false,
   List<MemoryImage>? photos,
+  List<double?>? aspectRatios,
   Set<String>? requested,
   PageStorageBucket? bucket,
   String storageKey = 'native-gallery',
@@ -125,6 +126,7 @@ Future<void> mountStack(
                   ? ImageStackGallery(
                       key: PageStorageKey(storageKey),
                       urls: List.generate(count, (i) => 'photo-$i'),
+                      aspectRatios: aspectRatios,
                       gallery: List.generate(count + 3, (i) => 'full-$i'),
                       galleryStartIndex: 2,
                       compact: compact,
@@ -228,7 +230,12 @@ void main() {
       tester,
       sizes: [const Size(90, 160), const Size(90, 160), const Size(90, 160)],
     );
-    await mountStack(tester, count: 3, photos: photos);
+    await mountStack(
+      tester,
+      count: 3,
+      photos: photos,
+      aspectRatios: const [9 / 16, 9 / 16, 9 / 16],
+    );
     final frame = frameOf(350, 9 / 16, portraits: true);
     expect(tester.getSize(stackStage).height, closeTo(frame.fh + 16, 1));
     // Tall photos stay fully visible inside the frame (centered, unclipped).
@@ -309,6 +316,7 @@ void main() {
           count: 3,
           viewport: viewport,
           photos: photos,
+          aspectRatios: const [9 / 16, 16 / 9, 32 / 640],
           trailing: 1200,
         );
         final gallery = find.byType(ImageStackGallery);

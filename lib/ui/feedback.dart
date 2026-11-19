@@ -216,14 +216,22 @@ class _LoadingPlaceholderState extends State<LoadingPlaceholder> {
 /// Loading breathes as one cached layer; scroll and TickerMode stop hidden work.
 class SkeletonPulse extends StatelessWidget {
   final bool active;
+  final bool immediate;
   final Widget child;
-  const SkeletonPulse({super.key, this.active = true, required this.child});
+  const SkeletonPulse({
+    super.key,
+    this.active = true,
+    this.immediate = false,
+    required this.child,
+  });
 
   @override
-  Widget build(BuildContext context) => LoadingPlaceholder(
-    active: active,
-    child: _SkeletonBreath(active: active, child: child),
-  );
+  Widget build(BuildContext context) {
+    final breath = _SkeletonBreath(active: active, child: child);
+    return immediate
+        ? breath
+        : LoadingPlaceholder(active: active, child: breath);
+  }
 }
 
 class _SkeletonBreath extends StatefulWidget {

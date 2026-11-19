@@ -117,6 +117,7 @@ class _HomePageState extends State<HomePage> {
             );
     }
     _visited.putIfAbsent(_dest, () => _screenFor(_dest));
+    final showNavigation = MediaQuery.viewInsetsOf(context).bottom == 0;
     return PopScope(
       canPop: _dest == AppDestination.feed,
       onPopInvokedWithResult: (didPop, result) {
@@ -127,32 +128,37 @@ class _HomePageState extends State<HomePage> {
         child: Column(
           children: [
             Expanded(
-              child: Stack(
-                children: [
-                  for (final entry in _visited.entries)
-                    Offstage(
-                      offstage: entry.key != _dest,
-                      child: ExcludeFocus(
-                        excluding: entry.key != _dest,
-                        child: TickerMode(
-                          enabled: entry.key == _dest,
-                          // 一级目的地保留原位置与绘制缓存；选择反馈由底栏承接，
-                          // 不重播整页入场，以免连同状态栏背景一起移开。
-                          child: RepaintBoundary(
-                            child: entry.key == AppDestination.feed
-                                ? TabReselectScope(
-                                    requests: _feedReselect,
-                                    child: entry.value,
-                                  )
-                                : entry.value,
+              // Navigation lays out next to the tab viewport and owns the safe area.
+              child: MediaQuery.removePadding(
+                context: context,
+                removeBottom: showNavigation,
+                child: Stack(
+                  children: [
+                    for (final entry in _visited.entries)
+                      Offstage(
+                        offstage: entry.key != _dest,
+                        child: ExcludeFocus(
+                          excluding: entry.key != _dest,
+                          child: TickerMode(
+                            enabled: entry.key == _dest,
+                            // 一级目的地保留原位置与绘制缓存；选择反馈由底栏承接，
+                            // 不重播整页入场，以免连同状态栏背景一起移开。
+                            child: RepaintBoundary(
+                              child: entry.key == AppDestination.feed
+                                  ? TabReselectScope(
+                                      requests: _feedReselect,
+                                      child: entry.value,
+                                    )
+                                  : entry.value,
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                ],
+                  ],
+                ),
               ),
             ),
-            if (MediaQuery.viewInsetsOf(context).bottom == 0)
+            if (showNavigation)
               // 未读数原本挂在顶栏铃铛上,铃铛删除后由底栏"消息"承接;
               // 外观也在监听里:朱砂红上线引导(我的标签红点)消费后立即消失
               AnimatedBuilder(

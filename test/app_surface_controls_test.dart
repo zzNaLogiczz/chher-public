@@ -143,7 +143,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('thread metadata wraps without overflowing narrow large text', (
+  testWidgets('thread metadata stays on one line in narrow large text', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -157,14 +157,15 @@ void main() {
               replies: 99999,
               views: 9999999,
               hasImages: true,
-              lastPostTimeRaw: '2026-10-26 18:20:30',
+              lastPostTimeRaw: '2020-10-26 18:20:30',
             ),
             eyebrow: '电脑讨论',
           ),
         ),
       ),
     );
-    expect(find.text('2026-10-26 18:20:30'), findsOneWidget);
+    final time = find.text('2020年10月26日');
+    expect(tester.widget<Text>(time).maxLines, 1);
     expect(tester.takeException(), isNull);
   });
 }

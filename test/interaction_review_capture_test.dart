@@ -308,13 +308,13 @@ void main() {
               .first;
           for (
             var n = 0;
-            n < 12 && find.text('已加载 20 条').evaluate().isEmpty;
+            n < 12 && find.textContaining(lastTitle).evaluate().isEmpty;
             n++
           ) {
             await tester.drag(results, const Offset(0, -600));
             await _settle(tester, milliseconds: 700);
           }
-          expect(find.text('已加载 20 条'), findsOneWidget);
+          expect(find.textContaining(lastTitle), findsOneWidget);
           await tester.drag(results, const Offset(0, -3000));
           await _settle(tester);
           await capture('10-search-long-list');

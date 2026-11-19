@@ -8,6 +8,8 @@ import 'package:chh_app/pages/search_page.dart';
 import 'package:chh_app/widgets/browse_controls.dart';
 import 'package:chh_app/widgets/browse_thread_list.dart';
 import 'package:chh_app/ui/picker.dart';
+import 'package:chh_app/design/motion.dart';
+import 'package:chh_app/widgets/chhers_loader.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -235,9 +237,17 @@ void main() {
       await tester.pump();
       await tester.testTextInput.receiveAction(TextInputAction.search);
       await tester.pump();
-      expect(find.byType(CircularProgressIndicator), findsOneWidget);
-      // The request stays pending while the clear control animates into view.
-      await tester.pump(const Duration(milliseconds: 200));
+      final spinner = find.byWidgetPredicate(
+        (widget) => widget is ChhersSpinner && widget.active,
+      );
+      expect(spinner, findsOneWidget);
+      // The request stays pending while the clear control and loader appear.
+      await tester.pump(AppMotion.loadingDelay);
+      await tester.pump(AppMotion.loadingIn);
+      expect(
+        find.descendant(of: spinner, matching: find.byType(CustomPaint)),
+        findsOneWidget,
+      );
       await tester.tap(find.byTooltip('清除搜索'));
       await tester.pump();
       response.complete(_result(1, '已经失效的结果'));

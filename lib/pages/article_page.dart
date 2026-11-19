@@ -1,8 +1,13 @@
 /// Editorial reading: shared cover, original image order, and real pagination.
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'source_page_drawer.dart';
+import '../ui/balanced_title.dart';
+import '../design/display_text.dart';
+import '../core/display_time.dart';
 import '../ui/app_button.dart';
 import '../ui/feedback.dart';
 import '../ui/press.dart';
@@ -14,11 +19,14 @@ import '../controllers/article_reader_controller.dart';
 import 'article_discussion_page.dart';
 import '../data/editorial_cover_cache.dart';
 import '../design/tokens.dart';
+import '../design/motion.dart';
 import '../design/system_ui.dart';
 import '../design/reading.dart';
+import '../design/list_end_tokens.dart';
 import '../ui/reading_settings_sheet.dart';
 import '../design/typography.dart';
 import '../ui/reading_bar.dart';
+import '../ui/image_viewer_chrome.dart';
 import '../ui/favorite_action.dart';
 import '../data/favorite_index.dart';
 import '../ui/nav_bar.dart';
@@ -33,6 +41,7 @@ import '../widgets/expressive_controls.dart';
 import '../widgets/rich_content_text.dart';
 import '../widgets/state_view.dart';
 import 'thread_detail_page.dart';
+import '../widgets/thread_landing.dart';
 import '../widgets/content_link_block.dart';
 import '../widgets/reading_list_end.dart';
 import '../ui/quote.dart';
@@ -71,15 +80,23 @@ class _ArticlePageState extends State<ArticlePage> {
   final _allImages = <String>[];
   final _imageIndex = <int, int>{};
   int _indexedPages = 0;
+  final _landingChrome = ThreadLandingChrome();
+  late final _coverChrome = ValueNotifier<bool>(_hasCover);
+  late final _paperChrome = ValueNotifier<bool>(!_hasCover);
+  Timer? _landingSkeletonDelay;
+  bool _landingSkeletonVisible = false;
   bool _handedOff = false;
   bool _handoffScheduled = false;
-  Animation<double>? _handoffAnimation;
+  ModalRoute<dynamic>? _readerRoute;
   NavigatorState? _handoffNavigator;
   bool _overCover = true;
   bool _scrollCheckScheduled = false;
   double get _coverHeight =>
       (MediaQuery.sizeOf(context).width * 1.22).clamp(420.0, 560.0);
   bool get _hasCover => widget.preview?.coverUrl != null;
+
+  Color _readerBackground(AppTokens tokens) =>
+      _paperChrome.value ? tokens.bg : tokens.grouped;
 
   @override
   void initState() {
@@ -98,12 +115,6 @@ class _ArticlePageState extends State<ArticlePage> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final animation = ModalRoute.of(context)?.animation;
-    if (animation != _handoffAnimation) {
-      _handoffAnimation?.removeStatusListener(_handoffStatusChanged);
-      _handoffAnimation = animation;
-      animation?.addStatusListener(_handoffStatusChanged);
-    }
     final navigator = Navigator.of(context);
     if (navigator != _handoffNavigator) {
       _handoffNavigator?.userGestureInProgressNotifier.removeListener(
@@ -112,9 +123,21 @@ class _ArticlePageState extends State<ArticlePage> {
       _handoffNavigator = navigator;
       navigator.userGestureInProgressNotifier.addListener(_retryThreadHandoff);
     }
-    // A covered page may only redirect once it becomes the current page again.
-    _retryThreadHandoff();
   }
+
+  // Observe route current changes away from the reading subtree and its Hero.
+  late final _watchReaderRoute = Builder(
+    builder: (context) {
+      final route = ModalRoute.of(context);
+      if (route != _readerRoute) {
+        _readerRoute?.animation?.removeStatusListener(_handoffStatusChanged);
+        _readerRoute = route;
+        route?.animation?.addStatusListener(_handoffStatusChanged);
+      }
+      _retryThreadHandoff();
+      return const SizedBox.shrink();
+    },
+  );
 
   void _handoffStatusChanged(AnimationStatus status) => _retryThreadHandoff();
 
@@ -123,12 +146,22 @@ class _ArticlePageState extends State<ArticlePage> {
     if (_reader.thread != null) _handOffToThread();
   }
 
+  void _waitForLandingSkeleton() {
+    _landingSkeletonDelay = Timer(AppMotion.skeletonDelay, () {
+      if (mounted) setState(() => _landingSkeletonVisible = true);
+    });
+  }
+
   @override
   void dispose() {
-    _handoffAnimation?.removeStatusListener(_handoffStatusChanged);
+    _readerRoute?.animation?.removeStatusListener(_handoffStatusChanged);
     _handoffNavigator?.userGestureInProgressNotifier.removeListener(
       _retryThreadHandoff,
     );
+    _landingSkeletonDelay?.cancel();
+    _coverChrome.dispose();
+    _paperChrome.dispose();
+    _landingChrome.dispose();
     _scroll.dispose();
     _reader.removeListener(_readerChanged);
     _reader.dispose();
@@ -141,6 +174,8 @@ class _ArticlePageState extends State<ArticlePage> {
   void _readerChanged() {
     if (!mounted) return;
     final pages = _reader.pages;
+    _paperChrome.value =
+        _reader.thread != null || (!_hasCover && pages.isEmpty);
     // Loading/error notifications do not change already-indexed content.
     for (var page = _indexedPages; page < pages.length; page++) {
       for (final block in pages[page].content) {
@@ -152,6 +187,15 @@ class _ArticlePageState extends State<ArticlePage> {
       }
     }
     _indexedPages = pages.length;
+    if (!_hasCover && !_handedOff) {
+      if (_reader.thread != null || pages.isNotEmpty || _reader.error != null) {
+        _landingSkeletonDelay?.cancel();
+      } else if (_reader.isLoading &&
+          !(_landingSkeletonDelay?.isActive ?? false) &&
+          !_landingSkeletonVisible) {
+        _waitForLandingSkeleton();
+      }
+    }
     if (_reader.thread != null) _handOffToThread();
     if (!_coverRemembered && _reader.pages.isNotEmpty) {
       _rememberCover(_reader.pages.first);
@@ -168,7 +212,7 @@ class _ArticlePageState extends State<ArticlePage> {
     _coverRemembered = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      final animation = ModalRoute.of(context)?.animation;
+      final animation = _readerRoute?.animation;
       if (animation == null || animation.isCompleted) {
         editorialCoverCache.remember(widget.aid, firstImage.url);
       } else {
@@ -203,6 +247,10 @@ class _ArticlePageState extends State<ArticlePage> {
       if (!mounted || !_scroll.hasClients) return;
       final over = _hasCover && _scroll.offset < _coverHeight - 80;
       if (over != _overCover) setState(() => _overCover = over);
+      if (!_handedOff) {
+        _coverChrome.value = over;
+        _landingChrome.offset.value = over ? 0 : _scroll.offset;
+      }
       _loadNearEnd();
     });
   }
@@ -217,7 +265,7 @@ class _ArticlePageState extends State<ArticlePage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _handoffScheduled = false;
       if (!mounted || _handedOff) return;
-      final route = ModalRoute.of(context);
+      final route = _readerRoute;
       final navigator = Navigator.of(context);
       // Keep an existing Hero mounted until its shuttle has left the Overlay.
       if (route == null ||
@@ -232,154 +280,189 @@ class _ArticlePageState extends State<ArticlePage> {
           navigator.userGestureInProgress) {
         return;
       }
+      _coverChrome.value = false;
+      _landingChrome.offset.value = 0;
       setState(() => _handedOff = true);
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_handedOff) {
-      final thread = _reader.thread!;
-      return ExpressivePageReveal(
-        active: true,
-        animateOnMount: ModalRoute.of(context)?.animation?.isCompleted ?? false,
-        child: ThreadDetailPage(
-          tid: thread.tid,
-          title: thread.title,
-          initialPage: thread.detail?.page.current ?? 1,
-          initialDetail: thread.detail,
-          initialDetailCacheGeneration: thread.cacheGeneration,
-        ),
-      );
-    }
     final t = AppTokens.of(context);
     final first = _reader.pages.firstOrNull;
     final error = _reader.error;
-    return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: _overCover && _hasCover
-          ? AppSystemUi.lightIcons
-          : (t.isDark ? AppSystemUi.lightIcons : AppSystemUi.darkIcons),
-      child: Scaffold(
-        backgroundColor: t.grouped,
-        body: Stack(
-          children: [
-            NotificationListener<ScrollMetricsNotification>(
-              onNotification: (_) {
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (mounted) _loadNearEnd();
-                });
-                return false;
-              },
-              child: CustomScrollView(
-                controller: _scroll,
-                physics: const BouncingScrollPhysics(
-                  parent: AlwaysScrollableScrollPhysics(),
-                ),
-                slivers: [
-                  if (_hasCover)
-                    SliverToBoxAdapter(
-                      child: SizedBox(
-                        height: _coverHeight,
-                        child: HeroMode(
-                          enabled: widget.heroTag != null,
-                          child: EditorialCover(
-                            article: widget.preview!,
-                            heroTag:
-                                widget.heroTag ?? 'article-cover-${widget.aid}',
-                            expanded: true,
-                            fit: widget.coverFit,
-                            eyebrow: widget.eyebrow,
-                          ),
-                        ),
-                      ),
-                    )
-                  else
-                    SliverToBoxAdapter(
-                      child: SizedBox(
-                        height: MediaQuery.paddingOf(context).top + 62,
-                      ),
-                    ),
-                  if (first != null)
-                    ExpressivePageReveal(
-                      active: true,
-                      sliver: true,
-                      animateOnMount:
-                          ModalRoute.of(context)?.animation?.isCompleted ??
-                          true,
-                      child: SliverMainAxisGroup(
-                        slivers: [
-                          _articleHeader(first, t),
-                          ..._contentSlivers(),
-                          SliverToBoxAdapter(child: _continuationFooter(t)),
-                        ],
-                      ),
-                    )
-                  else if (error != null)
-                    SliverFillRemaining(
-                      hasScrollBody: false,
-                      child: error is PageMessage
-                          ? StateView.forMessage(
-                              error,
-                              onLogin: () =>
-                                  Navigator.of(context).pushNamed('/login'),
+    final thread = _handedOff ? _reader.thread : null;
+    final onCover = _overCover && _hasCover && thread == null;
+    final overlayStyle = onCover
+        ? AppSystemUi.lightIcons
+        : AppSystemUi.forBrightness(Theme.of(context).brightness);
+    return ImageViewerChromeScope(
+      overlayStyle: overlayStyle,
+      child: AnnotatedRegion<SystemUiOverlayStyle>(
+        value: overlayStyle,
+        child: Scaffold(
+          key: const ValueKey('article-reader-surface'),
+          backgroundColor: _readerBackground(t),
+          resizeToAvoidBottomInset: thread == null ? null : false,
+          body: Stack(
+            children: [
+              _watchReaderRoute,
+              if (thread != null)
+                ThreadDetailPage(
+                  tid: thread.tid,
+                  title: thread.title,
+                  initialPage: thread.detail?.page.current ?? 1,
+                  initialDetail: thread.detail,
+                  initialDetailCacheGeneration: thread.cacheGeneration,
+                  landingChrome: _landingChrome,
+                  landingTitle: _hasCover ? thread.title : widget.title,
+                  landingSkeletonVisible: _landingSkeletonVisible,
+                )
+              else
+                _articleBody(first, error, t),
+              _readerNav,
+              if (thread == null && _hasCover)
+                Positioned(
+                  top: MediaQuery.paddingOf(context).top,
+                  left: 100,
+                  right: 100,
+                  child: Builder(
+                    builder: (context) {
+                      final route = _readerRoute;
+                      return route is EditorialArticleRoute
+                          ? ImageViewerReaderChrome(
+                              child: _dismissHandle(t, route),
                             )
-                          : StateView.error(error, onRetry: _reader.retry),
-                    )
-                  else
-                    SliverToBoxAdapter(
-                      child: LoadingPlaceholder(child: _readingPlaceholder()),
-                    ),
-                  const SliverToBoxAdapter(child: SizedBox(height: 110)),
-                ],
-              ),
-            ),
-            // 滚过封面后顶部渐隐,不再是一条实色带硬切正文
-            if (!_overCover || !_hasCover)
-              Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                child: IgnorePointer(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        stops: const [0, .7, 1],
-                        colors: [
-                          t.grouped,
-                          t.grouped,
-                          t.grouped.withValues(alpha: 0),
-                        ],
-                      ),
-                    ),
-                    child: SizedBox(
-                      height:
-                          MediaQuery.paddingOf(context).top +
-                          NavOverlay.barHeight +
-                          NavOverlay.fadeBand,
+                          : const SizedBox.shrink();
+                    },
+                  ),
+                ),
+              if (thread == null && first != null)
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: ImageViewerReaderChrome(child: _readingToolbar(t)),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _articleBody(ArticleDetail? first, Object? error, AppTokens t) =>
+      NotificationListener<ScrollMetricsNotification>(
+        onNotification: (_) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) _loadNearEnd();
+          });
+          return false;
+        },
+        child: CustomScrollView(
+          controller: _scroll,
+          physics: const BouncingScrollPhysics(
+            parent: AlwaysScrollableScrollPhysics(),
+          ),
+          slivers: [
+            if (_hasCover)
+              SliverToBoxAdapter(
+                child: SizedBox(
+                  height: _coverHeight,
+                  child: HeroMode(
+                    enabled: widget.heroTag != null,
+                    child: EditorialCover(
+                      article: widget.preview!,
+                      heroTag: widget.heroTag ?? 'article-cover-${widget.aid}',
+                      expanded: true,
+                      fit: widget.coverFit,
+                      eyebrow: widget.eyebrow,
                     ),
                   ),
                 ),
+              )
+            else
+              SliverToBoxAdapter(
+                child: SizedBox(
+                  height:
+                      MediaQuery.paddingOf(context).top + NavOverlay.barHeight,
+                ),
               ),
-            // 关闭在左、字号在右;压在封面上用深色玻璃,滚过封面换回白色玻璃
-            Positioned(
-              top: MediaQuery.paddingOf(context).top + 4,
-              left: 10,
-              child: _closeButton(t),
+            if (first != null)
+              ExpressivePageReveal(
+                active: true,
+                sliver: true,
+                animateOnMount: _readerRoute?.animation?.isCompleted ?? true,
+                child: SliverMainAxisGroup(
+                  slivers: [
+                    _articleHeader(first, t),
+                    ..._contentSlivers(),
+                    SliverPadding(
+                      padding: EdgeInsets.only(
+                        bottom: ReadingBar.heightFor(
+                          bottomPadding: MediaQuery.paddingOf(context).bottom,
+                        ),
+                      ),
+                      sliver: SliverToBoxAdapter(child: _continuationFooter(t)),
+                    ),
+                  ],
+                ),
+              )
+            else if (error != null)
+              SliverFillRemaining(
+                hasScrollBody: false,
+                child: error is PageMessage
+                    ? StateView.forMessage(
+                        error,
+                        onLogin: () =>
+                            Navigator.of(context).pushNamed('/login'),
+                      )
+                    : StateView.error(error, onRetry: _reader.retry),
+              )
+            else
+              SliverToBoxAdapter(
+                child: _hasCover
+                    ? LoadingPlaceholder(child: _readingPlaceholder())
+                    : ThreadLandingSkeleton(
+                        title: widget.title,
+                        bars: _landingSkeletonVisible,
+                      ),
+              ),
+          ],
+        ),
+      );
+
+  late final _readerNav = Positioned(
+    top: 0,
+    left: 0,
+    right: 0,
+    child: ImageViewerReaderChrome(
+      child: ListenableBuilder(
+        listenable: Listenable.merge([
+          _paperChrome,
+          _coverChrome,
+          _landingChrome.collapsed,
+        ]),
+        builder: (context, _) {
+          final modal = ModalRoute.of(context) is EditorialArticleRoute;
+          final onCover = _coverChrome.value;
+          return NavOverlay(
+            key: const ValueKey('article-reader-nav'),
+            leading: ChromeButton(
+              icon: modal ? AppIcons.dismiss : AppIcons.back,
+              tooltip: modal ? '关闭文章' : '返回',
+              onImage: onCover,
+              onPressed: () => Navigator.of(context).maybePop(),
             ),
-            Positioned(
-              top: MediaQuery.paddingOf(context).top + 4,
-              right: 10,
-              // 原页面与字号同在右侧,合进一个胶囊,不并排两颗圆钮
-              child: ChromeGroup(
-                onImage: _overCover && _hasCover,
+            actions: [
+              ChromeGroup(
+                key: const ValueKey('thread-reading-settings'),
+                onImage: onCover,
                 items: [
                   ChromeGroupItem(
                     icon: AppIcons.webPage,
                     tooltip: '查看原页面',
-                    onPressed: () =>
-                        showSourcePage(context, articleSourceUrl(widget.aid)),
+                    onPressed: () => _openReaderSource(context),
                   ),
                   ChromeGroupItem(
                     icon: CupertinoIcons.textformat_size,
@@ -388,73 +471,64 @@ class _ArticlePageState extends State<ArticlePage> {
                   ),
                 ],
               ),
+            ],
+            inlineTitle: normalizeDisplayText(
+              _landingChrome.title ?? _reader.thread?.title ?? widget.title,
             ),
-            if (_hasCover && ModalRoute.of(context) is EditorialArticleRoute)
-              Positioned(
-                top: MediaQuery.paddingOf(context).top,
-                left: 100,
-                right: 100,
-                child: _dismissHandle(t),
-              ),
-            if (first != null)
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: _readingToolbar(t),
-              ),
-          ],
-        ),
+            scrollOffset: _landingChrome.offset,
+            collapseAt: double.infinity,
+            titleVisible: _landingChrome.collapsed,
+            readingProgress: _landingChrome.progress,
+            readingProgressVisible: _landingChrome.progressVisible,
+            background: _readerBackground(AppTokens.of(context)),
+          );
+        },
       ),
-    );
-  }
-
-  Widget _closeButton(AppTokens t) => ChromeButton(
-    icon: AppIcons.dismiss,
-    tooltip: '关闭文章',
-    onImage: _overCover && _hasCover,
-    onPressed: () => Navigator.of(context).pop(),
+    ),
   );
 
-  Widget _dismissHandle(AppTokens t) {
-    final route = ModalRoute.of(context);
-    return GestureDetector(
-      key: const ValueKey('article-dismiss-handle'),
-      dragStartBehavior: DragStartBehavior.down,
-      behavior: HitTestBehavior.opaque,
-      onVerticalDragStart: route is EditorialArticleRoute
-          ? (_) => route.beginDismiss()
-          : null,
-      onVerticalDragUpdate: route is EditorialArticleRoute
-          ? (d) => route.updateDismiss(
-              d.primaryDelta! / MediaQuery.sizeOf(context).height,
-            )
-          : null,
-      onVerticalDragEnd: route is EditorialArticleRoute
-          ? (d) => route.endDismiss(
-              d.primaryVelocity! / MediaQuery.sizeOf(context).height,
-            )
-          : null,
-      onVerticalDragCancel: route is EditorialArticleRoute
-          ? () => route.endDismiss(0)
-          : null,
-      child: SizedBox(
-        height: 44,
-        child: Center(
-          child: Container(
-            width: 34,
-            height: 4,
-            decoration: BoxDecoration(
-              color: _overCover
-                  ? ImageColors.foreground.withValues(alpha: .6)
-                  : t.separator,
-              borderRadius: BorderRadius.circular(AppRadii.bar),
+  void _openReaderSource(BuildContext context) {
+    final thread = _handedOff ? _reader.thread : null;
+    final uri =
+        _landingChrome.sourceUrl ??
+        (thread == null
+            ? articleSourceUrl(widget.aid)
+            : threadSourceUrl(
+                thread.tid,
+                page: thread.detail?.page.current ?? 1,
+              ));
+    showSourcePage(context, uri);
+  }
+
+  Widget _dismissHandle(AppTokens t, EditorialArticleRoute route) =>
+      GestureDetector(
+        key: const ValueKey('article-dismiss-handle'),
+        dragStartBehavior: DragStartBehavior.down,
+        behavior: HitTestBehavior.opaque,
+        onVerticalDragStart: (_) => route.beginDismiss(),
+        onVerticalDragUpdate: (d) => route.updateDismiss(
+          d.primaryDelta! / MediaQuery.sizeOf(context).height,
+        ),
+        onVerticalDragEnd: (d) => route.endDismiss(
+          d.primaryVelocity! / MediaQuery.sizeOf(context).height,
+        ),
+        onVerticalDragCancel: () => route.endDismiss(0),
+        child: SizedBox(
+          height: 44,
+          child: Center(
+            child: Container(
+              width: 34,
+              height: 4,
+              decoration: BoxDecoration(
+                color: _overCover
+                    ? ImageColors.foreground.withValues(alpha: .6)
+                    : t.separator,
+                borderRadius: BorderRadius.circular(AppRadii.bar),
+              ),
             ),
           ),
         ),
-      ),
-    );
-  }
+      );
 
   Widget _readingPlaceholder() {
     final t = AppTokens.of(context);
@@ -486,7 +560,7 @@ class _ArticlePageState extends State<ArticlePage> {
   Widget _articleHeader(ArticleDetail article, AppTokens t) {
     return SliverToBoxAdapter(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(26, 28, 26, 22),
+        padding: EdgeInsets.fromLTRB(26, 28, 26, _blocks.isEmpty ? 0 : 22),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -494,7 +568,7 @@ class _ArticlePageState extends State<ArticlePage> {
             if ((article.categoryName ?? widget.preview?.categoryName)
                 case final category?) ...[
               Text(
-                category,
+                normalizeDisplayText(category),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
@@ -503,10 +577,11 @@ class _ArticlePageState extends State<ArticlePage> {
                   fontWeight: FontWeight.w600,
                 ),
               ),
-              const SizedBox(height: 10),
+              if (!_hasCover || article.metaRaw != null || _blocks.isNotEmpty)
+                const SizedBox(height: 10),
             ],
             if (!_hasCover) ...[
-              Text(
+              BalancedTitle(
                 article.title,
                 style: TextStyle(
                   fontSize: AppType.sizeTitle2,
@@ -515,18 +590,21 @@ class _ArticlePageState extends State<ArticlePage> {
                   color: t.text,
                 ),
               ),
-              const SizedBox(height: 12),
+              if (article.metaRaw != null || _blocks.isNotEmpty)
+                const SizedBox(height: 12),
             ],
             if (article.metaRaw != null)
               Text(
-                article.metaRaw!,
+                formatDisplayTime(raw: article.metaRaw, embedded: true),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   fontSize: AppType.sizeFootnote,
                   height: 1.7,
                   color: t.text2,
                 ),
               ),
-            const SizedBox(height: 18),
+            if (_blocks.isNotEmpty) const SizedBox(height: 18),
           ],
         ),
       ),
@@ -542,6 +620,7 @@ class _ArticlePageState extends State<ArticlePage> {
         itemCount: segments.length,
         itemBuilder: (context, index) {
           final segment = segments[index];
+          final isReadingEnd = index == segments.length - 1;
           final i = segment.blockIndex;
           final rawBlock = segment.block!;
           final block = rawBlock is QuoteBlock
@@ -564,7 +643,12 @@ class _ArticlePageState extends State<ArticlePage> {
               ),
               child: switch (block) {
                 ImageBlock(:final url) => Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  padding: EdgeInsets.only(
+                    top: ReadingMetrics.articleBlockVerticalSpacing,
+                    bottom: isReadingEnd
+                        ? 0
+                        : ReadingMetrics.articleBlockVerticalSpacing,
+                  ),
                   child: Semantics(
                     button: true,
                     label: '查看第 ${_imageIndex[i]! + 1} 张原图',
@@ -583,11 +667,30 @@ class _ArticlePageState extends State<ArticlePage> {
                   ),
                 ),
                 TextBlock() => Padding(
-                  padding: const EdgeInsets.fromLTRB(26, 10, 26, 16),
+                  padding: EdgeInsets.fromLTRB(
+                    ReadingMetrics.articleBodyInset,
+                    index > 0 && segments[index - 1].block is TextBlock
+                        ? 0
+                        : ReadingMetrics.articleTextTop,
+                    ReadingMetrics.articleBodyInset,
+                    index + 1 < segments.length &&
+                            segments[index + 1].block is TextBlock
+                        ? ReadingMetrics.paragraphGap
+                        : isReadingEnd
+                        ? 0
+                        : ReadingMetrics.articleTextBottom,
+                  ),
                   child: RichContentText(block: block, style: bodyStyle),
                 ),
                 QuoteBlock(:final source, :final children) => Padding(
-                  padding: const EdgeInsets.fromLTRB(26, 8, 26, 16),
+                  padding: EdgeInsets.fromLTRB(
+                    26,
+                    8,
+                    26,
+                    isReadingEnd
+                        ? 0
+                        : ReadingMetrics.articleBlockVerticalSpacing,
+                  ),
                   child: QuoteView(
                     author: source ?? '',
                     text: children
@@ -618,7 +721,9 @@ class _ArticlePageState extends State<ArticlePage> {
                     26,
                     segment.linkGroupStart ? 4 : 0,
                     26,
-                    segment.linkGroupEnd ? 16 : 0,
+                    segment.linkGroupEnd && !isReadingEnd
+                        ? ReadingMetrics.articleBlockVerticalSpacing
+                        : 0,
                   ),
                   child: segment.siteLinks != null
                       ? SiteLinkGroupCard(
@@ -638,15 +743,9 @@ class _ArticlePageState extends State<ArticlePage> {
   }
 
   Widget _continuationFooter(AppTokens t) {
-    if (_reader.isLoading) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 32),
-        child: const Center(child: ReadingListEnd(loading: true)),
-      );
-    }
     if (_reader.error != null) {
       return Padding(
-        padding: const EdgeInsets.fromLTRB(26, 20, 26, 12),
+        padding: const EdgeInsets.fromLTRB(26, ListEndTokens.markerGap, 26, 0),
         child: Column(
           children: [
             Text(
@@ -663,20 +762,16 @@ class _ArticlePageState extends State<ArticlePage> {
         ),
       );
     }
-    if (_reader.hasNext) return const SizedBox(height: 48);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(26, 32, 26, 12),
-      child: Column(
-        children: [
-          const ReadingListEnd(),
-          const SizedBox(height: 14),
-          AppButton(
-            label: '查看评论',
-            variant: AppButtonVariant.plain,
-            icon: AppIcons.comments,
-            onPressed: _openDiscussion,
-          ),
-        ],
+      padding: EdgeInsets.only(
+        top: _reader.hasNext ? 0 : ListEndTokens.markerGap,
+      ),
+      child: Center(
+        child: ReadingListEnd(
+          loading: _reader.isLoading,
+          exhausted: !_reader.hasNext,
+          topPadding: _reader.hasNext ? ListEndTokens.markerGap : 0,
+        ),
       ),
     );
   }

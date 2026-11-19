@@ -26,6 +26,7 @@ void main() {
             viewport: size,
             brightness: brightness,
             photos: photos,
+            aspectRatios: sizes.map((size) => size.aspectRatio).toList(),
           );
           final stage = tester.getRect(fixture.stackStage);
           // The paper frame bounds stage height (480 plus 16 for edges), and

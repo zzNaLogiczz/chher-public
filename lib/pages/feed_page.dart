@@ -10,12 +10,12 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import '../ui/balanced_title.dart';
+import '../design/display_text.dart';
 import '../data/editorial_cover_cache.dart';
 import '../data/featured_cover_prefetch.dart';
 import '../data/portal_repository.dart';
 import '../data/forum_repository.dart';
-import '../data/thread_read_index.dart';
-import '../design/motion.dart';
 import '../widgets/shelf_scroll_physics.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
 import '../ui/app_button.dart';
@@ -24,6 +24,8 @@ import '../design/typography.dart';
 import '../ui/picker.dart';
 import '../ui/segmented.dart';
 import '../design/tokens.dart';
+import '../design/list_end_tokens.dart';
+import '../design/thread_row_tokens.dart';
 import '../design/shapes.dart';
 import '../di.dart';
 import '../models/models.dart';
@@ -69,8 +71,11 @@ class _FeedPageState extends State<FeedPage> {
 
   PortalRepository get _portal => widget.portalRepository ?? portalRepo;
   ForumRepository get _forum => widget.forumRepository ?? forumRepo;
-  late Future<PortalHighlights> _highlights = _portal.highlights();
+  late Future<PortalHighlights> _highlights = _loadHighlights();
   PortalHighlights? _lastHighlights;
+  final _arrivingArticles = <int>{};
+  final _arrivingNews = <int>{};
+  Future<void>? _readerReturn;
 
   final _listKey = GlobalKey<SliverPagedListState<ThreadSummary>>();
 
@@ -82,6 +87,44 @@ class _FeedPageState extends State<FeedPage> {
     cache: widget.coverCache ?? editorialCoverCache,
     imageSize: _imageSize,
   );
+
+  void _pushReader(PageRoute<void> route) {
+    Navigator.of(context).push(route);
+    // Route.popped completes before the exit animation. Keep the painted feed
+    // during that transition and give the restored route a frame of its own.
+    final resume = route.completed.then((_) async {
+      if (!mounted) return;
+      final binding = WidgetsBinding.instance;
+      binding.ensureVisualUpdate();
+      await binding.endOfFrame;
+    });
+    _readerReturn = resume;
+    unawaited(
+      resume.then((_) {
+        if (identical(_readerReturn, resume)) _readerReturn = null;
+      }),
+    );
+  }
+
+  Future<bool> _waitForReader() async {
+    while (mounted) {
+      final pending = _readerReturn;
+      if (pending == null) return true;
+      await pending;
+    }
+    return false;
+  }
+
+  Future<T> _publishWhenVisible<T>(Future<T> result) async {
+    try {
+      return await result;
+    } finally {
+      await _waitForReader();
+    }
+  }
+
+  Future<PortalHighlights> _loadHighlights({bool refresh = false}) =>
+      _publishWhenVisible(_portal.highlights(refresh: refresh));
 
   Future<Size?> _imageSize(String url) async {
     if (!mounted) return null;
@@ -119,7 +162,7 @@ class _FeedPageState extends State<FeedPage> {
   }
 
   Future<void> _refresh() async {
-    final highlights = _portal.highlights(refresh: true);
+    final highlights = _loadHighlights(refresh: true);
     setState(() {
       _highlights = highlights;
     });
@@ -144,6 +187,7 @@ class _FeedPageState extends State<FeedPage> {
       child: ChromeButton(
         tooltip: '搜索',
         icon: AppIcons.search,
+        visualSize: TabChromeTokens.actionSize,
         // 漆面上是奶白玻璃圆钮,薄雾白纸面用默认描边
         onLac: !misty,
         onPressed: () => Navigator.of(context).push(
@@ -170,13 +214,14 @@ class _FeedPageState extends State<FeedPage> {
         SliverToBoxAdapter(child: _highlightsSection()),
         SliverToBoxAdapter(child: _discussionHeader()),
         SliverPadding(
-          padding: const EdgeInsets.fromLTRB(
+          padding: EdgeInsets.fromLTRB(
             HomeTokens.inset,
             0,
             HomeTokens.inset,
-            16,
+            ListEndTokens.navigationGap + MediaQuery.paddingOf(context).bottom,
           ),
           sliver: DecoratedSliver(
+            key: const ValueKey('feed-discussion-card'),
             decoration: BoxDecoration(
               color: AppTokens.of(context).surface,
               borderRadius: BorderRadius.circular(HomeTokens.cardRadius),
@@ -185,36 +230,39 @@ class _FeedPageState extends State<FeedPage> {
               padding: const EdgeInsets.all(HomeTokens.cardPadding),
               sliver: SliverPagedList<ThreadSummary>(
                 key: _listKey,
+                precedingBottomPadding: ThreadRowTokens.verticalPadding,
+                followingBottomPadding: HomeTokens.cardPadding,
                 controller: _scroll,
                 itemKey: (thread) => thread.tid,
-                itemRevision: (thread) => (
-                  thread.title,
-                  thread.author,
-                  thread.forumName,
-                  ThreadRow.displayTime(thread),
-                  thread.replies,
-                ),
                 loader: (page, {bool refresh = false}) async {
-                  final r = await _forum.guide(
-                    view: _view,
-                    page: page,
-                    refresh: refresh,
+                  final view = _view;
+                  if (!await _waitForReader()) {
+                    return Paged(
+                      items: const [],
+                      page: PageInfo(current: page, hasNext: false),
+                    );
+                  }
+                  final r = await _publishWhenVisible(
+                    _forum.guide(view: view, page: page, refresh: refresh),
                   );
                   return Paged(items: r.threads, page: r.page);
                 },
                 itemBuilder: (context, item) => ReadStateBuilder(
                   tid: item.tid,
                   replies: item.replies,
-                  builder: (context, state) => _DiscussionRow(
-                    thread: item,
-                    readState: state,
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => ThreadDetailPage(
-                          tid: item.tid,
-                          seenReplies: item.replies,
-                          title: item.title,
-                          fid: item.forumFid,
+                  builder: (context, state) => PlainRowScope(
+                    inset: HomeTokens.rowInset,
+                    child: ThreadRow(
+                      thread: item,
+                      readState: state,
+                      onTap: () => _pushReader(
+                        MaterialPageRoute<void>(
+                          builder: (_) => ThreadDetailPage(
+                            tid: item.tid,
+                            seenReplies: item.replies,
+                            title: item.title,
+                            fid: item.forumFid,
+                          ),
                         ),
                       ),
                     ),
@@ -234,7 +282,30 @@ class _FeedPageState extends State<FeedPage> {
       builder: (context, snap) {
         final t = AppTokens.of(context);
         final h = snap.data ?? _lastHighlights;
-        if (snap.hasData) _lastHighlights = snap.data;
+        if (h != null && !identical(h, _lastHighlights)) {
+          final previous = _lastHighlights;
+          final previousArticles = {
+            ...?previous?.reviews.map((a) => a.aid),
+            ...?previous?.banners.map((a) => a.aid),
+          };
+          final previousNews = previous?.news.map((n) => n.tid).toSet();
+          _arrivingArticles
+            ..clear()
+            ..addAll(
+              [
+                ...h.reviews,
+                ...h.banners,
+              ].map((a) => a.aid).where((id) => !previousArticles.contains(id)),
+            );
+          _arrivingNews
+            ..clear()
+            ..addAll(
+              h.news
+                  .map((n) => n.tid)
+                  .where((id) => !(previousNews?.contains(id) ?? false)),
+            );
+          _lastHighlights = h;
+        }
         if (h == null && snap.connectionState != ConnectionState.done) {
           return Padding(
             padding: const EdgeInsets.fromLTRB(
@@ -275,7 +346,7 @@ class _FeedPageState extends State<FeedPage> {
                   label: '重试',
                   variant: AppButtonVariant.plain,
                   onPressed: () => setState(() {
-                    _highlights = _portal.highlights(refresh: true);
+                    _highlights = _loadHighlights(refresh: true);
                   }),
                 ),
               ],
@@ -299,8 +370,13 @@ class _FeedPageState extends State<FeedPage> {
             .where((a) => a.aid != feature?.aid)
             .toList();
         if (feature != null) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) unawaited(_prefetch.fetch(feature.aid));
+          WidgetsBinding.instance.addPostFrameCallback((_) async {
+            if (await _waitForReader()) {
+              await _prefetch.fetch(
+                feature.aid,
+                waitUntilVisible: _waitForReader,
+              );
+            }
           });
         }
         return Column(
@@ -342,7 +418,7 @@ class _FeedPageState extends State<FeedPage> {
                 label: '未能刷新，轻点重试',
                 variant: AppButtonVariant.plain,
                 onPressed: () => setState(() {
-                  _highlights = _portal.highlights(refresh: true);
+                  _highlights = _loadHighlights(refresh: true);
                 }),
               ),
           ],
@@ -355,14 +431,7 @@ class _FeedPageState extends State<FeedPage> {
       ExpressivePageReveal(
         key: ValueKey(article.aid),
         active: true,
-        animateOnMount: true,
-        revision: (
-          article.aid,
-          article.title,
-          article.coverUrl,
-          article.summary,
-          article.categoryName,
-        ),
+        animateOnMount: _arrivingArticles.remove(article.aid),
         child: child,
       );
 
@@ -445,7 +514,10 @@ class _FeedPageState extends State<FeedPage> {
           if (news.length == 1) {
             final painter =
                 TextPainter(
-                  text: TextSpan(text: news.single.title, style: style),
+                  text: TextSpan(
+                    text: normalizeDisplayText(news.single.title),
+                    style: style,
+                  ),
                   textDirection: Directionality.of(context),
                   textScaler: MediaQuery.textScalerOf(context),
                   locale: Localizations.maybeLocaleOf(context),
@@ -472,12 +544,11 @@ class _FeedPageState extends State<FeedPage> {
               ExpressivePageReveal(
                 key: ValueKey(n.tid),
                 active: true,
-                animateOnMount: true,
-                revision: (n.tid, n.title),
+                animateOnMount: _arrivingNews.remove(n.tid),
                 child: _CardRow(
                   capsule: capsule,
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(
+                  onTap: () => _pushReader(
+                    MaterialPageRoute<void>(
                       builder: (_) =>
                           ThreadDetailPage(tid: n.tid, title: n.title),
                     ),
@@ -505,10 +576,9 @@ class _FeedPageState extends State<FeedPage> {
                         ),
                       ),
                       Expanded(
-                        child: Text(
+                        child: BalancedTitle(
                           n.title,
                           maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
                           style: style,
                         ),
                       ),
@@ -545,7 +615,12 @@ class _FeedPageState extends State<FeedPage> {
                   if (a.coverUrl?.isNotEmpty ?? false) ...[
                     AppClip(
                       radius: AppRadii.sm,
-                      child: NetImage(url: a.coverUrl!, width: 76, height: 52),
+                      child: NetImage(
+                        url: a.coverUrl!,
+                        width: 76,
+                        height: 52,
+                        dimInDark: true,
+                      ),
                     ),
                     const SizedBox(width: 12),
                   ],
@@ -560,10 +635,9 @@ class _FeedPageState extends State<FeedPage> {
                               color: AppTokens.of(context).text3,
                             ),
                           ),
-                        Text(
+                        BalancedTitle(
                           a.title,
                           maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
                           style: AppType.subhead.copyWith(
                             color: AppTokens.of(context).text,
                             fontWeight: FontWeight.w600,
@@ -602,35 +676,11 @@ class _FeedPageState extends State<FeedPage> {
   );
 
   /// 讨论区标题行。热门不再占一级入口,只是这里的排序。
-  Widget _discussionHeader() {
-    final t = AppTokens.of(context);
-    return Padding(
-      key: _discussionAnchor,
-      padding: const EdgeInsets.fromLTRB(
-        AppSpace.screen,
-        AppSpace.section,
-        AppSpace.screen,
-        12,
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              '社区讨论',
-              style: TextStyle(
-                fontSize: AppType.sizeTitle2,
-                fontWeight: FontWeight.w700,
-                letterSpacing: -0.4,
-                color: t.text,
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Flexible(child: _sortControl()),
-        ],
-      ),
-    );
-  }
+  Widget _discussionHeader() => SectionHeader(
+    key: _discussionAnchor,
+    title: '社区讨论',
+    trailing: _sortControl(),
+  );
 
   Widget _sortControl({bool onLac = false}) => AppSegmented<String>(
     compact: true,
@@ -668,7 +718,7 @@ class _FeedPageState extends State<FeedPage> {
       loadPage: (page, refresh) =>
           _portal.openArticle(a.aid, page: page, refresh: refresh),
     );
-    Navigator.of(context).push(
+    _pushReader(
       heroTag == null || directDetail
           ? MaterialPageRoute<void>(builder: reader)
           : EditorialArticleRoute(builder: reader),
@@ -766,95 +816,4 @@ class _CardRow extends StatelessWidget {
             ),
           ),
         );
-}
-
-class _DiscussionRow extends StatelessWidget {
-  final ThreadSummary thread;
-  final ThreadReadState readState;
-  final VoidCallback onTap;
-  const _DiscussionRow({
-    required this.thread,
-    required this.readState,
-    required this.onTap,
-  });
-  @override
-  Widget build(BuildContext context) {
-    final t = AppTokens.of(context);
-    final metadata = [
-      thread.forumName,
-      thread.author,
-      ThreadRow.displayTime(thread),
-    ].whereType<String>().where((s) => s.isNotEmpty).toList();
-    final fresh = readState is ThreadReadNewReplies
-        ? (readState as ThreadReadNewReplies).count
-        : null;
-    return _CardRow(
-      onTap: onTap,
-      child: Semantics(
-        label: readSemanticsLabel(readState),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            TweenAnimationBuilder<Color?>(
-              tween: ColorTween(end: readTitleColor(t, readState)),
-              duration: MediaQuery.disableAnimationsOf(context)
-                  ? AppMotion.reducedFade
-                  : AppMotion.fade,
-              builder: (_, color, _) => Text(
-                thread.title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: AppType.headline.copyWith(
-                  fontSize: HomeTokens.rowTitleSize,
-                  color: color,
-                  fontWeight: readState is ThreadReadSeen
-                      ? FontWeight.w500
-                      : FontWeight.w600,
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Wrap(
-                    spacing: 10,
-                    runSpacing: 4,
-                    children: [
-                      for (final item in metadata)
-                        Text(
-                          item,
-                          style: AppType.footnote.copyWith(color: t.text3),
-                        ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Semantics(
-                  label: fresh == null
-                      ? '${thread.replies} 回复'
-                      : '有 $fresh 条新回复，共 ${thread.replies} 回复',
-                  excludeSemantics: true,
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(AppIcons.tabMessages, size: 14, color: t.text3),
-                      const SizedBox(width: 4),
-                      Text(
-                        fresh == null ? '${thread.replies}' : '+$fresh',
-                        style: AppType.footnote.copyWith(
-                          color: fresh == null ? t.text3 : t.accent,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }

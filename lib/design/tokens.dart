@@ -88,6 +88,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
   final Color bg;
   final Color grouped;
   final Color surface;
+  final Color surface2;
   final Color fill;
   final Color fill2;
   final Color fill3;
@@ -158,6 +159,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
     required this.bg,
     required this.grouped,
     required this.surface,
+    required this.surface2,
     required this.fill,
     required this.fill2,
     required this.fill3,
@@ -211,6 +213,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
     bg: Color(0xFFFFFDFC),
     grouped: Color(0xFFF6F3F1),
     surface: Color(0xFFFFFFFE),
+    surface2: Color(0xFFF1EBE9),
     fill: Color.fromRGBO(120, 104, 100, .12),
     fill2: Color.fromRGBO(120, 104, 100, .22),
     fill3: Color.fromRGBO(120, 104, 100, .06),
@@ -266,6 +269,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
     bg: Color(0xFF0D0B0A),
     grouped: Color(0xFF0D0B0A),
     surface: Color(0xFF1B1817),
+    surface2: Color(0xFF272221),
     fill: Color.fromRGBO(130, 115, 110, .24),
     fill2: Color.fromRGBO(130, 115, 110, .36),
     fill3: Color.fromRGBO(130, 115, 110, .12),
@@ -331,6 +335,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
     bg: Color(0xFFFFFFFF),
     grouped: Color(0xFFF5F6F8),
     surface: Color(0xFFFFFFFF),
+    surface2: Color(0xFFEEF0F3),
     fill: Color.fromRGBO(118, 118, 128, .12),
     fill2: Color.fromRGBO(118, 118, 128, .22),
     fill3: Color.fromRGBO(118, 118, 128, .06),
@@ -385,6 +390,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
     bg: Color(0xFF0B0B0C),
     grouped: Color(0xFF0B0B0C),
     surface: Color(0xFF1C1C1E),
+    surface2: Color(0xFF26282C),
     fill: Color.fromRGBO(118, 118, 128, .24),
     fill2: Color.fromRGBO(118, 118, 128, .36),
     fill3: Color.fromRGBO(118, 118, 128, .12),
@@ -609,6 +615,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
     Color? bg,
     Color? grouped,
     Color? surface,
+    Color? surface2,
     Color? fill,
     Color? fill2,
     Color? fill3,
@@ -659,6 +666,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
       bg: bg ?? this.bg,
       grouped: grouped ?? this.grouped,
       surface: surface ?? this.surface,
+      surface2: surface2 ?? this.surface2,
       fill: fill ?? this.fill,
       fill2: fill2 ?? this.fill2,
       fill3: fill3 ?? this.fill3,
@@ -717,6 +725,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
       bg: Color.lerp(bg, other.bg, t)!,
       grouped: Color.lerp(grouped, other.grouped, t)!,
       surface: Color.lerp(surface, other.surface, t)!,
+      surface2: Color.lerp(surface2, other.surface2, t)!,
       fill: Color.lerp(fill, other.fill, t)!,
       fill2: Color.lerp(fill2, other.fill2, t)!,
       fill3: Color.lerp(fill3, other.fill3, t)!,
@@ -788,6 +797,9 @@ abstract final class AppRadii {
 abstract final class AppSpace {
   static const double screen = 20;
   static const double groupInset = 16;
+  static const double groupLabelInset = 34;
+  static const double groupedRowInset = groupLabelInset - groupInset;
+  static const double textButtonInset = 6;
   static const double rowInset = 16;
   static const double section = 28;
   static const double hairline = 0.5;
@@ -803,6 +815,11 @@ abstract final class AppSpace {
 
   /// 大标题行统一高度:accessory 圆钮/胶囊不撑高头部,四页一致
   static const double titleRow = 44;
+}
+
+abstract final class CreditLogTokens {
+  static const rowVerticalInset = 12.0;
+  static const detailGap = 6.0;
 }
 
 /// 设置类行 30dp 图标底的国色色板:名字保留旧语义,值换成国色组
@@ -827,13 +844,29 @@ abstract final class LacquerMarks {
   /// 一级页右上角的 chh 水印字号
   static const double watermark = 104;
 
-  /// 启动屏的 chh 标与字标字号
-  static const double launchMark = 64;
-  static const double launchWord = 30;
+  /// R2b 的源坐标与含圆头笔画的实际展示尺寸。
+  static const launchMarkStroke = 6.8;
+  static const _halfStroke = launchMarkStroke / 2;
+  // 左边界取 C 圆弧的最左点，右边界取第二个 h 的竖笔。
+  static const launchMarkInkBounds = Rect.fromLTRB(
+    0.008118634147667336 - _halfStroke,
+    -7 - _halfStroke,
+    76.45 + _halfStroke,
+    52.4 + _halfStroke,
+  );
+  static const launchMarkWidth = 112.0;
+  static final launchMarkScale = launchMarkWidth / launchMarkInkBounds.width;
+  static final launchMarkSize = launchMarkInkBounds.size * launchMarkScale;
+  static const launchCaptionBottom = 58.0;
 
   /// 启动屏底部的径向光晕与白标投影
   static const Color launchGlow = Color(0xFF79131A);
+  static const launchGlowCenter = Alignment(0, 1.12);
+  static const launchGlowRadius = 1.3;
+  static const launchGlowStops = [0.0, .62];
   static const Color launchMarkShadow = Color(0x4D3C0000);
+  static const launchMarkShadowOffset = Offset(0, 3);
+  static const launchMarkShadowBlur = 14.0;
 }
 
 /// 压在照片上的颜色:与主题无关,照片上永远是深色遮罩配浅色字
@@ -855,10 +888,19 @@ abstract final class ThreadMetrics {
 /// Standalone single-line bars and sheet options.
 abstract final class AppSizes {
   static const singleLineHeight = 44.0;
+  static const buttonHeight = 50.0;
+  static const compactButtonHeight = 34.0;
+}
+
+abstract final class EntryIconTokens {
+  static const size = 32.0;
+  static const radius = 10.0;
+  static const glyphSize = 18.0;
 }
 
 /// Single-line navigation rows; read-only profile values keep their density.
 abstract final class AppRowTokens {
+  static const plainVerticalPadding = 14.0;
   static const actionHeight = 52.0;
   static const valueHeight = 48.0;
 }
@@ -888,7 +930,6 @@ abstract final class SettingsTokens {
   static const modeThumbHeight = 36.0;
   static const rowHeight = AppRowTokens.actionHeight;
   static const logoutHeight = AppSizes.singleLineHeight;
-  static const iconSize = 24.0;
   static const logoRadius = 7.0;
   static const modeLabel = TextStyle(
     fontSize: 13.5,
@@ -942,7 +983,6 @@ abstract final class MeTokens {
   static const identityGap = 13.0;
   static const identityTitleGap = 16.0;
   static const identityAvatar = 56.0;
-  static const guestIcon = 26.0;
   static const statsGap = 16.0;
   static const statsHeight = 44.0;
   static const labelGap = 2.0;
@@ -991,14 +1031,10 @@ abstract final class MeTokens {
   static const cardRadius = 22.0;
   static const innerRadius = 18.0;
   static const cardGap = 12.0;
-  static const entryIcon = 26.0;
   static const entryLabel = 12.5;
-  static const toolIconBox = 24.0;
-  static const toolIcon = 21.0;
   static const avatar = 62.0;
   static const nameSize = 25.0;
   static const compactAvatar = 28.0;
-  static const headerLead = 44.0;
   static const headerTail = 34.0;
   static List<BoxShadow> cardShadow(AppTokens t) => [
     for (final shadow in t.shadowE1)
@@ -1055,31 +1091,19 @@ abstract final class HomeTokens {
 
 /// Shared tab chrome dimensions from the confirmed November prototypes.
 abstract final class TabChromeTokens {
-  // Compact large titles for the three misty tabs; the featured tab opts out.
+  static const titleTop = 28.0;
+  static const eyebrowHeight = 18.0;
+  static const eyebrowGap = 2.0;
+  static const pinnedActionTop = 4.0;
   static const mistyTop = 8.0;
-  static const mistyEyebrowGap = 2.0;
   static const mistyContentGap = 20.0;
   static const mistySegmentGap = 12.0;
   static const mistyGlowHeight = 220.0;
-  static const mistyTitle = TextStyle(
-    fontSize: 34,
-    fontWeight: FontWeight.w700,
-    fontVariations: [FontVariation('wght', 750)],
-    height: 1.15,
-    letterSpacing: -.6,
-  );
-  static const mistyIdentityGap = 8.0;
-  static const mistyAvatar = 56.0;
-  static const mistyNameSize = 24.0;
-  static const mistyName = TextStyle(
-    fontSize: mistyNameSize,
-    fontWeight: FontWeight.w700,
-    fontVariations: [FontVariation('wght', 750)],
-    height: 1.15,
-    letterSpacing: -.3,
-  );
   static const mistyEntriesGap = 18.0;
-  static const watermarkSize = 128.0;
+  static const watermarkSize = 132.0;
+  static const watermarkVisibleHeight = 88.0;
+  static const watermarkLetterSpacing = -7.0;
+  static const watermarkOpacity = .07;
   static LinearGradient compactGradient(AppTokens t, double opacity) =>
       LinearGradient(
         begin: Alignment.topCenter,
@@ -1111,7 +1135,6 @@ abstract final class TabChromeTokens {
   static const seamOverlap = 34.0;
   static const paperTopInset = 6.0;
   static const headerTop = 16.0;
-  static const editorialTop = 52.0;
   static const editorialBottom = 12.0;
   static const headerBottom = 32.0;
   static const pageInset = 20.0;
@@ -1121,14 +1144,17 @@ abstract final class TabChromeTokens {
   static const refreshHold = 70.0;
   static const maxPull = 160.0;
   static const pullResistance = 180.0;
-  static const refreshSize = 20.0;
-  static const refreshStroke = 2.0;
 }
 
 /// Forum directory final, 2026-11-15.
 abstract final class ForumDirectoryTokens {
   static const paperTopInset = TabChromeTokens.paperTopInset;
-  static const sectionPadding = EdgeInsets.fromLTRB(34, 26, 34, 10);
+  static const sectionPadding = EdgeInsets.fromLTRB(
+    AppSpace.groupLabelInset,
+    26,
+    AppSpace.groupLabelInset,
+    10,
+  );
   static const markerSize = 36.0;
   static const markerRadius = 12.0;
   static const markerIconSize = 20.0;
@@ -1154,7 +1180,12 @@ abstract final class MessageListTokens {
   static const cardRadius = 22.0;
   static const inset = 16.0;
   static const cardPadding = 4.0;
-  static const labelPadding = EdgeInsets.fromLTRB(34, 16, 34, 6);
+  static const labelPadding = EdgeInsets.fromLTRB(
+    AppSpace.groupLabelInset,
+    16,
+    AppSpace.groupLabelInset,
+    6,
+  );
   static List<BoxShadow> cardShadow(AppTokens t) =>
       t.shadowE1.where((s) => s.blurRadius > 0).toList();
 }

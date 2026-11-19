@@ -16,6 +16,7 @@ import 'package:chh_app/ui/grouped.dart';
 import 'package:chh_app/ui/nav_bar.dart';
 import 'package:chh_app/widgets/expressive_controls.dart';
 import 'package:chh_app/widgets/level_badge.dart';
+import 'package:chh_app/widgets/chhers_loader.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -171,9 +172,9 @@ void main() {
     expect(find.text('加入黑名单'), findsOneWidget);
     expect(rows.map((row) => row.title), ['注册时间', '最后访问', '上次发表', '好友']);
     expect(rows.map((row) => row.value), [
-      '2001-01-01 00:00',
-      '2001-02-03 04:05',
-      '2001-02-03 04:00',
+      '2001年1月1日',
+      '2001年2月3日',
+      '2001年2月3日',
       '24',
     ]);
     for (final row in rows) {
@@ -379,7 +380,7 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.text('差 1120 积分'), findsOneWidget);
-      expect(find.byType(CircularProgressIndicator), findsNothing);
+      expect(find.byType(ChhersLoader), findsNothing);
       expect(_progressFactor(tester), 0);
       result.complete(lower);
       await tester.pump();
@@ -518,7 +519,7 @@ void main() {
       ),
     );
     expect(find.text('个人主页'), findsNothing);
-    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(find.byType(ChhersLoader), findsOneWidget);
     expect(find.byTooltip('关闭'), findsOneWidget);
     result.complete(const UserProfile(uid: '42', name: '离线用户'));
     await tester.pumpAndSettle();

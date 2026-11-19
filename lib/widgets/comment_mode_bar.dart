@@ -8,11 +8,13 @@ import 'package:flutter/services.dart';
 import 'package:solar_icons/solar_icons.dart';
 
 import '../core/reading_prefs.dart';
+import '../design/loading_tokens.dart';
 import '../design/message_tokens.dart';
 import '../design/motion.dart';
 import '../design/tokens.dart';
 import '../design/typography.dart';
 import 'expressive_controls.dart' show ActionFocusRing;
+import 'chhers_loader.dart';
 export '../core/reading_prefs.dart' show CommentViewMode;
 
 /// A bounded width is the space left after the heading, count and 12dp gap.
@@ -27,7 +29,7 @@ class CommentModeBar extends StatefulWidget {
     super.key,
     required this.mode,
     required this.onChanged,
-    this.authorLabel = '只看楼主',
+    this.authorLabel = '楼主',
     this.showAuthor = true,
   });
 
@@ -44,7 +46,7 @@ class _CommentModeBarState extends State<CommentModeBar>
   late final _fade = AnimationController(
     vsync: this,
     value: 1,
-    duration: AppMotion.fade,
+    duration: AppMotion.reducedFade,
   );
   late int _target = _index;
   bool _reduced = false;
@@ -59,7 +61,7 @@ class _CommentModeBarState extends State<CommentModeBar>
       CommentViewMode.values.indexOf(widget.mode).clamp(0, _count - 1);
   List<String> get _labels => [
     '评论',
-    '原楼层',
+    '楼层',
     if (widget.showAuthor) widget.authorLabel,
   ];
   static const _icons = [
@@ -153,24 +155,39 @@ class _CommentModeBarState extends State<CommentModeBar>
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
     final widths = _measureLabels();
-    final naturalWidth =
-        widths.reduce(math.max) +
-        CommentModeTokens.leading +
-        CommentModeTokens.iconSize +
-        CommentModeTokens.labelGap +
-        CommentModeTokens.trailing +
+    final segmentWidths = widths
+        .map(
+          (labelWidth) =>
+              labelWidth +
+              CommentModeTokens.leading +
+              CommentModeTokens.iconSize +
+              CommentModeTokens.labelGap +
+              CommentModeTokens.trailing,
+        )
+        .toList();
+    const insets = 2 * CommentModeTokens.inset;
+    final fullWidth = segmentWidths.reduce((a, b) => a + b) + insets;
+    final compactWidth =
+        segmentWidths.reduce(math.max) +
         (_count - 1) * CommentModeTokens.minimumSegment +
-        2 * CommentModeTokens.inset;
+        insets;
     return RepaintBoundary(
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final iconsOnly = naturalWidth > constraints.maxWidth;
-          final width = iconsOnly
-              ? _count * CommentModeTokens.iconSegment +
-                    2 * CommentModeTokens.inset
-              : naturalWidth;
-          final geometry = _ModeGeometry(widths, width, iconsOnly);
-          final step = (width - 2 * CommentModeTokens.inset) / _count;
+          final allLabels = fullWidth <= constraints.maxWidth;
+          final iconsOnly = compactWidth > constraints.maxWidth;
+          final width = allLabels
+              ? fullWidth
+              : iconsOnly
+              ? _count * CommentModeTokens.iconSegment + insets
+              : compactWidth;
+          final geometry = _ModeGeometry(
+            widths,
+            width,
+            iconsOnly,
+            allLabels ? segmentWidths : null,
+          );
+          final step = (width - insets) / _count;
           return Align(
             alignment: Alignment.centerRight,
             widthFactor: 1,
@@ -232,7 +249,9 @@ class _CommentModeBarState extends State<CommentModeBar>
                           child: DecoratedBox(
                             key: const ValueKey('comment-mode-track'),
                             decoration: BoxDecoration(
-                              color: MessageTokens.standardTrack(t, false),
+                              color: t.isDark
+                                  ? t.surface
+                                  : MessageTokens.standardTrack(t, false),
                               borderRadius: BorderRadius.circular(
                                 CommentModeTokens.trackHeight / 2,
                               ),
@@ -273,11 +292,12 @@ class _CommentModeBarState extends State<CommentModeBar>
                               labelShift: geometry.labelShift(
                                 segments[i],
                                 widths[i],
-                                _emphasis(p, i),
+                                allLabels ? 1 : _emphasis(p, i),
                               ),
                               iconsOnly: iconsOnly,
                               emphasis: _emphasis(p, i),
-                              fade: _reduced ? _fade.value : 1,
+                              reveal: allLabels ? 1 : _emphasis(p, i),
+                              fade: _reduced && i == _target ? _fade.value : 1,
                               onTap: () => _select(i),
                             ),
                           ),
@@ -307,6 +327,7 @@ class _ModeGeometry {
   final List<double> labels;
   final double width;
   final bool iconsOnly;
+  final List<double>? fixedWidths;
   late final states = List.generate(labels.length, (selected) {
     final selectedWidth = iconsOnly
         ? CommentModeTokens.iconSegment
@@ -320,13 +341,13 @@ class _ModeGeometry {
         (labels.length - 1);
     var x = CommentModeTokens.inset;
     return List.generate(labels.length, (i) {
-      final w = i == selected ? selectedWidth : rest;
+      final w = fixedWidths?[i] ?? (i == selected ? selectedWidth : rest);
       final frame = (x, w);
       x += w;
       return frame;
     });
   });
-  _ModeGeometry(this.labels, this.width, this.iconsOnly);
+  _ModeGeometry(this.labels, this.width, this.iconsOnly, this.fixedWidths);
 
   (int, int, double) _interval(double p) {
     final q = p.clamp(0.0, labels.length - 1.0);
@@ -391,6 +412,7 @@ class _ModeSegment extends StatefulWidget {
   final double labelWidth;
   final double labelShift;
   final double emphasis;
+  final double reveal;
   final double fade;
   final VoidCallback onTap;
   const _ModeSegment({
@@ -402,6 +424,7 @@ class _ModeSegment extends StatefulWidget {
     required this.labelWidth,
     required this.labelShift,
     required this.emphasis,
+    required this.reveal,
     required this.fade,
     required this.onTap,
   });
@@ -438,7 +461,7 @@ class _ModeSegmentState extends State<_ModeSegment>
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
     final color = Color.lerp(t.text2, t.text, widget.emphasis)!;
-    final reveal = widget.iconsOnly ? 0.0 : widget.emphasis;
+    final reveal = widget.reveal;
     return Semantics(
       label: widget.label,
       button: true,
@@ -535,23 +558,15 @@ class CommentModeBusy extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = AppTokens.of(context);
-    return Text.rich(
+    return const Text.rich(
       TextSpan(
         children: [
           WidgetSpan(
             alignment: PlaceholderAlignment.middle,
-            child: SizedBox.square(
-              dimension: 12,
-              child: CircularProgressIndicator(
-                strokeWidth: 1.5,
-                color: t.text3,
-              ),
-            ),
+            child: ChhersSpinner(size: LoadingTokens.input),
           ),
         ],
       ),
-      semanticsLabel: '正在切换',
       style: AppType.footnote,
     );
   }

@@ -1,6 +1,7 @@
 import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/design/icons.dart';
 import 'package:chh_app/ui/press.dart';
+import 'package:chh_app/ui/chrome_button.dart';
 import 'package:chh_app/design/tokens.dart';
 import 'package:chh_app/ui/quote.dart';
 import 'package:chh_app/ui/reading_bar.dart';
@@ -167,6 +168,45 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
     expect(tester.widget<Text>(find.text('写评论…')).maxLines, 1);
+  });
+
+  testWidgets('thread bar has a 24dp paper fade and an accent count badge', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      app(
+        ReadingBar(
+          placeholder: '写回复…',
+          threadStyle: true,
+          onCompose: () {},
+          count: 9,
+          inComments: false,
+          onShowComments: () {},
+          onBackToTop: () {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final bar = find.byType(ReadingBar);
+    final t = AppTokens.of(tester.element(bar));
+    final fade = find.descendant(
+      of: bar,
+      matching: find.byWidgetPredicate(
+        (widget) =>
+            widget is DecoratedBox &&
+            widget.decoration is BoxDecoration &&
+            (widget.decoration as BoxDecoration).gradient is LinearGradient,
+      ),
+    );
+    final fadeBox = tester.widget<DecoratedBox>(fade);
+    final gradient =
+        (fadeBox.decoration as BoxDecoration).gradient! as LinearGradient;
+    expect(gradient.stops![1] * tester.getSize(fade).height, closeTo(24, .01));
+    expect(gradient.colors, [t.bg.withValues(alpha: 0), t.bg]);
+    final badge = tester.widget<DecoratedBox>(
+      find.byKey(CountBadge.surfaceKey),
+    );
+    expect((badge.decoration as BoxDecoration).color, t.accent);
   });
 
   testWidgets('quote block uses a rounded neutral fill without a rule', (

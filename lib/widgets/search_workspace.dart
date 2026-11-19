@@ -11,7 +11,8 @@ import 'expressive_controls.dart';
 import 'package:solar_icons/solar_icons.dart';
 
 import '../design/tokens.dart';
-import '../design/shapes.dart';
+import '../design/thread_row_tokens.dart';
+import '../ui/feedback.dart';
 import '../models/models.dart';
 
 /// Actual queries submitted during this process session, never a fabricated hot list.
@@ -114,11 +115,13 @@ class SearchWorkspaceInput extends StatelessWidget {
       focusNode: focusNode,
       hint: '搜索帖子与讨论',
       onClear: onClear,
-      // 没有独立的搜索按钮:键盘搜索键提交;检索中清除钮换成小转圈
+      // 键盘搜索键提交，检索期间仍可清除。
       onSubmitted: (_) {
         if (controller.text.trim().isNotEmpty) onSubmit();
       },
-      busy: loading && controller.text.trim() == submitted,
+      busy: submitted.isNotEmpty && controller.text.trim() == submitted
+          ? loading
+          : null,
     ),
   );
 }
@@ -127,30 +130,24 @@ class SearchResultCard extends StatelessWidget {
   final ThreadSummary thread;
   final String keyword;
   final VoidCallback onTap;
+  final bool trimEmptyTail;
   const SearchResultCard({
     super.key,
     required this.thread,
     required this.keyword,
     required this.onTap,
+    this.trimEmptyTail = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    final source = thread.forumName?.trim();
-    final author = thread.author.trim();
-    // 监听放在行级:一次 markRead 只重建这一行
     return ReadStateBuilder(
       tid: thread.tid,
       replies: thread.replies,
-      builder: (context, state) => SearchResultRow(
-        title: thread.title,
+      builder: (context, state) => ThreadRow(
+        thread: thread,
         query: keyword,
-        snippet: thread.snippet?.trim(),
-        meta: [
-          if (source != null && source.isNotEmpty) source,
-          if (author.isNotEmpty) author,
-          '${thread.replies} 回复',
-        ],
+        trimEmptySearchTail: trimEmptyTail,
         onTap: onTap,
         readState: state,
       ),
@@ -177,7 +174,12 @@ class SearchStatusPanel extends StatelessWidget {
     final t = AppTokens.of(context);
     return ListView(
       primary: true,
-      padding: const EdgeInsets.fromLTRB(24, 36, 24, 32),
+      padding: const EdgeInsets.fromLTRB(
+        AppSpace.screen,
+        36,
+        AppSpace.screen,
+        32,
+      ),
       children: [
         Align(
           alignment: Alignment.centerLeft,
@@ -225,61 +227,21 @@ class SearchStatusPanel extends StatelessWidget {
 class SearchLoadingPanel extends StatelessWidget {
   const SearchLoadingPanel({super.key});
   @override
-  Widget build(BuildContext context) {
-    final t = AppTokens.of(context);
-    return Semantics(
-      label: '正在搜索',
-      liveRegion: true,
-      child: ExcludeSemantics(
+  Widget build(BuildContext context) => Semantics(
+    label: '正在搜索',
+    liveRegion: true,
+    child: ExcludeSemantics(
+      child: LoadingPlaceholder(
         child: ListView.builder(
           primary: true,
-          padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
-          itemCount: 3,
-          itemBuilder: (context, index) => Container(
-            padding: const EdgeInsets.all(18),
-            margin: const EdgeInsets.only(bottom: 12),
-            decoration: ShapeDecoration(
-              color: t.surface,
-              shape: appShape(AppRadii.lg),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                FractionallySizedBox(
-                  widthFactor: lerpDouble(.65, .9, index / 2),
-                  child: Container(
-                    height: 15,
-                    decoration: BoxDecoration(
-                      color: t.fill,
-                      borderRadius: BorderRadius.circular(AppRadii.xs),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                FractionallySizedBox(
-                  widthFactor: .9,
-                  child: Container(
-                    height: 12,
-                    decoration: BoxDecoration(
-                      color: t.fill,
-                      borderRadius: BorderRadius.circular(AppRadii.xs),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 18),
-                Container(
-                  width: 96,
-                  height: 11,
-                  decoration: BoxDecoration(
-                    color: t.fill,
-                    borderRadius: BorderRadius.circular(AppRadii.xs),
-                  ),
-                ),
-              ],
-            ),
+          padding: EdgeInsets.zero,
+          itemCount: ThreadRowTokens.searchSkeletonRows,
+          itemBuilder: (context, index) => const PlainRow(
+            verticalPadding: ThreadRowTokens.verticalPadding,
+            child: SearchThreadRowLayout.skeleton(),
           ),
         ),
       ),
-    );
-  }
+    ),
+  );
 }

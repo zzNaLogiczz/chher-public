@@ -7,6 +7,7 @@ import 'package:chh_app/models/models.dart';
 import 'package:chh_app/models/post_interaction.dart';
 import 'package:chh_app/parser/post_action_parser.dart';
 import 'package:chh_app/widgets/post_action_menu.dart';
+import 'package:chh_app/widgets/chhers_loader.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -145,7 +146,7 @@ void main() {
       selected: (value) => selected = value,
     );
     expect(find.text('正在检查评分权限'), findsOneWidget);
-    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(find.byType(ChhersSpinner), findsOneWidget);
     expect(find.text('重试'), findsNothing);
     await tester.tap(find.text('评分'));
     await tester.pump();
@@ -280,17 +281,20 @@ void main() {
   testWidgets('reduced motion keeps checking indicator static', (tester) async {
     final gate = Completer<PostRateForm>();
     await openMenu(tester, check: () => gate.future, reducedMotion: true);
+    await tester.pump(const Duration(milliseconds: 150));
+    final spinner = find.byType(ChhersSpinner);
     expect(
-      tester
-          .widget<CircularProgressIndicator>(
-            find.byType(CircularProgressIndicator),
-          )
-          .value,
-      .75,
+      find.descendant(of: spinner, matching: find.byType(RotationTransition)),
+      findsNothing,
     );
+    final fade = find.descendant(
+      of: spinner,
+      matching: find.byType(FadeTransition),
+    );
+    expect(tester.widget<FadeTransition>(fade).opacity.value, .75);
     gate.complete(form());
     await tester.pumpAndSettle();
-    expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(find.byType(ChhersSpinner), findsNothing);
     expect(find.text('邪恶指数，今日可用 4'), findsOneWidget);
   });
 

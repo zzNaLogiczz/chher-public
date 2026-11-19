@@ -38,6 +38,8 @@ void main() {
       ),
     );
     expect(find.text('账号资料'), findsOneWidget);
+    expect(tester.getTopLeft(find.text('账号资料')).dx, AppSpace.groupLabelInset);
+    expect(tester.getTopLeft(find.text('性别')).dx, AppSpace.groupLabelInset);
     expect(tester.getSize(find.byType(GroupedRow)).height, 44);
     expect(find.text('资料只读，修改需在网页端进行。'), findsOneWidget);
     expect(find.byIcon(AppIcons.forward), findsNothing);
@@ -68,10 +70,7 @@ void main() {
           children: [
             GroupedRow(
               title: '设置',
-              icon: const IconTile(
-                icon: AppIcons.settings,
-                tint: IconTints.gray,
-              ),
+              icon: const IconTile(icon: AppIcons.settingsBold),
               onTap: () => taps++,
             ),
           ],
@@ -92,21 +91,24 @@ void main() {
     expect(tester.getSize(find.byType(GroupedRow)).height, 44);
   });
 
-  testWidgets('icon tile is a 30dp tinted square with a white glyph', (
+  testWidgets('icon tile uses the theme accent on its tinted square', (
     tester,
   ) async {
     await tester.pumpWidget(
       app(
         const Align(
           alignment: Alignment.centerLeft,
-          child: IconTile(icon: AppIcons.bookmark, tint: IconTints.orange),
+          child: IconTile(icon: AppIcons.bookmarkFilled),
         ),
       ),
     );
-    expect(tester.getSize(find.byType(IconTile)), const Size(30, 30));
     expect(
-      tester.widget<Icon>(find.byIcon(AppIcons.bookmark)).color,
-      Colors.white,
+      tester.getSize(find.byType(IconTile)),
+      const Size.square(EntryIconTokens.size),
+    );
+    expect(
+      tester.widget<Icon>(find.byIcon(AppIcons.bookmarkFilled)).color,
+      AppTokens.of(tester.element(find.byType(IconTile))).accent,
     );
   });
 

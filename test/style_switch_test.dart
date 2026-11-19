@@ -2,6 +2,8 @@
 /// 设置页入口,以及薄暮壳下分段切换不复现灰屏。
 library;
 
+import 'dart:math' as math;
+
 import 'package:chh_app/core/appearance.dart';
 import 'package:chh_app/data/message_repository.dart';
 import 'package:chh_app/design/theme.dart';
@@ -194,17 +196,94 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('薄暮启动屏用纸面底', (tester) async {
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: buildAppTheme(Brightness.light, AppearanceStyle.misty),
-        home: const LaunchSplash(),
-      ),
-    );
-    expect(find.text('chh'), findsOneWidget);
-    final context = tester.element(find.text('chh'));
-    expect(AppTokens.of(context).style, AppearanceStyle.misty);
-  });
+  for (final style in AppearanceStyle.values) {
+    for (final brightness in Brightness.values) {
+      testWidgets('启动屏居中绘制 R2b 标志 $style $brightness', (tester) async {
+        const splash = LaunchSplash();
+        await tester.pumpWidget(
+          MaterialApp(theme: buildAppTheme(brightness, style), home: splash),
+        );
+        expect(find.text('chh'), findsNothing);
+        expect(find.text('Chhers'), findsNothing);
+        expect(find.bySemanticsLabel('Chhers'), findsOneWidget);
+        expect(find.text('非官方 CHH 客户端'), findsOneWidget);
+
+        final mark = find.descendant(
+          of: find.byWidget(splash),
+          matching: find.byType(CustomPaint),
+        );
+        final misty = style == AppearanceStyle.misty;
+        final tokens = AppTokens.of(tester.element(mark));
+        expect(tester.getCenter(mark), tester.getCenter(find.byWidget(splash)));
+        expect(tester.getSize(mark).width, closeTo(112, .001));
+        expect(tester.getSize(mark).height, closeTo(89.07, .01));
+        expect(
+          find.ancestor(of: mark, matching: find.byType(RepaintBoundary)),
+          findsWidgets,
+        );
+        final backdrop = find
+            .descendant(
+              of: find.byWidget(splash),
+              matching: find.byType(DecoratedBox),
+            )
+            .first;
+        final decoration = tester.widget<DecoratedBox>(backdrop).decoration;
+        final background = decoration as BoxDecoration;
+        expect(background.color, misty ? tokens.bg : null);
+        expect(background.gradient, misty ? null : tokens.lacGradient);
+
+        final canvas = TestRecordingCanvas();
+        tester
+            .widget<CustomPaint>(mark)
+            .painter!
+            .paint(canvas, tester.getSize(mark));
+        final paths = [
+          for (final record in canvas.invocations)
+            if (record.invocation.memberName == #drawPath)
+              record.invocation.positionalArguments,
+        ];
+        expect(paths, hasLength(misty ? 1 : 2));
+        final ink = paths.last.first as Path;
+        final paint = paths.last.last as Paint;
+        final strokes = ink.computeMetrics().toList();
+        expect(strokes, hasLength(13)); // 10 paths, 3 separate joins.
+        // getBounds includes the Bézier control points, outside the curves.
+        final inkX = [
+          for (final stroke in strokes)
+            for (var i = 0; i <= 128; i++)
+              stroke.getTangentForOffset(stroke.length * i / 128)!.position.dx,
+        ];
+        expect(inkX.reduce(math.min) - paint.strokeWidth / 2, closeTo(0, .02));
+        expect(
+          inkX.reduce(math.max) + paint.strokeWidth / 2,
+          closeTo(112, .02),
+        );
+        expect(paint.strokeCap, StrokeCap.round);
+        expect(paint.strokeJoin, StrokeJoin.round);
+        expect(paint.strokeWidth, closeTo(9.15, .01));
+        expect(
+          paint.color.toARGB32(),
+          (misty ? tokens.text : tokens.onLac).toARGB32(),
+        );
+        expect(paint.maskFilter, isNull);
+        if (!misty) {
+          final shadow = paths.first.first as Path;
+          final shadowPaint = paths.first.last as Paint;
+          expect(
+            shadowPaint.color.toARGB32(),
+            LacquerMarks.launchMarkShadow.toARGB32(),
+          );
+          expect(shadowPaint.maskFilter, isNotNull);
+          expect(
+            shadow.getBounds().top - ink.getBounds().top,
+            closeTo(3, .001),
+          );
+        }
+        await tester.pump(const Duration(seconds: 2));
+        expect(tester.binding.transientCallbackCount, 0);
+      });
+    }
+  }
 
   testWidgets('朱砂上线引导:设置页内红点可见,离开后永久消失', (tester) async {
     final controller = AppearanceController(directory: () async => null);
@@ -289,16 +368,5 @@ void main() {
     await tester.pump(const Duration(milliseconds: 250));
     badge = tester.widget<DotBadge>(find.byType(DotBadge));
     expect(badge.visible, isFalse);
-  });
-
-  testWidgets('朱砂启动屏保持漆面渐变', (tester) async {
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: buildAppTheme(Brightness.light, AppearanceStyle.cinnabar),
-        home: const LaunchSplash(),
-      ),
-    );
-    final context = tester.element(find.text('chh'));
-    expect(AppTokens.of(context).style, AppearanceStyle.cinnabar);
   });
 }

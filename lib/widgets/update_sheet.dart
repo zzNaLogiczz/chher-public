@@ -6,6 +6,7 @@ library;
 
 import 'package:flutter/material.dart';
 
+import '../design/brand.dart';
 import '../design/tokens.dart';
 import '../design/typography.dart';
 import '../ui/app_button.dart';
@@ -235,7 +236,7 @@ class _UpdateSheetState extends State<UpdateSheet> with WidgetsBindingObserver {
     children: [
       Expanded(
         child: Text(
-          '需要允许 Chher 安装应用',
+          '需要允许 $appDisplayName 安装应用',
           style: AppType.subhead.copyWith(color: t.text2),
         ),
       ),

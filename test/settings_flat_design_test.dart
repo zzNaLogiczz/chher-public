@@ -4,7 +4,7 @@ import 'package:chh_app/core/app_info.dart';
 import 'package:chh_app/core/appearance.dart';
 import 'package:chh_app/data/image_disk_cache.dart';
 import 'package:chh_app/design/icons.dart';
-import 'package:solar_icons/solar_icons.dart';
+import 'package:chh_app/ui/grouped.dart';
 import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/design/tokens.dart';
 import 'package:chh_app/di.dart';
@@ -134,10 +134,7 @@ void main() {
           await _show(tester, find.text('图片缓存'));
           expect(find.text('通用'), findsOneWidget);
           expect(find.text('1.5 KB'), findsOneWidget);
-          expect(
-            find.byIcon(SolarIconsBold.galleryMinimalistic),
-            findsOneWidget,
-          );
+          expect(find.byIcon(AppIcons.imageBold), findsOneWidget);
           await tester.tap(find.text('图片缓存'));
           await tester.pumpAndSettle();
           expect(find.text('清除图片缓存？'), findsOneWidget);
@@ -149,9 +146,26 @@ void main() {
           await _show(tester, find.text('运行日志'));
           expect(find.byIcon(AppIcons.logBold), findsOneWidget);
           await _show(tester, find.byKey(const ValueKey('settings-about')));
-          expect(find.text('关于 Chher'), findsOneWidget);
+          expect(find.text('关于 Chhers'), findsOneWidget);
           expect(find.text(AppInfo.version), findsOneWidget);
-          expect(find.byType(Image), findsOneWidget);
+          expect(find.byIcon(AppIcons.infoBold), findsOneWidget);
+          final tiles = find.byType(IconTile);
+          for (final decoration in tester.widgetList<DecoratedBox>(
+            find.descendant(of: tiles, matching: find.byType(DecoratedBox)),
+          )) {
+            final color = (decoration.decoration as BoxDecoration).color!;
+            expect(color, tokens.accentFill);
+            if (tokens.isDark) {
+              expect(
+                Color.alphaBlend(color, tokens.surface).computeLuminance(),
+                lessThan(.1),
+              );
+            }
+          }
+          expect(
+            tester.widget<Icon>(find.byIcon(AppIcons.infoBold)).color,
+            tokens.accent,
+          );
 
           await _show(tester, find.text('退出登录'));
           final logout = find.byKey(const ValueKey('settings-logout'));
@@ -273,7 +287,7 @@ void main() {
     await tester.pumpAndSettle();
     await _show(tester, find.byKey(const ValueKey('settings-about')));
     expect(find.text('退出登录'), findsNothing);
-    expect(find.text('关于 Chher'), findsOneWidget);
+    expect(find.text('关于 Chhers'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   });

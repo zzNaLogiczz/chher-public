@@ -4,6 +4,8 @@ library;
 import 'dart:ui' as ui;
 import 'dart:ui' show lerpDouble;
 import 'package:flutter/foundation.dart';
+import '../ui/balanced_title.dart';
+import '../design/display_text.dart';
 import '../design/motion.dart';
 import '../design/typography.dart';
 
@@ -11,6 +13,7 @@ import 'package:flutter/material.dart';
 
 import '../data/editorial_cover_cache.dart';
 import '../design/tokens.dart';
+import '../design/image_tokens.dart';
 import '../design/shapes.dart';
 import '../models/models.dart';
 import 'net_image.dart';
@@ -245,6 +248,14 @@ class _CoverContents extends StatelessWidget {
           final inset = feature
               ? HomeCoverTokens.inset
               : lerpDouble(20, 24, prominence)!;
+          final title = normalizeDisplayText(article.title);
+          final titleStyle = TextStyle(
+            color: foreground,
+            fontSize: textSize,
+            height: 1.22,
+            letterSpacing: -.55,
+            fontWeight: FontWeight.w700,
+          );
           final category = article.categoryName?.trim();
           final label =
               eyebrow ??
@@ -262,7 +273,7 @@ class _CoverContents extends StatelessWidget {
 
           return Semantics(
             image: true,
-            label: article.title,
+            label: title,
             child: ExcludeSemantics(
               child: Stack(
                 fit: StackFit.expand,
@@ -324,24 +335,33 @@ class _CoverContents extends StatelessWidget {
                             const SizedBox(height: 8),
                           ],
                           if (feature)
-                            _BalancedFeatureTitle(article.title)
-                          else
+                            BalancedTitle(
+                              title,
+                              key: const ValueKey('editorial-balanced-title'),
+                              style: titleStyle,
+                              maxLines: 3,
+                              measurementWidth:
+                                  (MediaQuery.sizeOf(context).width -
+                                          2 * (HomeTokens.inset + inset))
+                                      .clamp(1.0, double.infinity),
+                            )
+                          else if (flightProgress != null)
                             Text(
-                              article.title,
+                              title,
                               maxLines: 3,
                               overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                color: foreground,
-                                fontSize: textSize,
-                                height: 1.22,
-                                letterSpacing: -.55,
-                                fontWeight: FontWeight.w700,
-                              ),
+                              style: titleStyle,
+                            )
+                          else
+                            BalancedTitle(
+                              title,
+                              maxLines: 3,
+                              style: titleStyle,
                             ),
                           if (showSummary) ...[
                             const SizedBox(height: 12),
                             Text(
-                              summary!,
+                              normalizeDisplayText(summary!),
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
@@ -399,6 +419,7 @@ class _CoverContents extends StatelessWidget {
     final photo = NetImage(
       key: ValueKey('$coverUrl:$fit'),
       url: coverUrl!,
+      dimInDark: true,
       width: double.infinity,
       height: double.infinity,
       fit: fit,
@@ -416,82 +437,6 @@ class _CoverContents extends StatelessWidget {
       layoutBuilder: (current, previous) =>
           Stack(fit: StackFit.expand, children: [...previous, ?current]),
       child: photo,
-    );
-  }
-}
-
-class _BalancedFeatureTitle extends StatefulWidget {
-  final String title;
-  const _BalancedFeatureTitle(this.title);
-
-  @override
-  State<_BalancedFeatureTitle> createState() => _BalancedFeatureTitleState();
-}
-
-class _BalancedFeatureTitleState extends State<_BalancedFeatureTitle> {
-  static const _style = TextStyle(
-    color: ImageColors.foreground,
-    fontSize: HomeCoverTokens.titleSize,
-    height: 1.22,
-    letterSpacing: -.55,
-    fontWeight: FontWeight.w700,
-  );
-  Object? _measurement;
-  double _width = 0;
-
-  @override
-  Widget build(BuildContext context) {
-    final scaler = MediaQuery.textScalerOf(context);
-    final direction = Directionality.of(context);
-    final locale = Localizations.maybeLocaleOf(context);
-    // Use the resting card width, never the Hero's changing flight rectangle.
-    final available =
-        (MediaQuery.sizeOf(context).width -
-                HomeTokens.inset * 2 -
-                HomeCoverTokens.inset * 2)
-            .clamp(1.0, double.infinity);
-    final measurement = (
-      widget.title,
-      available,
-      scaler.scale(HomeCoverTokens.titleSize),
-      direction,
-      locale,
-    );
-    if (_measurement != measurement) {
-      _measurement = measurement;
-      final painter = TextPainter(
-        text: TextSpan(text: widget.title, style: _style),
-        textDirection: direction,
-        textScaler: scaler,
-        locale: locale,
-      )..layout(maxWidth: available);
-      final lines = painter.computeLineMetrics().length;
-      _width = available;
-      if (lines > 1 && lines <= 3) {
-        var low = available / lines;
-        var high = available;
-        while (high - low > .5) {
-          final middle = (low + high) / 2;
-          painter.layout(maxWidth: middle);
-          if (painter.computeLineMetrics().length > lines) {
-            low = middle;
-          } else {
-            high = middle;
-          }
-        }
-        _width = high;
-      }
-      painter.dispose();
-    }
-    return SizedBox(
-      key: const ValueKey('editorial-balanced-title'),
-      width: _width,
-      child: Text(
-        widget.title,
-        maxLines: 3,
-        overflow: TextOverflow.ellipsis,
-        style: _style,
-      ),
     );
   }
 }
@@ -676,6 +621,9 @@ class _FeaturePhotoState extends State<_FeaturePhoto>
           portrait: _portrait?.image,
           blur: _blur,
           fade: _fade,
+          colorFilter: AppTokens.of(context).isDark
+              ? ImageTokens.darkFilter
+              : null,
         ),
       );
     },
@@ -699,11 +647,13 @@ class _FeaturePhotoPainter extends CustomPainter {
   final ui.Image? portrait;
   final ui.Image? blur;
   final Animation<double> fade;
+  final ColorFilter? colorFilter;
   _FeaturePhotoPainter({
     this.wide,
     this.portrait,
     this.blur,
     required this.fade,
+    this.colorFilter,
   }) : super(repaint: fade);
 
   @override
@@ -713,7 +663,9 @@ class _FeaturePhotoPainter extends CustomPainter {
         image,
         Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
         Offset.zero & size,
-        Paint()..filterQuality = FilterQuality.low,
+        Paint()
+          ..colorFilter = colorFilter
+          ..filterQuality = FilterQuality.low,
       );
     }
     if (wide case final image?) {
@@ -739,6 +691,7 @@ class _FeaturePhotoPainter extends CustomPainter {
           ),
           Paint()
             ..color = ImageColors.foreground.withValues(alpha: alpha)
+            ..colorFilter = colorFilter
             ..filterQuality = FilterQuality.low,
         );
       }
@@ -751,6 +704,7 @@ class _FeaturePhotoPainter extends CustomPainter {
         fit: BoxFit.cover,
         alignment: HomeCoverTokens.portraitAlignment,
         opacity: fade.value,
+        colorFilter: colorFilter,
       );
     }
   }
@@ -760,5 +714,6 @@ class _FeaturePhotoPainter extends CustomPainter {
       oldDelegate.wide != wide ||
       oldDelegate.portrait != portrait ||
       oldDelegate.blur != blur ||
-      oldDelegate.fade != fade;
+      oldDelegate.fade != fade ||
+      oldDelegate.colorFilter != colorFilter;
 }

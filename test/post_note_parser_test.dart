@@ -54,17 +54,6 @@ void main() {
     expect(parseSupplement(notes.single.text)!.text, '第一段\n\n第二段');
   });
 
-  test('supplement date omits only the current year', () {
-    final now = DateTime(2026, 11, 15);
-    expect(supplementDateLabel('2026-11-11 09:26', now: now), '11月11日 09:26');
-    expect(
-      supplementDateLabel('2025-11-11 09:26', now: now),
-      '2025年11月11日 09:26',
-    );
-    expect(supplementDateLabel('2026-1-2 9:06:15', now: now), '1月2日 09:06');
-    expect(supplementDateLabel('未知时间', now: now), '未知时间');
-  });
-
   test('unsupported supplement links stay in the original rich body', () {
     final root = html_parser
         .parseFragment('''<section>
@@ -249,7 +238,10 @@ void main() {
       isFalse,
     );
     expect(postEditedTime('本帖最后由 合成作者 于 2026-02-30 10:10 编辑'), isNull);
-    expect(postEditedLabel(valid.text), '最后编辑于 2026-11-15 10:10');
+    expect(
+      postEditedLabel(valid.text, now: DateTime(2026, 11, 19)),
+      '最后编辑于 11月15日 10:10',
+    );
     expect(postEditedLabel('不能识别'), isNull);
   });
 

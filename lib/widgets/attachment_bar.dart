@@ -8,10 +8,12 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../attachments/attachment_controller.dart';
+import '../design/loading_tokens.dart';
 import '../design/icons.dart';
 import '../design/tokens.dart';
 import '../design/typography.dart';
 import '../ui/press.dart';
+import 'chhers_loader.dart';
 
 class AttachmentBar extends StatelessWidget {
   final AttachmentController controller;
@@ -171,21 +173,22 @@ class _Thumb extends StatelessWidget {
                     if (item.pending || failed)
                       ColoredBox(
                         color: t.glassOnImage,
-                        child: Center(
-                          child: failed
-                              ? Icon(
+                        child: failed
+                            ? Center(
+                                child: Icon(
                                   AppIcons.refresh,
                                   size: 18,
                                   color: t.onAccent,
-                                )
-                              : SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: t.onAccent,
-                                  ),
                                 ),
+                              )
+                            : null,
+                      ),
+                    if (!failed)
+                      Center(
+                        child: ChhersSpinner(
+                          active: item.pending,
+                          size: LoadingTokens.input,
+                          color: t.onAccent,
                         ),
                       ),
                   ],

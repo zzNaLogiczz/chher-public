@@ -31,6 +31,13 @@ abstract final class AppMotion {
     snapToEnd: true,
   );
 
+  /// Reading and compose controls settle from their current scroll position.
+  static const scrollChrome = CupertinoMotion(
+    duration: Duration(milliseconds: 260),
+    bounce: 0,
+    snapToEnd: true,
+  );
+
   /// 弹层、编辑器、底部面板开合、图片查看器关闭
   static const sheet = CupertinoMotion(
     duration: Duration(milliseconds: 420),
@@ -54,12 +61,35 @@ abstract final class AppMotion {
   static double noticeHighlight(double progress, {bool reduced = false}) =>
       1 - progress.clamp(0.0, 1.0);
 
-  static final heroDuration = SpringCurve(hero).duration;
+  static final viewerHeroTakeoffCurve = SpringCurve(hero);
+  static final heroDuration = viewerHeroTakeoffCurve.duration;
 
   static const fade = Duration(milliseconds: 180);
+  static const mediaFade = Duration(milliseconds: 150);
+  static const mediaFadeCurve = Curves.easeOut;
+  static const listPressDelay = Duration(milliseconds: 70);
+  static const viewerChromeOut = Duration(milliseconds: 100);
+  static const viewerChromeIn = mediaFade;
+  static const viewerScrimCurve = Curves.easeOut;
+  static const viewerHeroCurve = Curves.fastOutSlowIn;
+  static const contentFadeCurve = Curves.easeOut;
+  static const skeletonFade = Duration(milliseconds: 120);
+  static const skeletonFadeCurve = Curves.linear;
   static const skeletonDelay = Duration(milliseconds: 300);
   static const skeletonCycle = Duration(milliseconds: 1600);
   static const skeletonMinOpacity = .55;
+  static const loadingDelay = skeletonDelay;
+  static const loadingIn = mediaFade;
+  static const loadingOut = skeletonFade;
+  static const refreshSettleCurve = Cubic(.2, .8, .2, 1);
+  static const loadingCycle = Duration(milliseconds: 2100);
+  static const loadingSpin = Duration(milliseconds: 820);
+  static const loadingStrokeGap = .012;
+  static const loadingWriteEnd = .6;
+  static const loadingFadeStart = .8;
+  static const loadingFadeEnd = .95;
+  static const loadingStrokeCurve = Curves.easeInOut;
+
   static const riffleStep = Duration(milliseconds: 35);
 
   /// 发送成功后对勾停留多久再收起(规格 §6.3)

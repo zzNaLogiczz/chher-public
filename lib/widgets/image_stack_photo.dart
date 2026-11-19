@@ -7,8 +7,10 @@ import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/material.dart';
 
 import '../design/image_stack_tokens.dart';
+import '../design/motion.dart';
 import '../design/tokens.dart';
 import '../design/typography.dart';
+import '../design/image_tokens.dart';
 import 'image_grid.dart' show imageHeroPlaceholder;
 
 /// Small, preblurred pixels and a color sample from an already decoded photo.
@@ -199,7 +201,7 @@ class PhotoAtmosphere {
 }
 
 /// The picture well; its caller supplies the fixed frame and paper border.
-class ImageStackPhoto extends StatelessWidget {
+class ImageStackPhoto extends StatefulWidget {
   final ImageProvider<Object> provider;
   final double ratio;
   final bool expanded;
@@ -207,6 +209,9 @@ class ImageStackPhoto extends StatelessWidget {
   final Key? imageKey;
   final Object? heroTag;
   final PhotoAtmosphere? atmosphere;
+  final bool waitForAtmosphere;
+  final bool revealed;
+  final VoidCallback? onReady;
 
   const ImageStackPhoto({
     super.key,
@@ -217,6 +222,9 @@ class ImageStackPhoto extends StatelessWidget {
     this.imageKey,
     this.heroTag,
     this.atmosphere,
+    this.waitForAtmosphere = false,
+    this.revealed = true,
+    this.onReady,
   });
 
   static bool fillsWell(double photoRatio, double wellRatio) =>
@@ -234,30 +242,80 @@ class ImageStackPhoto extends StatelessWidget {
   }
 
   @override
+  State<ImageStackPhoto> createState() => _ImageStackPhotoState();
+}
+
+class _ImageStackPhotoState extends State<ImageStackPhoto> {
+  bool _photoDecoded = false;
+  bool _backdropDecoded = false;
+
+  @override
+  void didUpdateWidget(covariant ImageStackPhoto oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.provider != widget.provider) _photoDecoded = false;
+    if (oldWidget.atmosphere != widget.atmosphere) _backdropDecoded = false;
+  }
+
+  @override
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
     return LayoutBuilder(
       builder: (context, constraints) {
         final well = constraints.biggest;
+        final ImageStackPhoto(
+          :provider,
+          :ratio,
+          :expanded,
+          :compact,
+          :imageKey,
+          :heroTag,
+          :atmosphere,
+          :revealed,
+          :waitForAtmosphere,
+          :onReady,
+        ) = widget;
         final long = !expanded && ratio < ImageStackTokens.longRatio;
-        final fill = expanded || long || fillsWell(ratio, well.aspectRatio);
+        final fitWell = ImageStackPhoto.fillsWell(ratio, well.aspectRatio);
+        final fill = expanded || long || fitWell;
+        final backdrop = fill ? null : atmosphere;
+        void ready() {
+          if (!revealed &&
+              _photoDecoded &&
+              (expanded || !waitForAtmosphere) &&
+              (backdrop == null || _backdropDecoded)) {
+            onReady?.call();
+          }
+        }
+
         final image = Image(
           key: imageKey,
           image: provider,
-          fit: fill ? BoxFit.cover : BoxFit.contain,
+          color: t.isDark ? ImageTokens.darkTint : null,
+          colorBlendMode: BlendMode.modulate,
+          fit: long || fitWell ? BoxFit.cover : BoxFit.contain,
           alignment: long ? Alignment.topCenter : Alignment.center,
           filterQuality: FilterQuality.low,
           gaplessPlayback: true,
           excludeFromSemantics: true,
-          errorBuilder: (_, _, _) => ColoredBox(
-            color: t.fill,
-            child: Center(
-              child: Text(
-                '图片暂时无法加载',
-                style: AppType.footnote.copyWith(color: t.text2),
+          frameBuilder: (_, child, frame, synchronous) {
+            if (frame != null || synchronous) {
+              _photoDecoded = true;
+              ready();
+            }
+            return child;
+          },
+          errorBuilder: (_, _, _) {
+            if (!revealed) onReady?.call();
+            return ColoredBox(
+              color: t.fill,
+              child: Center(
+                child: Text(
+                  '图片暂时无法加载',
+                  style: AppType.footnote.copyWith(color: t.text2),
+                ),
               ),
-            ),
-          ),
+            );
+          },
         );
         final wellRadius = BorderRadius.circular(
           expanded
@@ -270,75 +328,101 @@ class ImageStackPhoto extends StatelessWidget {
           final clipped = ClipRRect(borderRadius: radius, child: image);
           return heroTag != null && !MediaQuery.disableAnimationsOf(context)
               ? Hero(
-                  tag: heroTag!,
+                  tag: heroTag,
                   placeholderBuilder: imageHeroPlaceholder,
                   child: clipped,
                 )
               : clipped;
         }
 
+        ready();
         return ClipRRect(
           borderRadius: wellRadius,
           child: ColoredBox(
             color: t.fill,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                if (!fill && atmosphere != null) ...[
-                  Image.memory(
-                    atmosphere!.backdropBytes,
-                    fit: BoxFit.cover,
-                    filterQuality: FilterQuality.low,
-                    excludeFromSemantics: true,
-                    gaplessPlayback: true,
-                  ),
-                  ColoredBox(color: ImageStackTokens.mist(t)),
-                ],
-                if (fill)
-                  clippedPhoto(wellRadius)
-                else
-                  Positioned.fromRect(
-                    rect: mountedRect(well, ratio),
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(
-                          ImageStackTokens.photoRadius,
-                        ),
-                        boxShadow: ImageStackTokens.photoShadow,
+            child: Semantics(
+              label: revealed ? null : '图片加载中',
+              child: AnimatedOpacity(
+                key: const ValueKey('image-stack-media-fade'),
+                opacity: revealed ? 1 : 0,
+                duration: AppMotion.mediaFade,
+                curve: AppMotion.mediaFadeCurve,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    if (backdrop != null) ...[
+                      Image.memory(
+                        backdrop.backdropBytes,
+                        color: t.isDark ? ImageTokens.darkTint : null,
+                        colorBlendMode: BlendMode.modulate,
+                        fit: BoxFit.cover,
+                        filterQuality: FilterQuality.low,
+                        excludeFromSemantics: true,
+                        gaplessPlayback: true,
+                        frameBuilder: (_, child, frame, synchronous) {
+                          if (frame != null || synchronous) {
+                            _backdropDecoded = true;
+                            ready();
+                          }
+                          return child;
+                        },
+                        errorBuilder: (_, _, _) {
+                          _backdropDecoded = true;
+                          ready();
+                          return const SizedBox.shrink();
+                        },
                       ),
-                      child: clippedPhoto(
-                        BorderRadius.circular(ImageStackTokens.photoRadius),
-                      ),
-                    ),
-                  ),
-                if (long)
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    child: Container(
-                      height: ImageStackTokens.longLabelHeight,
-                      alignment: Alignment.bottomCenter,
-                      padding: const EdgeInsets.all(ImageStackTokens.matInset),
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            ImageStackTokens.clear,
-                            ImageStackTokens.ink.withValues(alpha: .7),
-                          ],
-                        ),
-                      ),
-                      child: Text(
-                        '长图，点开看全部',
-                        style: AppType.footnote.copyWith(
-                          color: ImageStackTokens.onImage,
+                      ColoredBox(color: ImageStackTokens.mist(t)),
+                    ],
+                    if (fill)
+                      clippedPhoto(wellRadius)
+                    else
+                      Positioned.fromRect(
+                        rect: ImageStackPhoto.mountedRect(well, ratio),
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(
+                              ImageStackTokens.photoRadius,
+                            ),
+                            boxShadow: ImageStackTokens.photoShadow,
+                          ),
+                          child: clippedPhoto(
+                            BorderRadius.circular(ImageStackTokens.photoRadius),
+                          ),
                         ),
                       ),
-                    ),
-                  ),
-              ],
+                    if (long)
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        child: Container(
+                          height: ImageStackTokens.longLabelHeight,
+                          alignment: Alignment.bottomCenter,
+                          padding: const EdgeInsets.all(
+                            ImageStackTokens.matInset,
+                          ),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [
+                                ImageStackTokens.clear,
+                                ImageStackTokens.ink.withValues(alpha: .7),
+                              ],
+                            ),
+                          ),
+                          child: Text(
+                            '长图，点开看全部',
+                            style: AppType.footnote.copyWith(
+                              color: ImageStackTokens.onImage,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
             ),
           ),
         );

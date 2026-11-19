@@ -120,16 +120,10 @@ double baseline(WidgetTester tester, Finder text) {
   final paragraph = tester.renderObject<RenderParagraph>(
     inside(text, RichText),
   );
-  final painter = TextPainter(
-    text: paragraph.text,
-    textDirection: paragraph.textDirection,
-    textScaler: paragraph.textScaler,
-    locale: paragraph.locale,
-    strutStyle: paragraph.strutStyle,
-    textHeightBehavior: paragraph.textHeightBehavior,
-  )..layout(maxWidth: paragraph.size.width);
-  final baseline = painter.computeLineMetrics().last.baseline;
-  painter.dispose();
+  final baseline = paragraph.getDryBaseline(
+    paragraph.constraints,
+    TextBaseline.alphabetic,
+  )!;
   return paragraph.localToGlobal(Offset(0, baseline)).dy;
 }
 
@@ -237,7 +231,7 @@ void main() {
     addTearDown(controller.dispose);
     var logins = 0;
     await mount(tester, controller, onLogin: () => logins++);
-    await tester.tap(textIn(tile(1), '2001-01-02 09:30'));
+    await tester.tap(textIn(tile(1), '2001年1月2日'));
     await tester.pumpAndSettle();
     expect(logins, 0);
     await tester.tap(find.byKey(const ValueKey('article-comment-reply-1')));
@@ -279,7 +273,7 @@ void main() {
       ),
     );
     expect(
-      tester.widget<Text>(find.text('2001-01-02')).semanticsLabel,
+      tester.widget<Text>(find.text('2001年1月2日')).semanticsLabel,
       '2001-01-02 09:30',
     );
     await tester.tap(find.byKey(const ValueKey('article-comment-reply-5')));
@@ -322,7 +316,7 @@ void main() {
       await tester.pumpAndSettle();
       final root = find.byType(ArticleCommentTile);
       final reply = find.byKey(const ValueKey('article-comment-reply-1'));
-      final time = textIn(root, '2001-01-02 09:30');
+      final time = textIn(root, '2001年1月2日');
       final replyText = textIn(root, '回复');
       expect(tester.getSize(reply).height, lessThan(44));
       expect(
@@ -337,14 +331,8 @@ void main() {
       final bounds = tester.getRect(reply);
       expect(bounds.width + target.slop.horizontal, greaterThanOrEqualTo(44));
       expect(bounds.height + target.slop.vertical, greaterThanOrEqualTo(44));
-      if (scale == 1) {
-        expect(
-          baseline(tester, time) - baseline(tester, replyText),
-          closeTo(13 * .08, .01),
-        );
-      } else {
-        expect(bounds.top, greaterThan(tester.getRect(time).bottom));
-      }
+      expect(tester.widget<Text>(time).maxLines, 1);
+      expect(baseline(tester, time), closeTo(baseline(tester, replyText), .01));
       await tester.tap(time);
       expect(replies, 0);
       await tester.tapAt(Offset(bounds.center.dx, bounds.bottom + 8));

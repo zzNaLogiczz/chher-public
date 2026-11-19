@@ -65,7 +65,13 @@ void main() {
           final scroll = tester
               .state<ScrollableState>(find.byType(Scrollable).first)
               .position;
-          for (final offset in [600.0, 1500.0, 3000.0]) {
+          scroll.jumpTo(scroll.viewportDimension);
+          await tester.pumpAndSettle();
+          expect(
+            find.byKey(const ValueKey('thread-reading-progress')),
+            findsNothing,
+          );
+          for (final offset in [1000.0, 1500.0, 3000.0]) {
             scroll.jumpTo(offset);
             await tester.pumpAndSettle();
             expect(find.byType(NavOverlay), findsOneWidget);
@@ -96,7 +102,7 @@ void main() {
                 if ((x - end).abs() < 2) {
                   continue; // Fractional edge antialiasing.
                 }
-                final expected = x < end ? tokens.accent : tokens.grouped;
+                final expected = x < end ? tokens.accent : tokens.bg;
                 final pixel = (y * image.width + x) * 4;
                 final argb = expected.toARGB32();
                 for (var c = 0; c < 3; c++) {

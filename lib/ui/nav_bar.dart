@@ -37,6 +37,7 @@ class NavOverlay extends StatefulWidget {
   final double collapseAt;
   final ValueListenable<bool>? titleVisible;
   final ValueListenable<double>? readingProgress;
+  final ValueListenable<bool>? readingProgressVisible;
   final Color background;
 
   /// 小标题左右的最小留白;控件更宽时按实际宽度避让。
@@ -57,6 +58,7 @@ class NavOverlay extends StatefulWidget {
     required this.collapseAt,
     this.titleVisible,
     this.readingProgress,
+    this.readingProgressVisible,
     required this.background,
     this.titleInset = 72,
     this.fadeBelowBar = true,
@@ -177,29 +179,38 @@ class _NavOverlayState extends State<NavOverlay>
               ),
             ),
           ),
-          if (widget.readingProgress != null)
+          if ((widget.readingProgress, widget.readingProgressVisible) case (
+            final progress?,
+            final visibility?,
+          ))
             Positioned(
               top: solid - ThreadPageTokens.progressHeight,
               left: 0,
               right: 0,
-              child: AnimatedBuilder(
-                animation: _title,
-                builder: (context, _) => ValueListenableBuilder<double>(
-                  valueListenable: widget.readingProgress!,
-                  builder: (context, progress, _) => Transform.scale(
-                    key: const ValueKey('thread-reading-progress'),
-                    alignment: Alignment.centerLeft,
-                    scaleX: progress.clamp(0.0, 1.0),
-                    child: ColoredBox(
-                      color: AppTokens.of(
-                        context,
-                      ).accent.withValues(alpha: _title.value.clamp(0.0, 1.0)),
-                      child: const SizedBox(
-                        height: ThreadPageTokens.progressHeight,
-                      ),
-                    ),
-                  ),
-                ),
+              child: ValueListenableBuilder<bool>(
+                valueListenable: visibility,
+                builder: (context, visible, _) => visible
+                    ? IgnorePointer(
+                        child: ValueListenableBuilder<double>(
+                          valueListenable: progress,
+                          builder: (context, value, _) => value <= 0
+                              ? const SizedBox.shrink()
+                              : Transform.scale(
+                                  key: const ValueKey(
+                                    'thread-reading-progress',
+                                  ),
+                                  alignment: Alignment.centerLeft,
+                                  scaleX: value.clamp(0.0, 1.0),
+                                  child: ColoredBox(
+                                    color: AppTokens.of(context).accent,
+                                    child: const SizedBox(
+                                      height: ThreadPageTokens.progressHeight,
+                                    ),
+                                  ),
+                                ),
+                        ),
+                      )
+                    : const SizedBox.shrink(),
               ),
             ),
           Positioned(
@@ -266,6 +277,96 @@ class _NavOverlayState extends State<NavOverlay>
   }
 }
 
+/// Shared expanded header for the four primary destinations.
+class TabHeader extends StatelessWidget {
+  const TabHeader({
+    super.key,
+    required this.title,
+    this.eyebrow,
+    this.actionCount = 0,
+  });
+
+  final String title;
+  final String? eyebrow;
+  final int actionCount;
+
+  static double _eyebrowHeight(BuildContext context) =>
+      MediaQuery.textScalerOf(context).scale(AppType.sizeFootnote) *
+      (TabChromeTokens.eyebrowHeight / AppType.sizeFootnote);
+
+  static double _titleHeight(BuildContext context) => math.max(
+    TabChromeTokens.actionSize,
+    MediaQuery.textScalerOf(context).scale(AppType.sizeLargeTitle) *
+        (AppSpace.titleRow / AppType.sizeLargeTitle),
+  );
+
+  static double actionTop(BuildContext context) =>
+      TabChromeTokens.titleTop +
+      _eyebrowHeight(context) +
+      TabChromeTokens.eyebrowGap +
+      (_titleHeight(context) - TabChromeTokens.actionSize) / 2;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
+    final onLac = t.style == AppearanceStyle.cinnabar;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        TabChromeTokens.pageInset,
+        TabChromeTokens.titleTop,
+        TabChromeTokens.pageInset,
+        0,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            height: _eyebrowHeight(context),
+            child: Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: eyebrow == null
+                  ? null
+                  : Text(
+                      eyebrow!,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppType.footnote.copyWith(
+                        color: onLac ? t.onLac2 : t.text2,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+            ),
+          ),
+          const SizedBox(height: TabChromeTokens.eyebrowGap),
+          Padding(
+            padding: EdgeInsetsDirectional.only(
+              end: actionCount * TabChromeTokens.actionSize,
+            ),
+            child: SizedBox(
+              height: _titleHeight(context),
+              child: Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: Semantics(
+                  header: true,
+                  child: Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppType.largeTitle.copyWith(
+                      color: onLac ? t.onLac : t.text,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// 大标题行:可选眉题(日期等)+ 大标题 + 同一行右侧的一个圆钮
 class LargeTitleHeader extends StatelessWidget {
   final String title;
@@ -274,7 +375,6 @@ class LargeTitleHeader extends StatelessWidget {
 
   /// 压在漆面顶栏上:眉题淡朱、标题奶白
   final bool onLac;
-  final bool compact;
 
   const LargeTitleHeader({
     super.key,
@@ -282,7 +382,6 @@ class LargeTitleHeader extends StatelessWidget {
     this.eyebrow,
     this.accessory,
     this.onLac = false,
-    this.compact = false,
   });
 
   @override
@@ -290,33 +389,24 @@ class LargeTitleHeader extends StatelessWidget {
     final t = AppTokens.of(context);
     return Padding(
       padding: EdgeInsets.fromLTRB(
-        compact ? AppSpace.groupInset : AppSpace.screen,
+        AppSpace.screen,
         0,
-        accessory == null
-            ? (compact ? AppSpace.groupInset : AppSpace.screen)
-            : 10,
-        compact ? 0 : 4,
+        accessory == null ? AppSpace.screen : 10,
+        4,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          // 漆面保留眉题占位；紧凑薄暮只为真实眉题排版。
-          if (!compact || eyebrow != null)
-            Text(
-              eyebrow ?? '',
-              style: AppType.footnote.copyWith(
-                color: onLac ? t.onLac2 : t.text3,
-                fontWeight: FontWeight.w600,
-              ),
+          Text(
+            eyebrow ?? '',
+            style: AppType.footnote.copyWith(
+              color: onLac ? t.onLac2 : t.text3,
+              fontWeight: FontWeight.w600,
             ),
-          if (compact && eyebrow != null)
-            const SizedBox(height: TabChromeTokens.mistyEyebrowGap),
-          // 紧凑薄暮按文字自然撑高，其他页面保留原有标题行高度。
+          ),
           ConstrainedBox(
-            constraints: BoxConstraints(
-              minHeight: compact ? 0 : AppSpace.titleRow,
-            ),
+            constraints: const BoxConstraints(minHeight: AppSpace.titleRow),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
@@ -325,11 +415,9 @@ class LargeTitleHeader extends StatelessWidget {
                     title,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style:
-                        (compact
-                                ? TabChromeTokens.mistyTitle
-                                : AppType.largeTitle)
-                            .copyWith(color: onLac ? t.onLac : t.text),
+                    style: AppType.largeTitle.copyWith(
+                      color: onLac ? t.onLac : t.text,
+                    ),
                   ),
                 ),
                 ?accessory,

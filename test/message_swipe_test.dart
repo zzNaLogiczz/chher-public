@@ -158,6 +158,28 @@ void main() {
     expect(find.text('page 0 row 0'), findsNothing);
   });
 
+  testWidgets('a tap reverses an unfinished swipe in place', (tester) async {
+    final position = ValueNotifier(0.0);
+    addTearDown(position.dispose);
+    await tester.pumpWidget(_Harness(position, []));
+    await tester.pumpAndSettle();
+    final pager = find.byType(MessagePager);
+    final width = tester.getSize(pager).width;
+    await tester.drag(pager, Offset(-.55 * width, 0));
+    await tester.pump();
+    final partial = position.value;
+    expect(partial, inExclusiveRange(.33, 1));
+    final incoming = find.text('page 1 row 0');
+    final before = tester.getTopLeft(incoming);
+    await tester.tap(find.text('提醒'));
+    await tester.pump();
+    expect(tester.getTopLeft(incoming), before);
+    await tester.pumpAndSettle();
+    expect(position.value, 0);
+    expect(incoming, findsNothing);
+    expect(tester.binding.transientCallbackCount, 0);
+  });
+
   testWidgets('short slow drag returns, endpoints resist and settle', (
     tester,
   ) async {

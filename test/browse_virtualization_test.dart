@@ -19,7 +19,11 @@ Future<void> _phone(WidgetTester tester) async {
   addTearDown(() => tester.binding.setSurfaceSize(null));
 }
 
-Future<void> _reachLast(WidgetTester tester, String label) async {
+Future<void> _reachLast(
+  WidgetTester tester,
+  String label, {
+  int maxScrolls = 120,
+}) async {
   final list = find.byType(ListView).last;
   final scrollable = find
       .descendant(of: list, matching: find.byType(Scrollable))
@@ -28,7 +32,7 @@ Future<void> _reachLast(WidgetTester tester, String label) async {
     find.text(label),
     1000,
     scrollable: scrollable,
-    maxScrolls: 120,
+    maxScrolls: maxScrolls,
   );
   await tester.pumpAndSettle();
 }
@@ -192,7 +196,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.textContaining('search-').evaluate().length, lessThan(30));
       expect(find.text('search-999'), findsNothing);
-      await _reachLast(tester, 'search-999');
+      await _reachLast(tester, 'search-999', maxScrolls: 160);
       expect(find.text('search-999'), findsOneWidget);
       expect(find.textContaining('search-').evaluate().length, lessThan(30));
       expect(tester.takeException(), isNull);

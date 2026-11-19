@@ -58,7 +58,7 @@ void main() {
                         fid: 1,
                         name: '电脑讨论(新)',
                         threadCount: 123,
-                        lastPostTimeRaw: '今天 17:42',
+                        lastPostTimeRaw: '昨天 17:42',
                       ),
                     ],
                   ),
@@ -68,7 +68,7 @@ void main() {
                   ),
                   ForumCategory(
                     name: '分享区',
-                    forums: [Forum(fid: 3, name: '原创分享(新)')],
+                    forums: [Forum(fid: 3, name: '原创分享(新)', threadCount: 0)],
                   ),
                   ForumCategory(
                     name: '站务区',
@@ -156,8 +156,10 @@ void main() {
         }
         for (var i = 0; i < 2; i++) {
           final row = find.byKey(const ValueKey('forum-row-1')).at(i);
-          expect(tester.getSemantics(row).label, '电脑讨论(新)\n今天 17:42\n123 个主题');
+          expect(tester.getSemantics(row).label, '电脑讨论\n昨天 17:42\n123 个主题');
         }
+        expect(find.text('原创分享'), findsOneWidget);
+        expect(find.byKey(const ValueKey('forum-count-3')), findsNothing);
         semantics.dispose();
         expect(loads, 1);
         expect(tester.binding.transientCallbackCount, 0);

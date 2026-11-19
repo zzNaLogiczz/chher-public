@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:solar_icons/solar_icons.dart';
+import '../design/loading_tokens.dart';
 import '../design/motion.dart';
 import '../design/poll_tokens.dart';
 import '../design/tokens.dart';
 import '../models/poll.dart';
 import '../ui/press.dart';
+import 'chhers_loader.dart';
 
 class ThreadPollCard extends StatefulWidget {
   final ThreadPoll poll;
@@ -311,14 +313,7 @@ class _ThreadPollCardState extends State<ThreadPollCard>
             mainAxisSize: MainAxisSize.min,
             children: [
               if (_busy) ...[
-                SizedBox(
-                  width: PollTokens.icon,
-                  height: PollTokens.icon,
-                  child: CircularProgressIndicator(
-                    strokeWidth: PollTokens.markStroke,
-                    color: t.text3,
-                  ),
-                ),
+                const ChhersSpinner(size: LoadingTokens.input),
                 const SizedBox(width: PollTokens.gap),
               ],
               Text(

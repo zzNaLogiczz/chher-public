@@ -6,6 +6,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'design/brand.dart';
 import 'design/theme_reveal.dart';
 import 'design/theme.dart';
 import 'design/system_ui.dart';
@@ -30,7 +31,7 @@ class ChhApp extends StatelessWidget {
       child: ListenableBuilder(
         listenable: appearance,
         builder: (context, _) => MaterialApp(
-          title: 'Chher',
+          title: appDisplayName,
           debugShowCheckedModeBanner: false,
           scrollBehavior: const AppScrollBehavior(),
           theme: buildAppTheme(Brightness.light, appearance.style),

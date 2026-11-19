@@ -68,13 +68,18 @@ void main() {
         matching: find.byType(LargeTitleScaffold),
       ),
     );
-    expect(scaffold.title, '关于');
+    expect(scaffold.title, '关于 Chhers');
     expect(scaffold.surface, AppSurface.grouped);
     expect(scaffold.showBack, isTrue);
-    final logo = find.bySemanticsLabel('Chher 图标');
+    final logo = find.bySemanticsLabel('Chhers 图标');
     final version = find.byKey(const ValueKey('about-version'));
     final intro = find.textContaining('第三方 Android 客户端');
     expect(logo, findsOneWidget);
+    const logoPath = 'assets/brand/chhers-logo.png';
+    final logoImage = find.ancestor(of: logo, matching: find.byType(Image));
+    expect(tester.widget<Image>(logoImage).image, const AssetImage(logoPath));
+    final assets = await AssetManifest.loadFromAssetBundle(rootBundle);
+    expect(assets.listAssets(), contains(logoPath));
     expect(tester.widget<Text>(version).data, '版本 ${AppInfo.version}');
     expect(intro, findsOneWidget);
     expect(tester.getTopLeft(logo).dy, lessThan(tester.getTopLeft(version).dy));
@@ -146,7 +151,7 @@ void main() {
     expect(opened.single.path, feedbackEmail);
     expect(
       Uri.decodeComponent(opened.single.query),
-      contains('Chher 反馈（${AppInfo.version}）'),
+      contains('Chhers 反馈（${AppInfo.version}）'),
     );
     expect(copied, feedbackEmail);
     expect(find.text('已复制邮箱地址'), findsOneWidget);

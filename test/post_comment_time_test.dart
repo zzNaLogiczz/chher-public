@@ -1,3 +1,4 @@
+import 'package:chh_app/core/display_time.dart';
 import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/design/tokens.dart';
 import 'package:chh_app/models/models.dart';
@@ -15,10 +16,10 @@ void main() {
       String stamp(DateTime date) =>
           '${date.year}-${date.month}-${date.day} 19:48';
       final samples = <(String?, String?)>[
-        (stamp(now), '19:48'),
+        (stamp(now), formatDisplayTime(raw: stamp(now), now: now)),
         (stamp(yesterday), '昨天 19:48'),
         (stamp(thisYear), '${thisYear.month}月3日 19:48'),
-        (stamp(lastYear), '${lastYear.year}年11月3日 19:48'),
+        (stamp(lastYear), '${lastYear.year}年11月3日'),
         ('时间未知', '时间未知'),
         (null, null),
         ('', null),
@@ -56,7 +57,12 @@ void main() {
             expect(find.text('合成作者$i'), findsOneWidget);
             expect(find.text('合成点评$i'), findsOneWidget);
             if (expected != null) {
-              expect(find.text(expected), findsOneWidget);
+              final time = find.text(expected);
+              expect(tester.widget<Text>(time).maxLines, 1);
+              expect(
+                tester.getCenter(time).dy,
+                closeTo(tester.getCenter(find.text('合成作者$i')).dy, .01),
+              );
               if (raw != expected) expect(find.text(raw!), findsNothing);
             }
           }

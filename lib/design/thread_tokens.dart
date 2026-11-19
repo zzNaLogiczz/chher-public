@@ -2,9 +2,11 @@ import 'package:flutter/widgets.dart';
 import 'tokens.dart';
 
 abstract final class ThreadTokens {
-  static const authorRadius = 22.0;
-  static const authorInset = 12.0;
-  static const authorVerticalInset = 10.0;
+  static const authorAvatarGap = 12.0;
+  static const authorTimeGap = 2.0;
+  static const authorMoreSize = 36.0;
+  static const authorMoreTarget = 44.0;
+  static const authorMoreIconSize = 18.0;
   static const bodyTop = 20.0;
   static const imageBleed = 4.0;
   static const editThreshold = Duration(minutes: 10);

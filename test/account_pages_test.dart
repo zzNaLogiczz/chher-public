@@ -1,3 +1,4 @@
+import 'package:chh_app/widgets/chhers_loader.dart';
 import 'package:chh_app/core/app_log.dart';
 import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/di.dart';
@@ -100,14 +101,14 @@ void main() {
           );
         }
         expect(
-          find.descendant(of: about, matching: find.text('关于 Chher')),
+          find.descendant(of: about, matching: find.text('关于 Chhers')),
           findsOneWidget,
         );
         expect(
           find.descendant(of: about, matching: find.text('运行日志')),
           findsNothing,
         );
-        final labels = ['外观', '通用', '关于 Chher', if (loggedIn) '退出登录'];
+        final labels = ['外观', '通用', '关于 Chhers', if (loggedIn) '退出登录'];
         for (var i = 1; i < labels.length; i++) {
           expect(
             tester.getTopLeft(find.text(labels[i - 1])).dy,
@@ -119,7 +120,7 @@ void main() {
         expect(find.text('诊断'), findsNothing);
         expect(find.text('加载失败'), findsNothing);
         expect(find.text('需登录'), findsNothing);
-        expect(find.byType(CircularProgressIndicator), findsNothing);
+        expect(find.byType(ChhersLoader), findsNothing);
         expect(tester.takeException(), isNull);
 
         await tester.ensureVisible(find.text('运行日志'));
@@ -196,7 +197,7 @@ void main() {
       scrollable: find.byType(Scrollable).last,
     );
     expect(find.text('通用'), findsOneWidget);
-    expect(find.text('关于 Chher'), findsOneWidget);
+    expect(find.text('关于 Chhers'), findsOneWidget);
     // 检查更新与安装统计说明都挪进了关于页
     expect(find.text('检查更新'), findsNothing);
     expect(find.textContaining('随机生成的安装标识'), findsNothing);

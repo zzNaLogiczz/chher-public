@@ -13,7 +13,7 @@ const double _visual = 38;
 const double _hit = 44;
 const double _iconSize = 20;
 
-/// 白色"玻璃"正圆按钮:视觉直径 38,命中区 44。
+/// 白色"玻璃"正圆按钮，默认视觉直径 38，命中区 44。
 class ChromeButton extends StatelessWidget {
   static const surfaceKey = ValueKey('chrome-button-surface');
 
@@ -27,6 +27,7 @@ class ChromeButton extends StatelessWidget {
   /// 开关类按钮的开启态,图标改用强调色
   final bool selected;
   final int badgeCount;
+  final double visualSize;
 
   /// 压在漆面顶栏上时用奶白玻璃 + 奶白图标,不投影
   final bool onLac;
@@ -40,6 +41,7 @@ class ChromeButton extends StatelessWidget {
     this.selected = false,
     this.badgeCount = 0,
     this.onLac = false,
+    this.visualSize = _visual,
   });
 
   @override
@@ -75,7 +77,7 @@ class ChromeButton extends StatelessWidget {
                     boxShadow: onImage || onLac ? null : t.shadowE1,
                   ),
                   child: SizedBox.square(
-                    dimension: _visual,
+                    dimension: visualSize,
                     child: Icon(
                       icon,
                       size: _iconSize,

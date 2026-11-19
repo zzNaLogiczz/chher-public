@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Generate the Chher launcher icon from one geometry definition.
+"""Generate the Chhers launcher icon from one geometry definition.
 
 Writes:
-  brand/chher-icon.svg                                 design source (108x108 adaptive canvas)
+  brand/chhers-icon.svg                                 design source (108x108 adaptive canvas)
   android/.../drawable/ic_launcher_background.xml      gradient layer
-  android/.../drawable/ic_launcher_foreground.xml      white "ch / er" strokes, also the themed-icon layer
+  android/.../drawable/ic_launcher_foreground.xml      white "Chh / ers" strokes, also the themed-icon layer
   android/.../mipmap-anydpi-v26/ic_launcher.xml        adaptive icon (Android 8+, monochrome for 13+)
   android/.../mipmap-*/ic_launcher.png                 legacy bitmaps for Android 7.x
-  assets/brand/chher-logo.png                          in-app logo (about page); corners are clipped in Flutter
+  assets/brand/chhers-logo.png                          in-app logo (avatars and about page); corners are clipped in Flutter
 
 The legacy bitmaps are rendered with macOS Quick Look (qlmanage) and Pillow.
 Run from the repository root:  python3 tool/launcher_icon.py
@@ -22,18 +22,21 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RES = os.path.join(ROOT, "android", "app", "src", "main", "res")
 
 TOP, BOTTOM = "#BE2A33", "#8E1219"
-STROKE = 6.0
-# The block is drawn at natural size and scaled about the centre so that it
-# fills ~64% of the visible 72dp window of the 108dp adaptive canvas.
-SCALE = 0.6866
+STROKE = 6.8
+SCALE = 0.58
+# R2b-Chh-ers-light.svg (logo-2026-11-19). Shift the path positions by
+# (15.78, 31.3) so the reference transform uses a 54,54 scaling pivot.
 PATHS = [
-    "M49.37,47.57 A10,10 0 1 1 49.37,33.43",                     # c
-    "M61.3,23.5 L61.3,50.5",                                       # h stem
-    "M61.3,37.7 A7.2,7.2 0 0 1 75.7,37.7 L75.7,50.5",              # h shoulder
-    "M49.96,80.93 A10,10 0 1 1 52.3,74.5",                        # e bowl
-    "M32.3,74.5 L52.3,74.5",                                       # e bar
-    "M61.3,64.5 L61.3,84.5",                                       # r stem
-    "M61.3,72.78 A8.28,8.28 0 0 1 69.58,64.5 L71.68,64.5",         # r arm
+    "M38.83,47.35 A13.5,13.5 0 1 1 38.83,28.25",  # C
+    "M50.23,24.3 L50.23,51.3",  # first h stem
+    "M50.23,38.5 A7.2,7.2 0 0 1 64.63,38.5 M64.63,38.5 L64.63,51.3",  # first h shoulder
+    "M77.83,24.3 L77.83,51.3",  # second h stem
+    "M77.83,38.5 A7.2,7.2 0 0 1 92.23,38.5 M92.23,38.5 L92.23,51.3",  # second h shoulder
+    "M37.49,80.13 A10,10 0 1 1 39.83,73.7",  # e bowl
+    "M19.83,73.7 L39.83,73.7",  # e bar
+    "M50.23,63.7 L50.23,83.7",  # r stem
+    "M50.23,71.98 A8.28,8.28 0 0 1 58.51,63.7 M58.51,63.7 L60.61,63.7",  # r arm
+    "M82.31,65.9 C81.31,64.4 79.41,63.7 77.21,63.7 C73.61,63.7 71.01,65.8 71.01,68.7 C71.01,72.1 74.41,72.9 77.41,73.6 C80.61,74.3 83.81,75.2 83.81,78.6 C83.81,81.7 81.01,83.7 77.21,83.7 C74.61,83.7 72.21,82.7 70.81,80.9",  # s
 ]
 LEGACY = {"mdpi": 48, "hdpi": 72, "xhdpi": 96, "xxhdpi": 144, "xxxhdpi": 192}
 
@@ -134,7 +137,7 @@ def app_logo():
 
     work = tempfile.mkdtemp()
     try:
-        out = os.path.join(ROOT, "assets", "brand", "chher-logo.png")
+        out = os.path.join(ROOT, "assets", "brand", "chhers-logo.png")
         os.makedirs(os.path.dirname(out), exist_ok=True)
         render_visible_window(work).resize((512, 512), Image.LANCZOS).save(out, optimize=True)
     finally:
@@ -161,7 +164,7 @@ def legacy_pngs():
 if __name__ == "__main__":
     if not os.path.isdir(RES):
         sys.exit("run from the repository root")
-    write("brand/chher-icon.svg", svg())
+    write("brand/chhers-icon.svg", svg())
     android_xml()
     legacy_pngs()
     app_logo()

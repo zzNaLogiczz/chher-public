@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:chh_app/design/motion.dart';
 import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/design/tokens.dart';
 import 'package:chh_app/di.dart';
@@ -8,6 +9,11 @@ import 'package:chh_app/models/models.dart';
 import 'package:chh_app/network/chh_fetcher.dart';
 import 'package:chh_app/pages/article_page.dart';
 import 'package:chh_app/pages/thread_detail_page.dart';
+import 'package:chh_app/parser/thread_parser.dart';
+import 'package:chh_app/ui/balanced_title.dart';
+import 'package:chh_app/widgets/anchored_reading_list.dart';
+import 'package:chh_app/widgets/expressive_controls.dart';
+import 'package:chh_app/widgets/thread_landing.dart';
 import 'package:chh_app/widgets/editorial_article_route.dart';
 import 'package:chh_app/widgets/editorial_cover.dart';
 import 'package:flutter/material.dart';
@@ -36,11 +42,15 @@ class _NavigationLog extends NavigatorObserver {
 
 class _ThreadFetcher extends ChhFetcher {
   final source = File('test_data/thread_synthetic.html').readAsStringSync();
+  final VoidCallback? onFetch;
+  _ThreadFetcher([this.onFetch]);
   @override
   String get name => 'offline-thread-handoff';
   @override
-  Future<ChhResponse> getHtml(Uri url, {Map<String, String>? headers}) async =>
-      ChhResponse(200, source);
+  Future<ChhResponse> getHtml(Uri url, {Map<String, String>? headers}) async {
+    onFetch?.call();
+    return ChhResponse(200, source);
+  }
 }
 
 Future<GlobalKey<NavigatorState>> _mount(
@@ -50,6 +60,7 @@ Future<GlobalKey<NavigatorState>> _mount(
   bool mainFeature = false,
   bool directDetail = false,
   _NavigationLog? observer,
+  VoidCallback? onThreadFetch,
 }) async {
   if (mainFeature) {
     await tester.runAsync(() => seedImage(_cover.coverUrl!, 400, 600));
@@ -57,7 +68,7 @@ Future<GlobalKey<NavigatorState>> _mount(
   final previous = List<ChhFetcher>.of(chhClient.fetchers);
   chhClient.fetchers
     ..clear()
-    ..add(_ThreadFetcher());
+    ..add(_ThreadFetcher(onThreadFetch));
   chhClient.clearCache();
   addTearDown(() {
     chhClient.fetchers
@@ -142,6 +153,114 @@ Future<void> _expectCleanHandoff(
 }
 
 void main() {
+  testWidgets('A1 keeps the surface and back button across the landing fade', (
+    tester,
+  ) async {
+    final result = Completer<PortalContent>();
+    final detail = parseThread(
+      File('test_data/thread_synthetic.html').readAsStringSync(),
+      tid: 900001,
+    );
+    var threadRequests = 0;
+    final log = _NavigationLog();
+    await _mount(
+      tester,
+      () => result.future,
+      directDetail: true,
+      observer: log,
+      onThreadFetch: () => threadRequests++,
+    );
+    await tester.tap(find.byKey(_open));
+    await tester.pump();
+    await tester.pump();
+
+    final nav = find.byKey(const ValueKey('article-reader-nav'));
+    final surface = find.byKey(const ValueKey('article-reader-surface'));
+    final title = find.byType(BalancedTitle);
+    final navWidget = tester.widget(nav);
+    final navElement = tester.element(nav);
+    final surfaceElement = tester.element(surface);
+    final background = tester.widget<Scaffold>(surface).backgroundColor;
+    expect(background, AppTokens.light.bg);
+    expect(find.byIcon(AppIcons.back), findsOneWidget);
+    expect(find.byIcon(AppIcons.dismiss), findsNothing);
+    expect(tester.widget<BalancedTitle>(title).title, _cover.title);
+    expect(
+      tester
+          .widget<ThreadLandingSkeleton>(find.byType(ThreadLandingSkeleton))
+          .bars,
+      isFalse,
+    );
+
+    await tester.pump(const Duration(milliseconds: 800));
+    final titleOrigin = tester.getTopLeft(title);
+    expect(
+      tester
+          .widget<ThreadLandingSkeleton>(find.byType(ThreadLandingSkeleton))
+          .bars,
+      isTrue,
+    );
+    result.complete(
+      ThreadContent(
+        detail.tid,
+        detail.title,
+        detail: detail,
+        cacheGeneration: chhClient.cacheGeneration,
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.pump();
+    await tester.pump();
+
+    final fade = find
+        .ancestor(
+          of: find.byType(ThreadLandingSkeleton),
+          matching: find.byType(FadeTransition),
+        )
+        .first;
+    final firstContent = find
+        .descendant(
+          of: find.byType(AnchoredReadingList),
+          matching: find.byType(ContentFade),
+        )
+        .first;
+    final finalTitle = find.descendant(
+      of: find.byType(AnchoredReadingList),
+      matching: title,
+    );
+    expect(tester.getTopLeft(finalTitle), titleOrigin);
+    expect(tester.widget<FadeTransition>(fade).opacity.value, 1);
+    expect(tester.widget<ContentFade>(firstContent).opacity.value, 0);
+
+    // A5 keeps the viewport lazy through the first arrival.
+    final readingList = find.byType(AnchoredReadingList);
+    expect(
+      tester.widget<AnchoredReadingList>(readingList).scrollCacheExtent,
+      isNotNull,
+    );
+    await tester.pump(AppMotion.skeletonFade);
+    expect(tester.widget<FadeTransition>(fade).opacity.value, closeTo(0, .001));
+    expect(tester.widget<ContentFade>(firstContent).opacity.value, lessThan(1));
+
+    await tester.pumpAndSettle();
+    expect(find.byType(ThreadLandingSkeleton), findsNothing);
+    expect(
+      tester.widget<AnchoredReadingList>(readingList).scrollCacheExtent,
+      isNull,
+    );
+    expect(tester.widget(nav), same(navWidget));
+    expect(tester.element(nav), same(navElement));
+    expect(tester.element(surface), same(surfaceElement));
+    expect(tester.widget<Scaffold>(surface).backgroundColor, background);
+    expect(find.byIcon(AppIcons.back), findsOneWidget);
+    expect(find.byIcon(AppIcons.dismiss), findsNothing);
+    expect(log.pushes, 2);
+    expect(log.replacements, 0);
+    expect(threadRequests, 0);
+    expect(tester.binding.transientCallbackCount, 0);
+  });
+
   for (final delay in [Duration.zero, const Duration(milliseconds: 800)]) {
     testWidgets(
       'direct detail at $delay never mounts an article cover or replaces its route',

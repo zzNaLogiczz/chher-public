@@ -5,8 +5,11 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../core/display_time.dart';
 import '../data/space_repository.dart';
 import '../data/user_group_levels.dart';
+import '../widgets/chhers_loading_transition.dart';
+import '../widgets/chhers_refresh_indicator.dart';
 import '../widgets/level_badge.dart';
 import '../design/level_tokens.dart';
 import '../design/motion.dart';
@@ -59,6 +62,8 @@ class _UserPageState extends State<UserPage> {
   @override
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
+    final chromeHeight =
+        MediaQuery.paddingOf(context).top + NavOverlay.barHeight;
     return Scaffold(
       backgroundColor: t.grouped,
       body: Stack(
@@ -75,8 +80,8 @@ class _UserPageState extends State<UserPage> {
               uid: widget.uid,
               repository: widget.repository,
               groupLevels: widget.groupLevels,
-              topPadding:
-                  MediaQuery.paddingOf(context).top + NavOverlay.barHeight + 12,
+              topPadding: chromeHeight + 12,
+              refreshEdgeOffset: chromeHeight,
               onLoaded: (profile) {
                 if (_name != profile.name) {
                   setState(() => _name = profile.name);
@@ -112,6 +117,7 @@ class UserProfileBody extends StatefulWidget {
   final UserGroupLevels? groupLevels;
   final String uid;
   final double topPadding;
+  final double refreshEdgeOffset;
   final ValueChanged<UserProfile>? onLoaded;
   final ValueChanged<double>? onIdentityHeight;
   const UserProfileBody({
@@ -120,6 +126,7 @@ class UserProfileBody extends StatefulWidget {
     this.groupLevels,
     required this.uid,
     this.topPadding = 12,
+    this.refreshEdgeOffset = 0,
     this.onLoaded,
     this.onIdentityHeight,
   });
@@ -188,41 +195,46 @@ class _UserProfileBodyState extends State<UserProfileBody> {
   Widget build(BuildContext context) => FutureBuilder<UserProfile>(
     key: ValueKey((widget.uid, widget.repository, widget.groupLevels)),
     future: _future,
-    builder: (context, snap) {
-      if (!snap.hasData && snap.connectionState != ConnectionState.done) {
-        return StateView.loading();
-      }
-      final err = snap.error;
-      if (err is PageMessage) {
-        return StateView.forMessage(
-          err,
-          onLogin: () async {
-            await Navigator.of(context).pushNamed('/login');
-            if (mounted) await _reload();
-          },
-        );
-      }
-      if (err != null) return StateView.error(err, onRetry: _reload);
-      final profile = snap.data!;
-      final details = _details(profile);
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        final height = _identityKey.currentContext?.size?.height;
-        if (height != null) widget.onIdentityHeight?.call(height);
-      });
-      return ExpressivePageReveal(
-        active: true,
-        animateOnMount: true,
-        child: RefreshIndicator(
-          onRefresh: _reload,
-          child: ListView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: EdgeInsets.only(
-              top: widget.topPadding,
-              bottom: 40 + MediaQuery.paddingOf(context).bottom,
-            ),
-            children: [
-              _inset(
+    builder: (context, snap) => ChhersLoadingTransition(
+      animateOnMount: true,
+      child: !snap.hasData && snap.connectionState != ConnectionState.done
+          ? null
+          : _loadedBody(context, snap),
+    ),
+  );
+
+  Widget _loadedBody(BuildContext context, AsyncSnapshot<UserProfile> snap) {
+    final err = snap.error;
+    if (err is PageMessage) {
+      return StateView.forMessage(
+        err,
+        onLogin: () async {
+          await Navigator.of(context).pushNamed('/login');
+          if (mounted) await _reload();
+        },
+      );
+    }
+    if (err != null) return StateView.error(err, onRetry: _reload);
+    final profile = snap.data!;
+    final details = _details(profile);
+    return ChhersRefreshIndicator(
+      edgeOffset: widget.refreshEdgeOffset,
+      onRefresh: _reload,
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: EdgeInsets.only(
+          top: widget.topPadding,
+          bottom: 40 + MediaQuery.paddingOf(context).bottom,
+        ),
+        children: [
+          Builder(
+            builder: (_) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (!mounted) return;
+                final height = _identityKey.currentContext?.size?.height;
+                if (height != null) widget.onIdentityHeight?.call(height);
+              });
+              return _inset(
                 KeyedSubtree(
                   key: _identityKey,
                   child: _IdentityCard(
@@ -231,85 +243,85 @@ class _UserProfileBodyState extends State<UserProfileBody> {
                     lowerCredits: _lowerCredits,
                   ),
                 ),
-              ),
-              if (UserBlockIndex.normalizeUid(profile.uid) !=
-                  UserBlockIndex.normalizeUid(chhSession.badges.uid))
-                ListenableBuilder(
-                  listenable: userBlockIndex,
-                  builder: (context, _) => Padding(
-                    padding: const EdgeInsets.fromLTRB(
-                      AppSpace.groupInset,
-                      20,
-                      AppSpace.groupInset,
-                      0,
-                    ),
-                    child: DecoratedBox(
-                      decoration: ShapeDecoration(
-                        color: AppTokens.of(context).surface,
-                        shape: appShape(AppRadii.full),
-                      ),
-                      child: PressHighlight(
-                        borderRadius: BorderRadius.circular(AppRadii.full),
-                        semanticLabel: userBlockIndex.isBlocked(profile.uid)
-                            ? '解除黑名单'
-                            : '加入黑名单',
-                        onTap: () => toggleUserBlock(
-                          context,
-                          uid: profile.uid,
-                          name: profile.name,
-                          avatarUrl: profile.avatarUrl,
-                        ),
-                        child: ConstrainedBox(
-                          constraints: const BoxConstraints(
-                            minHeight: AppSizes.singleLineHeight,
-                          ),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: AppSpace.rowInset,
-                            ),
-                            child: Align(
-                              alignment: Alignment.centerLeft,
-                              child: Text(
-                                userBlockIndex.isBlocked(profile.uid)
-                                    ? '解除黑名单'
-                                    : '加入黑名单',
-                                style: AppType.callout.copyWith(
-                                  color: userBlockIndex.isBlocked(profile.uid)
-                                      ? AppTokens.of(context).accent
-                                      : AppTokens.of(context).red,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              const SizedBox(height: 20),
-              _inset(
-                _Statistics(
-                  key: UserPage.statsKey,
-                  profile: profile,
-                  onThreadsTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => MyThreadsPage(
-                        uid: profile.uid,
-                        title: profile.name,
-                        repository: widget.repository,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              if (details.isNotEmpty)
-                GroupedSection(header: '资料', children: details),
-            ],
+              );
+            },
           ),
-        ),
-      );
-    },
-  );
+          if (UserBlockIndex.normalizeUid(profile.uid) !=
+              UserBlockIndex.normalizeUid(chhSession.badges.uid))
+            ListenableBuilder(
+              listenable: userBlockIndex,
+              builder: (context, _) => Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpace.groupInset,
+                  20,
+                  AppSpace.groupInset,
+                  0,
+                ),
+                child: DecoratedBox(
+                  decoration: ShapeDecoration(
+                    color: AppTokens.of(context).surface,
+                    shape: appShape(AppRadii.full),
+                  ),
+                  child: PressHighlight(
+                    borderRadius: BorderRadius.circular(AppRadii.full),
+                    semanticLabel: userBlockIndex.isBlocked(profile.uid)
+                        ? '解除黑名单'
+                        : '加入黑名单',
+                    onTap: () => toggleUserBlock(
+                      context,
+                      uid: profile.uid,
+                      name: profile.name,
+                      avatarUrl: profile.avatarUrl,
+                    ),
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(
+                        minHeight: AppSizes.singleLineHeight,
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpace.rowInset,
+                        ),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            userBlockIndex.isBlocked(profile.uid)
+                                ? '解除黑名单'
+                                : '加入黑名单',
+                            style: AppType.callout.copyWith(
+                              color: userBlockIndex.isBlocked(profile.uid)
+                                  ? AppTokens.of(context).accent
+                                  : AppTokens.of(context).red,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          const SizedBox(height: 20),
+          _inset(
+            _Statistics(
+              key: UserPage.statsKey,
+              profile: profile,
+              onThreadsTap: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => MyThreadsPage(
+                    uid: profile.uid,
+                    title: profile.name,
+                    repository: widget.repository,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          if (details.isNotEmpty)
+            GroupedSection(header: '资料', children: details),
+        ],
+      ),
+    );
+  }
 
   Widget _inset(Widget child) => Padding(
     padding: const EdgeInsets.symmetric(horizontal: AppSpace.groupInset),
@@ -318,11 +330,23 @@ class _UserProfileBodyState extends State<UserProfileBody> {
 
   List<Widget> _details(UserProfile profile) => [
     if (profile.registeredAt case final value? when value.trim().isNotEmpty)
-      GroupedRow(title: '注册时间', value: value),
+      GroupedRow(
+        title: '注册时间',
+        value: formatDisplayTime(raw: value, style: DisplayTimeStyle.dateOnly),
+        valueMaxLines: 1,
+      ),
     if (profile.lastVisitAt case final value? when value.trim().isNotEmpty)
-      GroupedRow(title: '最后访问', value: value),
+      GroupedRow(
+        title: '最后访问',
+        value: formatDisplayTime(raw: value, style: DisplayTimeStyle.dateOnly),
+        valueMaxLines: 1,
+      ),
     if (profile.lastPostAt case final value? when value.trim().isNotEmpty)
-      GroupedRow(title: '上次发表', value: value),
+      GroupedRow(
+        title: '上次发表',
+        value: formatDisplayTime(raw: value, style: DisplayTimeStyle.dateOnly),
+        valueMaxLines: 1,
+      ),
     if (profile.friends != null)
       GroupedRow(title: '好友', value: '${profile.friends}'),
     if (profile.portalArticles != null && profile.portalArticles! > 0)

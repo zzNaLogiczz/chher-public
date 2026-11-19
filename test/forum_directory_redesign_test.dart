@@ -45,7 +45,7 @@ void main() {
                           fid: 1,
                           name: '电脑讨论',
                           threadCount: 60000,
-                          lastPostTimeRaw: '今天 17:42',
+                          lastPostTimeRaw: '昨天 17:42',
                         ),
                         Forum(fid: 2, name: '摄影讨论', postCount: 95000),
                       ],
@@ -57,17 +57,19 @@ void main() {
             await tester.pumpAndSettle();
             expect(find.text('6万 主题', findRichText: true), findsOneWidget);
             final name = tester.getRect(find.text('电脑讨论'));
-            final activity = tester.getRect(find.text('今天 17:42'));
+            final activity = tester.getRect(find.text('昨天 17:42'));
             final count = tester.getRect(
               find.byKey(const ValueKey('forum-count-1')),
             );
             expect(activity.top, greaterThanOrEqualTo(name.bottom));
             expect(activity.left, greaterThanOrEqualTo(name.left));
             expect(count.left, greaterThan(name.right));
-            final row = tester.getRect(find.byKey(const ValueKey('forum-row-1')));
+            final row = tester.getRect(
+              find.byKey(const ValueKey('forum-row-1')),
+            );
             expect(count.right, closeTo(row.right - 14, .1));
             expect(count.center.dy, lessThan(activity.center.dy));
-            expect(find.text('今天 17:42'), findsOneWidget);
+            expect(find.text('昨天 17:42'), findsOneWidget);
             expect(
               find.byKey(const ValueKey('forum-activity-1')),
               findsNothing,

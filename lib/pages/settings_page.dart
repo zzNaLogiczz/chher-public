@@ -2,7 +2,8 @@
 library;
 
 import 'package:flutter/material.dart';
-import 'package:solar_icons/solar_icons.dart';
+import '../design/brand.dart';
+import '../ui/grouped.dart';
 import '../ui/press.dart';
 import '../ui/sheet_scaffold.dart';
 import '../design/icons.dart';
@@ -121,16 +122,12 @@ class _SettingsBodyState extends State<SettingsBody> {
                   _cacheLabel,
                   style: SettingsTokens.valueLabel.copyWith(color: t.text3),
                 ),
-                leading: Icon(
-                  SolarIconsBold.galleryMinimalistic,
-                  size: 22,
-                  color: t.text2,
-                ),
+                leading: const IconTile(icon: AppIcons.imageBold),
                 onTap: () => _clearCache(context),
               ),
               _SettingsRow(
                 title: '运行日志',
-                leading: Icon(AppIcons.logBold, size: 22, color: t.text2),
+                leading: const IconTile(icon: AppIcons.logBold),
                 onTap: () => Navigator.of(
                   context,
                 ).push(MaterialPageRoute(builder: (_) => const LogPage())),
@@ -139,7 +136,7 @@ class _SettingsBodyState extends State<SettingsBody> {
                 listenable: appUpdater,
                 builder: (context, _) => _SettingsRow(
                   key: const ValueKey('settings-about'),
-                  title: '关于 Chher',
+                  title: '关于 $appDisplayName',
                   value: appUpdater.hasUpdate
                       ? DecoratedBox(
                           key: const ValueKey('settings-update-badge'),
@@ -166,14 +163,7 @@ class _SettingsBodyState extends State<SettingsBody> {
                             color: t.text3,
                           ),
                         ),
-                  leading: AppClip(
-                    radius: SettingsTokens.logoRadius,
-                    child: Image.asset(
-                      appLogoAsset,
-                      width: SettingsTokens.iconSize,
-                      height: SettingsTokens.iconSize,
-                    ),
-                  ),
+                  leading: const IconTile(icon: AppIcons.infoBold),
                   onTap: () => Navigator.of(
                     context,
                   ).push(MaterialPageRoute(builder: (_) => const AboutPage())),
@@ -336,7 +326,12 @@ class _SettingsSection extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(18, 0, 18, 10),
+            padding: const EdgeInsets.fromLTRB(
+              AppSpace.groupedRowInset,
+              0,
+              AppSpace.groupedRowInset,
+              10,
+            ),
             child: Text(
               title,
               style: AppType.footnote.copyWith(
@@ -392,10 +387,7 @@ class _SettingsRow extends StatelessWidget {
           child: LayoutBuilder(
             builder: (context, constraints) => Row(
               children: [
-                SizedBox.square(
-                  dimension: SettingsTokens.iconSize,
-                  child: Center(child: leading),
-                ),
+                leading,
                 const SizedBox(width: 14),
                 Expanded(
                   child: Text(

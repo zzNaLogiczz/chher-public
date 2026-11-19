@@ -1,10 +1,13 @@
 import 'dart:ui' as ui;
 
+import 'package:chh_app/design/image_stack_tokens.dart';
+import 'package:chh_app/design/motion.dart';
 import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/models/image_stack_group.dart';
 import 'package:chh_app/models/models.dart';
 import 'package:chh_app/parser/content_walker.dart';
 import 'package:chh_app/widgets/image_stack_gallery.dart';
+import 'package:chh_app/widgets/image_stack_photo.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -29,6 +32,8 @@ Future<void> _mount(
   List<_Photo> photos, {
   List<double?>? ratios,
   PageStorageBucket? bucket,
+  List<_Photo>? probes,
+  bool? expanded,
 }) async {
   tester.view.physicalSize = const Size(390, 844);
   tester.view.devicePixelRatio = 1;
@@ -51,7 +56,10 @@ Future<void> _mount(
                     aspectRatios: ratios,
                     gallery: List.generate(photos.length, (i) => '$i'),
                     galleryStartIndex: 0,
-                    imageProviderBuilder: (url, _) => photos[int.parse(url)],
+                    expanded: expanded,
+                    imageProviderBuilder: (url, width) => (width == 64
+                        ? probes ?? photos
+                        : photos)[int.parse(url)],
                   ),
                 ),
                 const SizedBox(key: ValueKey('after-stack'), height: 300),
@@ -65,6 +73,11 @@ Future<void> _mount(
     ),
   );
 }
+
+Finder get _leadFade => find.ancestor(
+  of: find.byKey(const ValueKey('image-stack-photo-0')),
+  matching: find.byKey(const ValueKey('image-stack-media-fade')),
+);
 
 void main() {
   test(
@@ -123,7 +136,7 @@ void main() {
       await _mount(tester, photos, ratios: List.filled(11, .45));
       final stage = find.byKey(const ValueKey('image-stack-stage'));
       expect(tester.getSize(stage).height, 496);
-      expect(find.byKey(const ValueKey('image-stack-loading')), findsNothing);
+      expect(tester.widget<AnimatedOpacity>(_leadFade).opacity, 0);
       final before = tester
           .getTopLeft(find.byKey(const ValueKey('after-stack')))
           .dy;
@@ -150,7 +163,12 @@ void main() {
       final stage = find.byKey(const ValueKey('image-stack-stage'));
       final following = find.byKey(const ValueKey('after-stack'));
       final before = tester.getTopLeft(following).dy;
-      expect(find.byKey(const ValueKey('image-stack-loading')), findsOneWidget);
+      final reserved = tester.getSize(stage);
+      expect(
+        reserved.height - ImageStackTokens.deckFoot,
+        reserved.width / ImageStackTokens.fallbackAspectRatio,
+      );
+      expect(tester.widget<AnimatedOpacity>(_leadFade).opacity, 0);
       final portrait = (await tester.runAsync(
         () => createTestImage(width: 90, height: 200),
       ))!;
@@ -164,17 +182,16 @@ void main() {
         expect(tester.getTopLeft(following).dy, before);
       }
       await tester.pumpAndSettle();
-      expect(find.byKey(const ValueKey('image-stack-loading')), findsNothing);
-      expect(tester.getSize(stage).height, 496);
+      expect(tester.getSize(stage), reserved);
       for (var i = 3; i < photos.length; i++) {
         photos[i].stream.complete(landscape);
         await tester.pumpAndSettle();
-        expect(tester.getSize(stage).height, 496);
+        expect(tester.getSize(stage), reserved);
         expect(tester.getTopLeft(following).dy, before);
       }
       await tester.fling(stage, const Offset(-240, 0), 1000);
       await tester.pumpAndSettle();
-      expect(tester.getSize(stage).height, 496);
+      expect(tester.getSize(stage), reserved);
       expect(tester.getTopLeft(following).dy, before);
       expect(tester.binding.hasScheduledFrame, isFalse);
       portrait.dispose();
@@ -183,10 +200,12 @@ void main() {
   );
 
   testWidgets(
-    'late landscape frame removes loading space while the deck is visible',
+    'late landscape decoding keeps an expanded gallery and following text still',
     (tester) async {
       final photos = List.generate(3, (_) => _Photo());
-      await _mount(tester, photos);
+      await _mount(tester, photos, expanded: true);
+      final stage = find.byKey(const ValueKey('image-stack-stage'));
+      final size = tester.getSize(stage);
       final following = find.byKey(const ValueKey('after-stack'));
       final before = tester.getTopLeft(following).dy;
       final landscape = (await tester.runAsync(
@@ -197,29 +216,12 @@ void main() {
       }
       await tester.pumpAndSettle();
       expect(
-        tester.getSize(find.byKey(const ValueKey('image-stack-stage'))).height,
-        216,
+        size.height,
+        size.width / ImageStackTokens.fallbackAspectRatio * photos.length +
+            ImageStackTokens.gap * (photos.length - 1),
       );
-      expect(tester.getTopLeft(following).dy, before - 280);
-      expect(
-        tester.getTopLeft(following).dy -
-            tester
-                .getBottomRight(find.byKey(const ValueKey('image-stack-stage')))
-                .dy,
-        70, // Caption and bottom padding, with no loading spacer.
-      );
-      final scroll = Scrollable.of(
-        tester.element(find.byType(ImageStackGallery)),
-      ).position;
-      scroll.jumpTo(700);
-      final anchor = find.byKey(const ValueKey('reading-anchor'));
-      await tester.pump();
-      final screenY = tester.getTopLeft(anchor).dy;
-      await tester.pump();
-      expect(tester.getTopLeft(anchor).dy, screenY);
-      expect(scroll.pixels, 700);
-      await tester.pumpAndSettle();
-      expect(tester.getTopLeft(anchor).dy, screenY);
+      expect(tester.getSize(stage), size);
+      expect(tester.getTopLeft(following).dy, before);
       landscape.dispose();
     },
   );
@@ -243,18 +245,20 @@ void main() {
       }
       await tester.pumpAndSettle();
       expect(tester.getTopLeft(anchor).dy, screenY);
-      expect(scroll.pixels, 420);
+      expect(scroll.pixels, 700);
       expect(tester.binding.hasScheduledFrame, isFalse);
       expect(tester.takeException(), isNull);
       landscape.dispose();
     },
   );
   testWidgets(
-    'resolved frame survives lazy unmount with a different decoded sample',
+    'reserved frame survives lazy unmount with a different decoded sample',
     (tester) async {
       final bucket = PageStorageBucket();
       final photos = List.generate(11, (_) => _Photo());
       await _mount(tester, photos, bucket: bucket);
+      final stage = find.byKey(const ValueKey('image-stack-stage'));
+      final size = tester.getSize(stage);
       final portrait = (await tester.runAsync(
         () => createTestImage(width: 90, height: 200),
       ))!;
@@ -269,17 +273,64 @@ void main() {
         photo.stream.complete(landscape);
       }
       await tester.pumpAndSettle();
-      final stage = find.byKey(const ValueKey('image-stack-stage'));
       await tester.fling(stage, const Offset(-240, 0), 1000);
       await tester.pumpAndSettle();
-      expect(tester.getSize(stage).height, 496);
+      expect(tester.getSize(stage), size);
       await tester.pumpWidget(const SizedBox.shrink());
       await _mount(tester, photos, bucket: bucket);
       await tester.pumpAndSettle();
-      expect(tester.getSize(stage).height, 496);
-      expect(find.byKey(const ValueKey('image-stack-loading')), findsNothing);
+      expect(tester.getSize(stage), size);
       portrait.dispose();
       landscape.dispose();
     },
   );
+
+  testWidgets('stack backdrop and photo wait for both decoded frames', (
+    tester,
+  ) async {
+    final photos = List.generate(2, (_) => _Photo());
+    final probes = List.generate(2, (_) => _Photo());
+    await _mount(tester, photos, probes: probes, ratios: const [.5, 2]);
+    final lead = find.byType(ImageStackPhoto).last;
+    final decoded = (await tester.runAsync(
+      () => createTestImage(width: 32, height: 64),
+    ))!;
+    addTearDown(decoded.dispose);
+    await tester.runAsync(() async {
+      probes.first.stream.complete(decoded);
+      await PhotoAtmosphere.fromImage('0:${probes.first.hashCode}', decoded);
+    });
+    await tester.pump();
+    final backdrop = find.descendant(
+      of: lead,
+      matching: find.byWidgetPredicate(
+        (w) => w is Image && w.image is MemoryImage,
+      ),
+    );
+    expect(backdrop, findsOneWidget);
+    await tester.runAsync(
+      () => precacheImage(
+        tester.widget<Image>(backdrop).image,
+        tester.element(backdrop),
+      ),
+    );
+    await tester.pump();
+    final fade = find
+        .descendant(of: _leadFade, matching: find.byType(FadeTransition))
+        .first;
+    expect(tester.widget<FadeTransition>(fade).opacity.value, 0);
+
+    photos.first.stream.complete(decoded);
+    await tester.pump();
+    await tester.pump();
+    expect(tester.widget<FadeTransition>(fade).opacity.value, 0);
+    await tester.pump(AppMotion.mediaFade ~/ 2);
+    expect(
+      tester.widget<FadeTransition>(fade).opacity.value,
+      inExclusiveRange(0, 1),
+    );
+    expect(find.ancestor(of: backdrop, matching: _leadFade), findsOneWidget);
+    await tester.pump(AppMotion.mediaFade ~/ 2);
+    expect(tester.widget<FadeTransition>(fade).opacity.value, 1);
+  });
 }

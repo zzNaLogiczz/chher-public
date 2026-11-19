@@ -12,6 +12,7 @@ import 'viewport_ticker_mode.dart';
 
 import '../core/chh_urls.dart';
 import '../design/tokens.dart';
+import '../design/image_tokens.dart';
 
 const Map<String, String> chhImageHeaders = {
   'User-Agent': ChhUrls.chromeUa,
@@ -52,6 +53,7 @@ class NetImage extends StatelessWidget {
 
   /// Hero flights use a stable viewport-sized decode while their rect changes.
   final int? decodeWidth;
+  final bool dimInDark;
 
   const NetImage({
     super.key,
@@ -60,6 +62,7 @@ class NetImage extends StatelessWidget {
     this.width,
     this.height,
     this.decodeWidth,
+    this.dimInDark = false,
   });
 
   @override
@@ -83,6 +86,8 @@ class NetImage extends StatelessWidget {
                       MediaQuery.devicePixelRatioOf(context),
                     ),
               ),
+              color: dimInDark && t.isDark ? ImageTokens.darkTint : null,
+              colorBlendMode: BlendMode.modulate,
               fit: fit,
               width: width,
               height: height,

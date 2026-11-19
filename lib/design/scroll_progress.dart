@@ -67,25 +67,58 @@ class ScrollDeltaProgress extends ValueNotifier<double> {
 
   final double travel;
   final AnimationController _spring;
+  double? _target;
   void _tick() => value = _spring.value.clamp(0.0, 1.0);
 
   void drag(double delta, {bool reduced = false}) {
-    _spring.stop();
-    final next = (value + delta / travel).clamp(0.0, 1.0);
-    _spring.value = reduced ? (delta > 0 ? 1 : 0) : next;
+    if (delta == 0) return;
+    if (reduced) {
+      _animateTo(delta > 0 ? 1 : 0, reduced: true);
+      return;
+    }
+    stop();
+    _spring.value = (value + delta / travel).clamp(0.0, 1.0);
   }
 
-  void stop() => _spring.stop();
-  void show() => _spring.value = 0;
+  void stop() {
+    _target = null;
+    _spring.stop();
+  }
+
+  void show({bool reduced = false}) => _animateTo(0, reduced: reduced);
 
   void settle({double velocity = 0, bool reduced = false}) {
-    AppMotion.settle(
-      _spring,
-      target: value < .5 ? 0 : 1,
-      velocity: velocity / travel,
-      motion: AppMotion.reveal,
-      reduced: reduced,
-    );
+    if (reduced && _target != null) return;
+    final speed = velocity / travel;
+    final projected =
+        value + speed * AppMotion.scrollChrome.duration.inMilliseconds / 2000;
+    _animateTo(projected < .5 ? 0 : 1, velocity: speed, reduced: reduced);
+  }
+
+  void _animateTo(double target, {double velocity = 0, required bool reduced}) {
+    if (_target == target && _spring.isAnimating) return;
+    if (_spring.value == target) {
+      stop();
+      return;
+    }
+    _target = target;
+    if (reduced) {
+      final fade = target < _spring.value
+          ? _spring.animateBack
+          : _spring.animateTo;
+      fade(
+        target,
+        duration: AppMotion.reducedFade,
+        curve: AppMotion.contentFadeCurve,
+      );
+    } else {
+      AppMotion.settle(
+        _spring,
+        target: target,
+        velocity: velocity,
+        motion: AppMotion.scrollChrome,
+      );
+    }
   }
 
   @override

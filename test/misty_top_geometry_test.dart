@@ -8,6 +8,7 @@ import 'package:chh_app/pages/me_page.dart';
 import 'package:chh_app/pages/messages_page.dart';
 import 'package:chh_app/parser/header_parser.dart';
 import 'package:chh_app/ui/message_filters.dart';
+import 'package:chh_app/ui/chrome_button.dart';
 import 'package:chh_app/ui/nav_bar.dart';
 import 'package:chh_app/ui/segmented.dart';
 import 'package:chh_app/widgets/account_widgets.dart';
@@ -21,6 +22,7 @@ import 'support/space_fixtures.dart';
 
 const _statusHeight = 24.0;
 final _large = find.byKey(const ValueKey('tab-large-title'));
+final _tabHeader = find.byType(TabHeader);
 final _identity = find.byKey(const ValueKey('me-identity-row'));
 final _tools = find.byKey(const ValueKey('me-tools'));
 final _largeSegment = find.byWidgetPredicate(
@@ -132,6 +134,42 @@ Future<void> _expectCollapse(
 }
 
 void main() {
+  testWidgets('lacquer watermark stops at the paper seam and action column', (
+    tester,
+  ) async {
+    await _surface(tester, 1);
+    await tester.pumpWidget(
+      _app(
+        LacquerTabScaffold(
+          title: '精选',
+          actions: [
+            ChromeButton(tooltip: '搜索', icon: Icons.search, onPressed: () {}),
+          ],
+          slivers: const [SliverToBoxAdapter(child: SizedBox(height: 500))],
+        ),
+        brightness: Brightness.light,
+        style: AppearanceStyle.cinnabar,
+        scale: 1,
+      ),
+    );
+    await tester.pumpAndSettle();
+    final mark = find.text('chh');
+    final clip = find.ancestor(of: mark, matching: find.byType(ClipRect)).first;
+    final visible = tester.getRect(clip);
+    expect(visible.right, tester.getTopLeft(find.byTooltip('搜索')).dx);
+    expect(
+      visible.bottom,
+      closeTo(
+        tester.getBottomLeft(_large).dy +
+            TabChromeTokens.editorialBottom +
+            TabChromeTokens.seamOverlap,
+        .1,
+      ),
+    );
+    expect(tester.getBottomLeft(mark).dy, greaterThan(visible.bottom));
+    expect(visible.height, closeTo(TabChromeTokens.watermarkVisibleHeight, 1));
+  });
+
   late _NoNetwork network;
   setUp(() {
     final loggedIn = chhSession.loggedIn;
@@ -218,11 +256,14 @@ void main() {
             ),
           );
           await tester.pumpAndSettle();
-          final title = tester.getRect(_headerText('消息'));
+          final header = tester.getRect(_tabHeader);
           final segment = tester.getRect(_largeSegment);
-          expect(title.top - _statusHeight, 8);
-          expect(tester.widget<Text>(_headerText('消息')).style!.fontSize, 34);
-          expect(segment.top - title.bottom, closeTo(12, .01));
+          expect(header.top, _statusHeight);
+          expect(tester.widget<Text>(_headerText('消息')).style!.fontSize, 32);
+          expect(
+            segment.top - header.bottom,
+            closeTo(TabChromeTokens.mistySegmentGap, .01),
+          );
           expect(segment.height, scale == 1 ? 44 : greaterThanOrEqualTo(44));
           expect(
             tester.getTopLeft(_firstDate()).dy - segment.bottom,
@@ -246,18 +287,17 @@ void main() {
           _app(_forums(), brightness: brightness, scale: scale),
         );
         await tester.pumpAndSettle();
-        final eyebrow = tester.getRect(_headerText('2 个版块'));
-        final title = tester.getRect(_headerText('版块'));
+        final header = tester.getRect(_tabHeader);
         final section = find.byKey(const ValueKey('forum-section-0'));
-        expect(eyebrow.top - _statusHeight, 8);
-        expect(title.top - eyebrow.bottom, closeTo(2, .01));
-        expect(tester.widget<Text>(_headerText('版块')).style!.fontSize, 34);
+        expect(_headerText('2 个版块'), findsOneWidget);
+        expect(header.top, _statusHeight);
+        expect(tester.widget<Text>(_headerText('版块')).style!.fontSize, 32);
         expect(tester.widget<Text>(section).data, '收藏');
-        expect(tester.getTopLeft(section).dy - title.bottom, closeTo(20, .01));
+        expect(tester.getTopLeft(section).dy - header.bottom, closeTo(20, .01));
         expect(find.text('chh'), findsNothing);
         await _expectCollapse(
           tester,
-          regionEnd: _headerText('版块'),
+          regionEnd: _tabHeader,
           compact: find.byKey(const ValueKey('forum-directory-jump')),
         );
       });
@@ -279,16 +319,26 @@ void main() {
               ),
             );
             await tester.pumpAndSettle();
-            final eyebrow = tester.getRect(_headerText('我的'));
+            final header = tester.getRect(_tabHeader);
             final identity = tester.getRect(_identity);
             final card = find.byKey(const ValueKey('me-identity-card'));
             final cardRect = tester.getRect(card);
             final avatar = find.byKey(const ValueKey('me-identity-avatar'));
-            expect(eyebrow.top - _statusHeight, 8);
-            expect(tester.widget<Text>(_headerText('我的')).style!.fontSize, 34);
-            expect(cardRect.top - eyebrow.bottom, closeTo(16, .01));
+            expect(header.top, _statusHeight);
+            expect(tester.widget<Text>(_headerText('我的')).style!.fontSize, 32);
+            expect(cardRect.top - header.bottom, closeTo(16, .01));
             expect(identity.top - cardRect.top, closeTo(16, .01));
             expect(tester.getSize(avatar), const Size(56, 56));
+            if (!logged) {
+              final logo = find.descendant(
+                of: avatar,
+                matching: find.byKey(const ValueKey('avatar-logo')),
+              );
+              expect(
+                (tester.widget<Image>(logo).image as ResizeImage).imageProvider,
+                const AssetImage('assets/brand/chhers-logo.png'),
+              );
+            }
             expect(
               tester
                   .widget<Text>(
@@ -304,10 +354,18 @@ void main() {
             if (logged) {
               final entries = tester.getRect(find.byType(LacEntryStrip));
               expect(entries.top - cardRect.bottom, closeTo(12, .01));
+              await tester.scrollUntilVisible(_tools, 32);
+              await tester.pumpAndSettle();
               expect(
-                tester.getTopLeft(_tools).dy - entries.bottom,
+                tester.getTopLeft(_tools).dy -
+                    tester.getBottomLeft(find.byType(LacEntryStrip)).dy,
                 closeTo(12, .01),
               );
+              tester
+                  .state<ScrollableState>(find.byType(Scrollable))
+                  .position
+                  .jumpTo(0);
+              await tester.pumpAndSettle();
               expect(find.text('UID 100001'), findsOneWidget);
               expect(find.text('主页'), findsOneWidget);
             } else {
@@ -343,7 +401,7 @@ void main() {
             app(MessagesTabPage(repository: FakeMessages())),
           );
           await tester.pumpAndSettle();
-          expect(tester.getTopLeft(_large).dy, _statusHeight + 16);
+          expect(tester.getTopLeft(_tabHeader).dy, _statusHeight);
           final date = tester.getRect(_firstDate());
           expect(
             date.top - tester.getBottomLeft(_large).dy,
@@ -354,7 +412,7 @@ void main() {
 
           await tester.pumpWidget(app(_forums()));
           await tester.pumpAndSettle();
-          expect(tester.getTopLeft(_large).dy, _statusHeight + 52);
+          expect(tester.getTopLeft(_tabHeader).dy, _statusHeight);
           expect(
             tester
                     .getTopLeft(find.byKey(const ValueKey('forum-section-0')))
@@ -367,16 +425,19 @@ void main() {
 
           await tester.pumpWidget(app(MePage(repository: FixtureSpace())));
           await tester.pumpAndSettle();
-          expect(
-            tester.getTopLeft(_headerText('我的')).dy,
-            _statusHeight + 16 + 44,
-          );
+          expect(tester.getTopLeft(_tabHeader).dy, _statusHeight);
           final entries = tester.getRect(find.byType(LacEntryStrip));
           expect(
             entries.top - tester.getBottomLeft(_identity).dy,
             closeTo(34 + 32, .01),
           );
-          expect(tester.getBottomLeft(find.text('chh')).dy - entries.top, 34);
+          final markClip = find
+              .ancestor(of: find.text('chh'), matching: find.byType(ClipRect))
+              .first;
+          expect(
+            tester.getBottomLeft(markClip).dy - entries.top,
+            MeTokens.overlap,
+          );
           expect(
             tester.getTopLeft(_tools).dy - entries.bottom,
             closeTo(12, .01),

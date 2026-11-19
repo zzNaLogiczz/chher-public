@@ -36,10 +36,10 @@ class _SignedCredits extends FixtureSpace {
   @override
   Future<SiteTable> creditLog({int page = 1, bool refresh = false}) async =>
       const SiteTable(
-        headers: ['操作', '积分变更', '时间'],
+        headers: ['操作', '积分变更', '详情', '时间'],
         rows: [
-          ['发表回复', '+10', '2026-10-26 12:30'],
-          ['购买附件', '-5', '2026-10-25 09:15'],
+          ['发表回复', '+10', '参与讨论', '2026-10-26 12:30'],
+          ['购买附件', '-5', '获取附件', '2026-10-25 09:15'],
         ],
       );
 }
@@ -83,9 +83,11 @@ void main() {
           findsOneWidget,
         );
         expect(
-          tester.widget<Icon>(
-            find.descendant(of: row, matching: find.byIcon(AppIcons.medal)),
-          ).size,
+          tester
+              .widget<Icon>(
+                find.descendant(of: row, matching: find.byIcon(AppIcons.medal)),
+              )
+              .size,
           ForumDirectoryTokens.markerIconSize,
         );
         expect(
@@ -212,20 +214,35 @@ void main() {
     );
   }
 
-  testWidgets('credit amounts keep their sign and are colored by direction', (
-    tester,
-  ) async {
-    await tester.pumpWidget(app(CreditLogPage(repository: _SignedCredits())));
-    await tester.pumpAndSettle();
-    expect(
-      tester.widget<Text>(find.text('+10')).style!.color,
-      AppTokens.light.green,
-    );
-    expect(
-      tester.widget<Text>(find.text('-5')).style!.color,
-      AppTokens.light.red,
-    );
-  });
+  testWidgets(
+    'B6 credit ledger keeps signs and shows details without a prefix',
+    (tester) async {
+      await tester.pumpWidget(app(CreditLogPage(repository: _SignedCredits())));
+      await tester.pumpAndSettle();
+      expect(find.text('参与讨论'), findsOneWidget);
+      expect(find.text('获取附件'), findsOneWidget);
+      expect(find.textContaining('详情'), findsNothing);
+      final ledger = find.byType(ListView);
+      expect(
+        find.descendant(
+          of: ledger,
+          matching: find.byWidgetPredicate(
+            (widget) =>
+                widget is DecoratedBox && widget.decoration is ShapeDecoration,
+          ),
+        ),
+        findsNothing,
+      );
+      expect(
+        tester.widget<Text>(find.text('+10')).style!.color,
+        AppTokens.light.green,
+      );
+      expect(
+        tester.widget<Text>(find.text('-5')).style!.color,
+        AppTokens.light.red,
+      );
+    },
+  );
 
   testWidgets('log actions are reachable from one chrome group', (
     tester,

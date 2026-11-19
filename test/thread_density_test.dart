@@ -1,6 +1,8 @@
+import 'package:chh_app/parser/content_walker.dart';
+import 'package:html/parser.dart';
+import 'package:chh_app/core/display_time.dart';
 import 'package:chh_app/core/reading_prefs.dart';
 import 'package:chh_app/design/reading.dart';
-import 'package:chh_app/parser/post_note_parser.dart';
 import 'package:chh_app/design/typography.dart';
 import 'package:chh_app/design/icons.dart';
 import 'package:chh_app/design/theme.dart';
@@ -27,7 +29,7 @@ const sample = Post(
   pid: 2,
   floor: 2,
   author: '作者',
-  timeRaw: '10-30 12:00',
+  timeRaw: '12:00',
   content: [TextBlock('一行评论')],
 );
 
@@ -133,7 +135,9 @@ void main() {
           expect(time.left, closeTo(body.left, .01));
           expect(rect.left - time.right, closeTo(16, .01));
           expect(rect.top, greaterThan(note.bottom));
-          expect(rect.top - feedback.bottom, closeTo(8, .01));
+          final metadata = tester.getRect(find.byType(CommentMetaRow));
+          expect(metadata.top, closeTo(feedback.bottom, .01));
+          expect(metadata.height, closeTo(8 + 28, .01));
           expect(rect.height, inInclusiveRange(20, 22));
           await tester.tap(reply);
           await tester.pumpAndSettle();
@@ -141,6 +145,30 @@ void main() {
         }
       }
     }
+  });
+
+  testWidgets('consecutive comments have 20dp between metadata and avatar', (
+    tester,
+  ) async {
+    const next = Post(
+      pid: 3,
+      floor: 3,
+      author: '下一条',
+      timeRaw: '今天',
+      content: [TextBlock('另一行评论')],
+    );
+    await mount(
+      tester,
+      const Column(
+        children: [
+          PostCard(post: sample, isOpening: false),
+          PostCard.header(post: next, isOpening: false),
+        ],
+      ),
+    );
+    final footer = tester.getRect(find.byType(CommentMetaRow));
+    final avatar = tester.getRect(find.byKey(const ValueKey('post-avatar-3')));
+    expect(avatar.top - footer.bottom, closeTo(20, .01));
   });
 
   testWidgets(
@@ -345,11 +373,14 @@ void main() {
         ],
       );
       await mount(tester, const PostCard(post: post, isOpening: true));
-      expect(find.text('最后编辑于 2026-10-30 12:34'), findsOneWidget);
+      expect(
+        find.text('最后编辑于 ${formatDisplayTime(raw: '2026-10-30 12:34')}'),
+        findsOneWidget,
+      );
       expect(find.text('无法提取的编辑原文'), findsNothing);
       expect(find.text('楼主补充'), findsOneWidget);
       expect(
-        find.text(supplementDateLabel('2026-10-31 08:20')),
+        find.text(formatDisplayTime(raw: '2026-10-31 08:20')),
         findsOneWidget,
       );
       expect(find.text('追加正文'), findsOneWidget);
@@ -459,7 +490,7 @@ void main() {
         }
 
         expect(
-          textBaseline('10-30 12:00') - textBaseline('回复'),
+          textBaseline('12:00') - textBaseline('回复'),
           closeTo(
             AppType.sizeFootnote * ReadingMetrics.commentReplyOpticalLiftEm,
             .01,
@@ -737,17 +768,25 @@ void main() {
           );
           addTearDown(controller.dispose);
           await controller.set(ReadingPrefs(layout: layout));
-          final metrics = ReadingMetrics.fromPrefs(controller.prefs);
           final opening = style == 'opening';
           final comment = style == 'comment';
-          const first = TextBlock('第一段正文');
-          const second = TextBlock('第二段正文');
-          const post = Post(
+          final blocks = parseContentBlocks(
+            parseFragment(
+              '<div>第一段正文<br><br><br>　<p></p>第二段正文</div>',
+            ).querySelector('div')!,
+          );
+          expect(blocks.map((block) => (block as TextBlock).text), [
+            '第一段正文',
+            '第二段正文',
+          ]);
+          final first = blocks[0] as TextBlock;
+          final second = blocks[1] as TextBlock;
+          final post = Post(
             pid: 1,
             floor: 1,
             author: '作者',
             timeRaw: '2026-10-30 12:00',
-            content: [first, second],
+            content: blocks,
           );
           final gaps = <double>[];
           for (final split in [false, true]) {
@@ -797,10 +836,7 @@ void main() {
             gaps.add(rect(second).top - rect(first).bottom);
             expect(
               gaps.last,
-              closeTo(
-                opening ? metrics.threadParagraphGap : metrics.paragraphGap,
-                .001,
-              ),
+              closeTo(ReadingMetrics.paragraphGap, .001),
               reason: 'split=$split',
             );
           }

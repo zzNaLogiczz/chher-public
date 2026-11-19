@@ -6,11 +6,14 @@ library;
 import 'package:flutter/material.dart';
 import 'editor_touch.dart';
 
+import '../design/loading_tokens.dart';
 import '../design/icons.dart';
+import '../design/thread_row_tokens.dart';
 import '../design/tokens.dart';
 import '../design/typography.dart';
 import '../widgets/expressive_controls.dart' show ExpressiveVisibility;
 import 'press.dart';
+import '../widgets/chhers_loader.dart';
 
 class SearchCapsule extends StatelessWidget {
   static const surfaceKey = ValueKey('search-capsule');
@@ -23,8 +26,8 @@ class SearchCapsule extends StatelessWidget {
   final bool autofocus;
   final FocusNode? focusNode;
 
-  /// 检索进行中:清除钮前显示小转圈
-  final bool busy;
+  /// Keep the progress slot while a query is active, including after it loads.
+  final bool? busy;
 
   /// 压在漆面顶栏上:奶白玻璃底、奶白字
   final bool onLac;
@@ -38,7 +41,7 @@ class SearchCapsule extends StatelessWidget {
     this.onSubmitted,
     this.autofocus = false,
     this.focusNode,
-    this.busy = false,
+    this.busy,
     this.onLac = false,
   });
 
@@ -118,17 +121,15 @@ class SearchCapsule extends StatelessWidget {
                   ),
                 ),
               ),
-              // 检索中显示小转圈;清除钮始终可用,进行中的检索也能随时清掉
-              if (busy)
+              // 检索中显示加载标记;清除钮始终可用,进行中的检索也能随时清掉
+              if (busy != null)
                 SizedBox.square(
-                  dimension: 24,
+                  dimension: SearchInputTokens.progressSlot,
                   child: Center(
-                    child: SizedBox.square(
-                      dimension: 16,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: t.text3,
-                      ),
+                    child: ChhersSpinner(
+                      active: busy == true,
+                      size: LoadingTokens.input,
+                      color: onLac ? t.onLac : t.text3,
                     ),
                   ),
                 ),

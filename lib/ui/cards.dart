@@ -3,6 +3,7 @@ library;
 
 import 'package:flutter/material.dart';
 
+import '../design/display_text.dart';
 import '../design/shapes.dart';
 import '../design/tokens.dart';
 import '../design/typography.dart';
@@ -44,11 +45,12 @@ class ShelfCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
     final scaler = MediaQuery.textScalerOf(context);
+    final displayTitle = normalizeDisplayText(title);
     return RepaintBoundary(
       child: PressScale(
         onTap: onTap,
         scale: .97,
-        semanticLabel: title,
+        semanticLabel: displayTitle,
         child: SizedBox(
           width: width,
           height: heightFor(scaler, withSource: source != null),
@@ -80,7 +82,7 @@ class ShelfCard extends StatelessWidget {
                           SizedBox(
                             height: _titleHeight(scaler),
                             child: Text(
-                              title,
+                              displayTitle,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: AppType.callout.copyWith(

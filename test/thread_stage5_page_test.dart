@@ -106,7 +106,7 @@ void main() {
         expect(heading.style!.color, tokensFor(brightness, style).text);
         expect(
           tester.widget<Scaffold>(find.byType(Scaffold)).backgroundColor,
-          tokensFor(brightness, style).grouped,
+          tokensFor(brightness, style).bg,
         );
         expect(tester.takeException(), isNull);
       });
@@ -169,13 +169,12 @@ void main() {
     expect(_barPosition(tester), 1);
     await down.moveBy(const Offset(0, 24));
     await tester.pump();
-    expect(
-      _barPosition(tester),
-      0,
-      reason: 'Upward drag immediately restores actions.',
-    );
+    final returning = _barPosition(tester);
+    expect(returning, greaterThan(0));
+    expect(returning, lessThan(1));
     await down.up();
     await tester.pumpAndSettle();
+    expect(_barPosition(tester), 1);
 
     for (var n = 0; n < 12; n++) {
       final position = _position(tester);
@@ -183,8 +182,51 @@ void main() {
       await tester.pumpAndSettle();
       if (position.extentAfter < 1) break;
     }
-    expect(_position(tester).extentAfter, lessThan(1));
+    final position = _position(tester);
+    expect(position.extentAfter, lessThan(1));
+    final end = position.maxScrollExtent;
+    position.jumpTo(end - 250);
+    await tester.pumpAndSettle();
+    position.jumpTo(end - 100);
+    await tester.pumpAndSettle();
+    expect(_barPosition(tester), 1);
+    position.jumpTo(end);
+    expect(_barPosition(tester), 1);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 60));
+    expect(_barPosition(tester), greaterThan(0));
+    expect(_barPosition(tester), lessThan(1));
+    await tester.pumpAndSettle();
     expect(_barPosition(tester), 0);
+    expect(tester.binding.transientCallbackCount, 0);
+  });
+
+  testWidgets('reduced motion reading bar fades without moving', (
+    tester,
+  ) async {
+    await _mount(
+      tester,
+      ThreadDetailPage(
+        tid: 123,
+        title: '',
+        loadPage: (_, _, _) async => _page([_post(1, lines: 80), _post(2)]),
+      ),
+      reduced: true,
+    );
+    final anchor = tester.widget<ReadingBarAnchor>(
+      find.byType(ReadingBarAnchor),
+    );
+    final position = _position(tester);
+    position.jumpTo(400);
+    await tester.pumpAndSettle();
+    expect(anchor.hiddenProgress.value, 1);
+    position.jumpTo(350);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 60));
+    expect(anchor.hiddenProgress.value, inExclusiveRange(0, 1));
+    expect(_barPosition(tester), 0);
+    await tester.pumpAndSettle();
+    expect(anchor.hiddenProgress.value, 0);
     expect(tester.binding.transientCallbackCount, 0);
   });
 
@@ -213,7 +255,13 @@ void main() {
       position.jumpTo(threshold + 2);
       await tester.pumpAndSettle();
       expect(opacity(), 1);
-      position.jumpTo(threshold + 400);
+      expect(
+        find.byKey(const ValueKey('thread-reading-progress')),
+        findsNothing,
+      );
+      position.jumpTo(
+        position.minScrollExtent + position.viewportDimension + 20,
+      );
       await tester.pumpAndSettle();
       final progress = tester.widget<Transform>(
         find.byKey(const ValueKey('thread-reading-progress')),

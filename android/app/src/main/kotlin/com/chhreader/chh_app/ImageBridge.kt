@@ -162,7 +162,7 @@ internal class ImageBridge(
             val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
                 addCategory(Intent.CATEGORY_OPENABLE)
                 type = "image/$format"
-                putExtra(Intent.EXTRA_TITLE, "chher-${System.currentTimeMillis()}.$format")
+                putExtra(Intent.EXTRA_TITLE, "chhers-${System.currentTimeMillis()}.$format")
             }
             pendingSave = result
             saveSource = file

@@ -2,19 +2,24 @@
 library;
 
 import 'package:flutter/material.dart';
+import '../ui/balanced_title.dart';
+import '../design/display_text.dart';
+import '../core/display_time.dart';
 import '../ui/app_button.dart';
 import '../ui/press.dart';
 import '../design/typography.dart';
 import '../ui/picker.dart';
 
+import '../design/icons.dart';
 import '../design/tokens.dart';
 import '../design/shapes.dart';
 import '../di.dart';
 import '../models/models.dart';
+import '../widgets/chhers_loading_transition.dart';
+import '../widgets/chhers_refresh_indicator.dart';
 import '../widgets/browse_controls.dart';
 import '../widgets/net_image.dart';
 import '../widgets/state_view.dart';
-import '../widgets/expressive_controls.dart';
 import '../widgets/editorial_cover.dart';
 import '../widgets/editorial_article_route.dart';
 import 'article_page.dart';
@@ -186,10 +191,9 @@ class _ArticlesViewState extends State<ArticlesView> {
         ),
       ),
       Expanded(
-        child: ExpressivePageReveal(
-          active: true,
-          revision: (_catid, _first),
-          child: _body(),
+        child: ChhersLoadingTransition(
+          contentRevision: _catid,
+          child: _first && _items.isEmpty ? null : _body(),
         ),
       ),
     ],
@@ -197,7 +201,6 @@ class _ArticlesViewState extends State<ArticlesView> {
 
   Widget _body() {
     final t = AppTokens.of(context);
-    if (_first && _items.isEmpty) return StateView.loading();
     final error = _error;
     if (error != null && _items.isEmpty) {
       return error is PageMessage
@@ -207,7 +210,7 @@ class _ArticlesViewState extends State<ArticlesView> {
             )
           : StateView.error(error, onRetry: () => _load(1, refresh: true));
     }
-    return RefreshIndicator(
+    return ChhersRefreshIndicator(
       onRefresh: () => _load(1, refresh: true),
       child: BrowsePaginationObserver(
         enabled: _hasNext && !_loading && _error == null,
@@ -353,7 +356,7 @@ class _FeaturedArticle extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    Text(
+                    BalancedTitle(
                       article.title,
                       style: TextStyle(
                         fontSize: AppType.sizeTitle2,
@@ -366,7 +369,7 @@ class _FeaturedArticle extends StatelessWidget {
                     if (readableSummary) ...[
                       const SizedBox(height: 12),
                       Text(
-                        summary,
+                        normalizeDisplayText(summary),
                         maxLines: 3,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
@@ -381,7 +384,15 @@ class _FeaturedArticle extends StatelessWidget {
                       children: [
                         Expanded(
                           child: Text(
-                            article.timeRaw ?? '阅读全文',
+                            article.timeRaw == null
+                                ? '阅读全文'
+                                : formatDisplayTime(
+                                    raw: article.timeRaw,
+                                    style: DisplayTimeStyle.list,
+                                    embedded: true,
+                                  ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               fontSize: AppType.sizeFootnote,
                               color: t.text2,
@@ -434,10 +445,9 @@ class _ArticleRow extends StatelessWidget {
                           ),
                           const SizedBox(height: 5),
                         ],
-                        Text(
+                        BalancedTitle(
                           article.title,
                           maxLines: 3,
-                          overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             fontSize: AppType.sizeBody,
                             fontWeight: FontWeight.w600,
@@ -448,7 +458,12 @@ class _ArticleRow extends StatelessWidget {
                         if (article.timeRaw != null) ...[
                           const SizedBox(height: 7),
                           Text(
-                            article.timeRaw!,
+                            formatDisplayTime(
+                              raw: article.timeRaw,
+                              style: DisplayTimeStyle.list,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               fontSize: AppType.sizeFootnote,
                               color: t.text3,
@@ -465,7 +480,10 @@ class _ArticleRow extends StatelessWidget {
                       child: SizedBox(
                         width: 96,
                         height: 90,
-                        child: NetImage(url: article.coverUrl!),
+                        child: NetImage(
+                          url: article.coverUrl!,
+                          dimInDark: true,
+                        ),
                       ),
                     ),
                   ],

@@ -49,13 +49,15 @@ ThreadListPage parseThreadList(String html) {
     String author = '';
     String? authorUid;
     DateTime? createdAt;
+    String? createdAtRaw;
     String? lastUser;
     String? lastAt;
     if (byCells.isNotEmpty) {
       final authorLink = byCells[0].querySelector('cite a');
       author = authorLink?.text.trim() ?? '';
       authorUid = ChhUrls.uidFromUrl(authorLink?.attributes['href'] ?? '');
-      createdAt = ChhUrls.parseTime(byCells[0].querySelector('em')?.text ?? '');
+      createdAtRaw = byCells[0].querySelector('em')?.text.trim();
+      createdAt = ChhUrls.parseTime(createdAtRaw ?? '');
     }
     if (byCells.length > 1) {
       lastUser = byCells[1].querySelector('cite a')?.text.trim();
@@ -77,6 +79,7 @@ ThreadListPage parseThreadList(String html) {
         author: author,
         authorUid: authorUid,
         createdAt: createdAt,
+        createdAtRaw: createdAtRaw,
         replies: replies,
         views: views,
         lastPostUser: lastUser,

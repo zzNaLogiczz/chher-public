@@ -1,4 +1,5 @@
 import 'package:chh_app/design/theme.dart';
+import 'package:chh_app/design/tokens.dart';
 import 'package:chh_app/models/models.dart';
 import 'package:chh_app/pages/credit_log_page.dart';
 import 'package:chh_app/pages/favorites_page.dart';
@@ -22,6 +23,26 @@ Widget accountApp(Widget page) => MaterialApp(
 );
 
 void main() {
+  testWidgets('B6 account lists share the content surface', (tester) async {
+    final repo = FixtureSpace();
+    for (final page in [
+      FavoritesPage(repository: repo),
+      MyThreadsPage(repository: repo),
+      CreditLogPage(repository: repo),
+      MedalsPage(repository: repo),
+    ]) {
+      await tester.pumpWidget(
+        MaterialApp(theme: buildAppTheme(Brightness.light), home: page),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<Scaffold>(find.byType(Scaffold)).backgroundColor,
+        AppTokens.light.bg,
+        reason: '${page.runtimeType}',
+      );
+    }
+  });
+
   testWidgets('all account read surfaces fit 320dp and double text', (
     tester,
   ) async {

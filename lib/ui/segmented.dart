@@ -1,4 +1,4 @@
-/// 2–4 个等宽选项的分段控件:胶囊轨道 + 白色滑块,滑块用弹簧滑过去(规格 §6.4)
+/// 2–4 个等宽选项的分段控件，滑块沿胶囊轨道弹簧滑动。
 ///
 /// 任一标签在当前字号下放不下时,自动换成"当前值 ⌄"选择按钮,选中状态不丢。
 library;
@@ -26,7 +26,7 @@ class AppSegmented<T> extends StatefulWidget {
   /// 紧凑型:高 32,宽度按文字,放在分区标题右侧
   final bool compact;
 
-  /// 压在漆面顶栏上:奶白轨道、奶白滑块、选中字深红
+  /// 压在漆面顶栏上，使用与漆面对比的配色。
   final bool onLac;
 
   /// 降级为选择面板时的面板标题
@@ -259,11 +259,10 @@ class _AppSegmentedState<T> extends State<AppSegmented<T>>
 
   Widget _badge(AppTokens t, int i, double emphasis) {
     final count = i < widget.badgeCounts!.length ? widget.badgeCounts![i] : 0;
-    final foreground = widget.onLac ? MessageTokens.thumb(t, true) : t.onAccent;
-    final background = widget.onLac
-        ? MessageTokens.selected(t, true)
-        : t.accent;
-    final color = widget.onLac
+    final tinted = widget.onLac && !t.isDark;
+    final foreground = tinted ? MessageTokens.thumb(t, true) : t.onAccent;
+    final background = tinted ? MessageTokens.selected(t, true) : t.accent;
+    final color = tinted
         ? Color.lerp(foreground, background, emphasis)!
         : background;
     if (widget.compact) {
@@ -278,7 +277,7 @@ class _AppSegmentedState<T> extends State<AppSegmented<T>>
     return CountBadge(
       count: count,
       color: color,
-      textColor: widget.onLac
+      textColor: tinted
           ? Color.lerp(background, foreground, emphasis)
           : foreground,
     );
@@ -287,7 +286,6 @@ class _AppSegmentedState<T> extends State<AppSegmented<T>>
   Widget _segment(AppTokens t, int i, double position, TextStyle style) {
     // 文字颜色随滑块距离渐变,滑块经过时就亮起,不等动画结束
     final emphasis = (1 - (position - i).abs()).clamp(0.0, 1.0);
-    // 漆面上:滑块后的字是深红,未到的字是淡朱
     final selectedColor = widget.messageStyle
         ? MessageTokens.selected(t, widget.onLac)
         : MessageTokens.standardSelected(t, widget.onLac);

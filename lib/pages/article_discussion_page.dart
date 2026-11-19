@@ -2,12 +2,16 @@
 library;
 
 import 'package:flutter/material.dart';
+import '../design/display_text.dart';
 import '../models/image_stack_group.dart';
+import '../widgets/chhers_loading_transition.dart';
+import '../widgets/chhers_refresh_indicator.dart';
 import '../widgets/reading_list_end.dart';
 import '../widgets/expressive_controls.dart';
 import '../widgets/compact_scaffold.dart';
 import '../design/motion.dart';
 import '../design/reading.dart';
+import '../design/list_end_tokens.dart';
 import '../ui/app_button.dart';
 import '../ui/bottom_bar.dart';
 import '../design/shapes.dart';
@@ -27,6 +31,7 @@ import '../models/models.dart';
 import '../widgets/article_reply_sheet.dart';
 import '../widgets/article_discussion_widgets.dart';
 import '../widgets/comment_mode_bar.dart';
+import '../widgets/post_card.dart' show CommentMetaRow;
 import '../widgets/composer_sheet.dart' show showPostResult;
 import '../widgets/state_view.dart';
 import 'thread_detail_page.dart';
@@ -506,11 +511,11 @@ class _ArticleDiscussionPageState extends State<ArticleDiscussionPage>
                 style: AppType.headline.copyWith(color: t.text),
               ),
             ),
-            if (_discussion?.total != null) ...[
+            if (_commentCount case final count?) ...[
               const SizedBox(width: 6),
               Flexible(
                 child: Text(
-                  '${_discussion!.total}',
+                  '$count',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: AppType.headline.copyWith(color: t.text3),
@@ -520,7 +525,7 @@ class _ArticleDiscussionPageState extends State<ArticleDiscussionPage>
           ],
         ),
       ),
-      body: RefreshIndicator(
+      body: ChhersRefreshIndicator(
         onRefresh: () => _load(1, refresh: true),
         child: _discussionBody(t),
       ),
@@ -554,52 +559,62 @@ class _ArticleDiscussionPageState extends State<ArticleDiscussionPage>
         const SliverToBoxAdapter(child: SizedBox(height: 4)),
         if (_discussion?.threadId != null)
           SliverToBoxAdapter(child: _threadEntry(t)),
-        if (_first)
-          SliverFillRemaining(hasScrollBody: false, child: StateView.loading())
-        else if (_error != null && _items.isEmpty)
-          SliverFillRemaining(
+        ChhersLoadingTransition.sliver(
+          placeholderBuilder: (indicator) => SliverFillRemaining(
             hasScrollBody: false,
-            child: _error is PageMessage
-                ? StateView.forMessage(_error as PageMessage, onLogin: _login)
-                : StateView.error(
-                    _error!,
-                    onRetry: () => _load(1, refresh: true),
+            child: Center(child: indicator),
+          ),
+          child: _first
+              ? null
+              : _error != null && _items.isEmpty
+              ? SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: _error is PageMessage
+                      ? StateView.forMessage(
+                          _error as PageMessage,
+                          onLogin: _login,
+                        )
+                      : StateView.error(
+                          _error!,
+                          onRetry: () => _load(1, refresh: true),
+                        ),
+                )
+              : _items.isEmpty
+              ? SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: StateView.empty(
+                    message: _forumOnly ? '这篇内容的讨论在论坛原帖中' : '暂时没有评论，写下你的看法',
                   ),
-          )
-        else if (_items.isEmpty)
-          SliverFillRemaining(
-            hasScrollBody: false,
-            child: StateView.empty(
-              message: _forumOnly ? '这篇内容的讨论在论坛原帖中' : '暂时没有评论，写下你的看法',
-            ),
-          )
-        else ...[
-          SliverPadding(
-            padding: EdgeInsets.symmetric(horizontal: metrics.gutter),
-            // 每种查看方式一个新列表:回到顶部时不沿用旧行的布局偏移,
-            // 否则滚动校正会把位置"保留"在旧内容的高度上
-            sliver: SliverList.builder(
-              key: ValueKey(_mode),
-              itemCount: _entries.length,
-              findChildIndexCallback: (key) =>
-                  key is ValueKey ? _entryIndexes[key.value] : null,
-              itemBuilder: (context, index) => ContentFade(
-                background: t.bg,
-                key: ValueKey(_entries[index].id),
-                opacity: _modeOpacity,
-                child: _entryView(index),
-              ),
-            ),
-          ),
-          SliverToBoxAdapter(
-            child: ContentFade(
-              opacity: _modeOpacity,
-              background: t.bg,
-              child: _tail(t),
-            ),
-          ),
-        ],
-        const SliverToBoxAdapter(child: SizedBox(height: 24)),
+                )
+              : SliverMainAxisGroup(
+                  slivers: [
+                    SliverPadding(
+                      padding: EdgeInsets.symmetric(horizontal: metrics.gutter),
+                      // 每种查看方式一个新列表:回到顶部时不沿用旧行的布局偏移,
+                      // 否则滚动校正会把位置"保留"在旧内容的高度上
+                      sliver: SliverList.builder(
+                        key: ValueKey(_mode),
+                        itemCount: _entries.length,
+                        findChildIndexCallback: (key) =>
+                            key is ValueKey ? _entryIndexes[key.value] : null,
+                        itemBuilder: (context, index) => ContentFade(
+                          background: t.bg,
+                          key: ValueKey(_entries[index].id),
+                          opacity: _modeOpacity,
+                          child: _entryView(context, index),
+                        ),
+                      ),
+                    ),
+                    SliverToBoxAdapter(
+                      child: ContentFade(
+                        opacity: _modeOpacity,
+                        background: t.bg,
+                        child: Builder(builder: (context) => _tail(context, t)),
+                      ),
+                    ),
+                  ],
+                ),
+        ),
       ],
     );
     if (!widget._asSheet) return scrollView;
@@ -629,11 +644,13 @@ class _ArticleDiscussionPageState extends State<ArticleDiscussionPage>
     );
   }
 
-  Widget _entryView(int index) {
+  Widget _entryView(BuildContext context, int index) {
     final metrics = ReadingMetrics.of(context);
     final entry = _entries[index];
     final comment = entry.comment;
-    if (entry.expander > 0) return _expander(entry);
+    if (entry.expander > 0) {
+      return _expander(context, entry, last: index == _entries.length - 1);
+    }
     final grouped = _mode == CommentViewMode.threaded;
     final avatar = entry.nested ? metrics.avatarNested : metrics.avatar;
     final tile = entry.part == _CommentPart.body
@@ -689,19 +706,41 @@ class _ArticleDiscussionPageState extends State<ArticleDiscussionPage>
     );
   }
 
-  Widget _expander(_CommentEntry entry) {
+  String _expanderLabel(_CommentEntry entry) {
     final visible = _visibleReplies[entry.comment.cid] ?? 0;
     final remaining = entry.expander;
+    return visible == 0 ? '展开 $remaining 条回复' : '展开更多回复（$remaining）';
+  }
+
+  double _expanderTextInset(BuildContext context, _CommentEntry entry) =>
+      centeredLabelBottomInset(
+        context,
+        _expanderLabel(entry),
+        AppType.subhead.copyWith(fontWeight: FontWeight.w600),
+        AppSizes.buttonHeight,
+      );
+
+  Widget _expander(
+    BuildContext context,
+    _CommentEntry entry, {
+    required bool last,
+  }) {
+    final metrics = ReadingMetrics.of(context);
     return Padding(
       padding: EdgeInsets.only(
-        left: ReadingMetrics.of(context).avatar + 10,
-        bottom: ReadingMetrics.of(context).postVPad,
+        left: metrics.avatar + 10,
+        bottom: last
+            ? metrics.postVPad.clamp(
+                0.0,
+                ListEndTokens.markerPadding(_expanderTextInset(context, entry)),
+              )
+            : metrics.postVPad,
       ),
       child: Align(
         alignment: Alignment.centerLeft,
         child: AppButton(
           key: ValueKey('article-expand-replies-${entry.comment.cid}'),
-          label: visible == 0 ? '展开 $remaining 条回复' : '展开更多回复（$remaining）',
+          label: _expanderLabel(entry),
           variant: AppButtonVariant.plain,
           icon: AppIcons.down,
           onPressed: () => _expandReplies(entry.comment.cid),
@@ -724,9 +763,7 @@ class _ArticleDiscussionPageState extends State<ArticleDiscussionPage>
       backgroundColor: t.bg,
       topBar: _sheetHeader(t),
       body: SizedBox.expand(
-        child: RefreshIndicator(
-          color: t.accent,
-          backgroundColor: t.bg,
+        child: ChhersRefreshIndicator(
           onRefresh: () => _load(1, refresh: true),
           child: _discussionBody(t),
         ),
@@ -741,10 +778,15 @@ class _ArticleDiscussionPageState extends State<ArticleDiscussionPage>
   /// 头部只有标题与关闭;文章名一行;展开靠拖动,刷新靠下拉
   String get _heading => _forumOnly ? '原帖讨论' : '评论';
 
+  int? get _commentCount {
+    final total = _discussion?.total;
+    return total == null || total <= 0 ? null : total;
+  }
+
   Widget _sheetHeader(AppTokens t) => SheetHeader(
     title: _heading,
-    count: _discussion?.total,
-    contextLine: widget.title,
+    count: _commentCount,
+    contextLine: normalizeDisplayText(widget.title),
     trailing: _showModes ? _modeBar() : null,
     trailingMinWidth: _modeMinimumWidth,
     closeTooltip: '关闭讨论',
@@ -821,46 +863,46 @@ class _ArticleDiscussionPageState extends State<ArticleDiscussionPage>
     ),
   );
 
-  Widget _tail(AppTokens t) {
-    if (_error != null) {
-      return Padding(
-        padding: const EdgeInsets.all(20),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              '评论加载失败',
-              style: TextStyle(fontSize: AppType.sizeFootnote, color: t.text2),
-            ),
-            AppButton(
-              label: '重试',
-              variant: AppButtonVariant.plain,
-              onPressed: () => _load(_page + 1),
-            ),
-          ],
-        ),
-      );
+  Widget _tail(BuildContext context, AppTokens t) {
+    if (_hasNext && !_loading && _error == null) {
+      return const SizedBox.shrink();
     }
-    if (_loading) {
-      return Padding(
-        padding: const EdgeInsets.all(24),
-        child: const Center(child: ReadingListEnd(loading: true)),
-      );
-    }
-    if (!_hasNext) {
-      return Padding(
-        padding: const EdgeInsets.all(24),
-        child: Center(
-          child: _entries.isEmpty && _mode == CommentViewMode.author
-              ? Text(
-                  '作者还没有发表评论',
-                  style: AppType.footnote.copyWith(color: t.text3),
-                )
-              : const ReadingListEnd(),
-        ),
-      );
-    }
-    return const SizedBox(height: 24);
+    final last = _entries.lastOrNull;
+    final metrics = ReadingMetrics.of(context);
+    final lastRowPadding = switch (last?.expander) {
+      null => 0.0,
+      > 0 => metrics.postVPad + _expanderTextInset(context, last!),
+      _ => metrics.commentVPad + CommentMetaRow.textBottomInsetOf(context),
+    };
+    return Padding(
+      padding: EdgeInsets.only(
+        top: ListEndTokens.markerPadding(lastRowPadding),
+      ),
+      child: Center(
+        child: _error != null
+            ? Wrap(
+                alignment: WrapAlignment.center,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  Text(
+                    '评论加载失败',
+                    style: AppType.footnote.copyWith(color: t.text2),
+                  ),
+                  AppButton(
+                    label: '重试',
+                    variant: AppButtonVariant.plain,
+                    onPressed: () => _load(_page + 1),
+                  ),
+                ],
+              )
+            : last == null && _mode == CommentViewMode.author && !_loading
+            ? Text(
+                '作者还没有发表评论',
+                style: AppType.footnote.copyWith(color: t.text3),
+              )
+            : ReadingListEnd(loading: _loading),
+      ),
+    );
   }
 }
 

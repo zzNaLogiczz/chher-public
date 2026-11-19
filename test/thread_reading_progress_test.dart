@@ -6,6 +6,7 @@ import 'package:chh_app/models/models.dart';
 import 'package:chh_app/pages/thread_detail_page.dart';
 import 'package:chh_app/ui/nav_bar.dart';
 import 'package:chh_app/ui/reading_bar.dart';
+import 'package:chh_app/widgets/chhers_refresh_indicator.dart';
 import 'package:chh_app/widgets/post_card.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -286,7 +287,7 @@ void main() {
     await tester.pump();
     expect(_progress(tester), greaterThan(0));
     await tester
-        .widget<RefreshIndicator>(find.byType(RefreshIndicator))
+        .widget<ChhersRefreshIndicator>(find.byType(ChhersRefreshIndicator))
         .onRefresh();
     await tester.pump();
     await tester.pump();

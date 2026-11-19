@@ -10,6 +10,7 @@ import 'package:chh_app/network/chh_fetcher.dart';
 import 'package:chh_app/pages/source_page_drawer.dart';
 import 'package:chh_app/ui/chrome_button.dart';
 import 'package:chh_app/widgets/link_opener.dart';
+import 'package:chh_app/widgets/chhers_loader.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -67,6 +68,10 @@ Finder bodyText(String text) => find.byWidgetPredicate(
   (w) => w is Text && w.data == text && w.maxLines == null,
 );
 
+final _activeSpinner = find.byWidgetPredicate(
+  (widget) => widget is ChhersSpinner && widget.active,
+);
+
 void main() {
   for (final page in {
     'standard table': detailsHtml,
@@ -80,12 +85,12 @@ void main() {
         final repo = RatingRepository(ChhClient(fetchers: [fetcher]));
         await fixture.mount(tester, rating: rating(), repository: repo);
         expect(fetcher.calls, 0);
-        await tester.tap(find.text('用户0'));
+        await tester.tap(fixture.detailName('用户0'));
         await tester.pump();
         await tester.pump(const Duration(seconds: 1));
         expect(fetcher.calls, 1);
         expect(bodyText(shortReason), findsOneWidget);
-        expect(find.byType(CircularProgressIndicator), findsOneWidget);
+        expect(_activeSpinner, findsOneWidget);
         expect(
           tester
               .getSemantics(find.bySemanticsLabel('用户0 +10 $shortReason'))
@@ -93,16 +98,24 @@ void main() {
               .value,
           '正在读取完整附言',
         );
-        final namePosition = tester.getTopLeft(find.text('用户0'));
+        final namePosition = tester.getTopLeft(fixture.detailName('用户0'));
         final pendingRowHeight = tester.getSize(fixture.row('用户0')).height;
         await tester.pump(const Duration(seconds: 2));
         expect(tester.getSize(fixture.row('用户0')).height, pendingRowHeight);
-        await tester.tap(find.text('用户1'));
+        await tester.tap(fixture.detailName('用户1'));
         await tester.pump();
         expect(fetcher.calls, 1);
+        final exitingSpinner = find.descendant(
+          of: find.descendant(
+            of: fixture.row('用户0'),
+            matching: find.byType(ChhersSpinner),
+          ),
+          matching: find.byType(FadeTransition),
+        );
+        expect(exitingSpinner, findsOneWidget);
         fetcher.response.complete(ChhResponse(200, page.value));
         await tester.pump();
-        expect(find.byType(CircularProgressIndicator), findsNothing);
+        expect(_activeSpinner, findsNothing);
         expect(bodyText(fullReason), findsOneWidget);
         expect(tester.getSize(fixture.row('用户0')).height, pendingRowHeight);
         final initialAlpha = tester
@@ -113,6 +126,10 @@ void main() {
         expect(initialAlpha, 0);
         await tester.pump(const Duration(milliseconds: 90));
         expect(
+          tester.widget<FadeTransition>(exitingSpinner).opacity.value,
+          inExclusiveRange(0, 1),
+        );
+        expect(
           tester.widget<Text>(bodyText(fullReason)).style!.color!.a,
           inExclusiveRange(0, 1),
         );
@@ -122,26 +139,27 @@ void main() {
         );
         await tester.pump(const Duration(milliseconds: 90));
         expect(tester.widget<Text>(bodyText(fullReason)).style!.color!.a, 1);
-        expect(tester.getTopLeft(find.text('用户0')), namePosition);
+        expect(exitingSpinner, findsNothing);
+        expect(tester.getTopLeft(fixture.detailName('用户0')), namePosition);
         await tester.pumpAndSettle();
         expect(find.text('在网页中查看'), findsNothing);
         expect(
           tester.getTopLeft(bodyText(fullReason)).dx,
-          tester.getTopLeft(find.text('用户0')).dx,
+          tester.getTopLeft(fixture.detailName('用户0')).dx,
         );
         expect(bodyText('另一个完整附言。'), findsOneWidget);
-        await tester.tap(find.text('用户0'));
+        await tester.tap(fixture.detailName('用户0'));
         await tester.pumpAndSettle();
-        await tester.tap(find.text('用户0'));
+        await tester.tap(fixture.detailName('用户0'));
         await tester.pumpAndSettle();
         expect(fetcher.calls, 1);
         await tester.pumpWidget(const SizedBox());
         await fixture.mount(tester, rating: rating(), repository: repo);
-        await tester.tap(find.text('用户0'));
+        await tester.tap(fixture.detailName('用户0'));
         await tester.pump();
         expect(bodyText(fullReason), findsOneWidget);
         expect(tester.widget<Text>(bodyText(fullReason)).style!.color!.a, 1);
-        expect(find.byType(CircularProgressIndicator), findsNothing);
+        expect(_activeSpinner, findsNothing);
         await tester.pumpAndSettle();
         expect(fetcher.calls, 1);
         expect(tester.binding.transientCallbackCount, 0);
@@ -169,18 +187,19 @@ void main() {
           repository: repo,
         );
         expect(fetcher.calls, 0);
-        await tester.tap(find.text('用户0'));
+        await tester.tap(fixture.detailName('用户0'));
         await tester.pump();
         await tester.pump(const Duration(seconds: 1));
         final pendingHeight = tester.getSize(fixture.row('用户0')).height;
         expect(bodyText(unchanged), findsOneWidget);
-        expect(find.byType(CircularProgressIndicator), findsOneWidget);
+        expect(_activeSpinner, findsOneWidget);
         await tester.pump(const Duration(seconds: 1));
         expect(tester.getSize(fixture.row('用户0')).height, pendingHeight);
         fetcher.response.complete(ChhResponse(200, html));
         await tester.pump();
+        await tester.pump();
         expect(bodyText(unchanged), findsOneWidget);
-        expect(find.byType(CircularProgressIndicator), findsNothing);
+        expect(_activeSpinner, findsNothing);
         expect(find.text('在网页中查看'), findsNothing);
         expect(tester.widget<Text>(bodyText(unchanged)).style!.color!.a, 0);
         await tester.pump(const Duration(milliseconds: 90));
@@ -192,9 +211,9 @@ void main() {
         expect(tester.widget<Text>(bodyText(unchanged)).style!.color!.a, 1);
         await tester.pumpAndSettle();
         expect(tester.getSize(fixture.row('用户0')).height, pendingHeight);
-        await tester.tap(find.text('用户0'));
+        await tester.tap(fixture.detailName('用户0'));
         await tester.pumpAndSettle();
-        await tester.tap(find.text('用户0'));
+        await tester.tap(fixture.detailName('用户0'));
         await tester.pumpAndSettle();
         expect(bodyText(unchanged), findsOneWidget);
         expect(find.text('在网页中查看'), findsNothing);
@@ -205,11 +224,11 @@ void main() {
           rating: rating(reason: unchanged),
           repository: repo,
         );
-        await tester.tap(find.text('用户0'));
+        await tester.tap(fixture.detailName('用户0'));
         await tester.pump();
         expect(bodyText(unchanged), findsOneWidget);
         expect(tester.widget<Text>(bodyText(unchanged)).style!.color!.a, 1);
-        expect(find.byType(CircularProgressIndicator), findsNothing);
+        expect(_activeSpinner, findsNothing);
         expect(find.text('在网页中查看'), findsNothing);
         await tester.pumpAndSettle();
         expect(fetcher.calls, 1);
@@ -229,9 +248,9 @@ void main() {
       repository: repo,
       reduced: true,
     );
-    await tester.tap(find.text('用户0'));
+    await tester.tap(fixture.detailName('用户0'));
     await tester.pump();
-    await tester.tap(find.text('用户0'));
+    await tester.tap(fixture.detailName('用户0'));
     await tester.pumpAndSettle();
     // A new immutable projection of the same floor must not invalidate its read.
     await fixture.mount(
@@ -240,7 +259,7 @@ void main() {
       repository: repo,
       reduced: true,
     );
-    await tester.tap(find.text('用户0'));
+    await tester.tap(fixture.detailName('用户0'));
     await tester.pump();
     expect(fetcher.calls, 1);
     fetcher.response.complete(const ChhResponse(200, detailsHtml));
@@ -284,7 +303,7 @@ void main() {
       addTearDown(() => externalLauncher = oldLauncher);
       final semantics = tester.ensureSemantics();
       await fixture.mount(tester, rating: rating(), repository: repo);
-      await tester.tap(find.text('用户0'));
+      await tester.tap(fixture.detailName('用户0'));
       await tester.pump();
       fetcher.response.complete(scenario.value);
       await tester.pumpAndSettle();
@@ -312,9 +331,9 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(SourcePageDrawer), findsNothing);
       expect(bodyText(shortReason), findsOneWidget);
-      await tester.tap(find.text('用户0'));
+      await tester.tap(fixture.detailName('用户0'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('用户0'));
+      await tester.tap(fixture.detailName('用户0'));
       await tester.pumpAndSettle();
       expect(find.text('在网页中查看'), findsOneWidget);
       expect(fetcher.calls, 1);
@@ -331,7 +350,7 @@ void main() {
       rating: rating(reason: fullReason),
       repository: repo,
     );
-    await tester.tap(find.text('用户0'));
+    await tester.tap(fixture.detailName('用户0'));
     await tester.pumpAndSettle();
     expect(bodyText(fullReason), findsOneWidget);
     expect(fetcher.calls, 0);
@@ -355,11 +374,11 @@ void main() {
               rating: rating(),
               repository: repo,
             );
-            await tester.tap(find.text('用户0'));
+            await tester.tap(fixture.detailName('用户0'));
             await tester.pump();
             expect(
               tester.getTopLeft(bodyText(shortReason)).dx,
-              tester.getTopLeft(find.text('用户0')).dx,
+              tester.getTopLeft(fixture.detailName('用户0')).dx,
             );
             final pendingHeight = tester.getSize(fixture.row('用户0')).height;
             await tester.pump(const Duration(seconds: 1));
@@ -386,7 +405,7 @@ void main() {
             expect(tester.getSize(fixture.row('用户0')).height, arrivedHeight);
             expect(
               tester.getTopLeft(bodyText(fullReason)).dx,
-              tester.getTopLeft(find.text('用户0')).dx,
+              tester.getTopLeft(fixture.detailName('用户0')).dx,
             );
             final text = tester.widget<Text>(bodyText(fullReason));
             expect(text.style!.color, tokensFor(brightness, style).text2);

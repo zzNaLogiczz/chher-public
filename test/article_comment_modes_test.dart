@@ -252,7 +252,7 @@ void main() {
       tester,
     ) async {
       await open(tester, knowsAuthor: false);
-      expect(find.text('原楼层'), findsOneWidget);
+      expect(find.text('楼层'), findsOneWidget);
       expect(find.text('只看作者'), findsNothing);
     });
   });

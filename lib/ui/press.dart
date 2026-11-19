@@ -1,16 +1,19 @@
 /// 统一按压反馈
 ///
 /// 块状控件用 [PressScale](整体缩小),整行用 [PressHighlight](底色变深)。
-/// 块状控件按下立即反馈；滚动行确认点击后才高亮，避免起滑闪条。
+/// 块状控件按下立即反馈；滚动行按住后才高亮，避免起滑闪条。
 /// 两者共享同一套按压核心:移动超过 touch slop 取消、
 /// Enter/Space 触发、仅键盘焦点显示焦点环。
 library;
+
+import 'dart:async';
 
 import 'package:flutter/gestures.dart' show kTouchSlop;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:motor/motor.dart';
 
+import '../design/feedback.dart';
 import '../design/motion.dart';
 import '../design/shapes.dart';
 import '../design/tokens.dart';
@@ -46,8 +49,13 @@ class _PressCoreState extends State<_PressCore> {
   Offset? _origin;
   bool _down = false;
   bool _showFocus = false;
-  bool _deferredPointerFeedback = false;
+  Timer? _pressDelay;
+  bool _rowMoved = false;
+  bool _highlightOnTap = false;
   ScrollPosition? _scrollPosition;
+
+  bool get _isScrollableRow =>
+      widget.deferPressInScrollable && _scrollPosition != null;
 
   @override
   void didChangeDependencies() {
@@ -65,6 +73,8 @@ class _PressCoreState extends State<_PressCore> {
 
   void _cancel() {
     _origin = null;
+    _cancelDelay();
+    _highlightOnTap = false;
     if (!_down) return;
     _down = false;
     widget.onPressCancelled();
@@ -72,6 +82,7 @@ class _PressCoreState extends State<_PressCore> {
 
   @override
   void dispose() {
+    _cancelDelay();
     _scrollPosition?.isScrollingNotifier.removeListener(_scrollChanged);
     super.dispose();
   }
@@ -82,26 +93,16 @@ class _PressCoreState extends State<_PressCore> {
     widget.onPressedChanged(down);
   }
 
-  void _tap() {
-    if (_deferredPointerFeedback) {
-      _press(true);
-      _press(false);
-    }
-    widget.onTap?.call();
-  }
-
-  void _longPress() {
-    if (_deferredPointerFeedback) _press(true);
-    widget.onLongPress?.call();
+  void _cancelDelay() {
+    _pressDelay?.cancel();
+    _pressDelay = null;
   }
 
   @override
   void didUpdateWidget(covariant _PressCore oldWidget) {
     super.didUpdateWidget(oldWidget);
     // 按压中途被禁用:立刻释放反馈
-    if (widget.onTap == null && _down) {
-      _cancel();
-    }
+    if (widget.onTap == null) _cancel();
   }
 
   @override
@@ -111,6 +112,8 @@ class _PressCoreState extends State<_PressCore> {
       button: true,
       label: widget.semanticLabel,
       enabled: enabled,
+      onTap: widget.onTap,
+      onLongPress: widget.onLongPress,
       child: FocusableActionDetector(
         enabled: enabled,
         onShowFocusHighlight: (value) {
@@ -136,28 +139,59 @@ class _PressCoreState extends State<_PressCore> {
         child: Listener(
           behavior: HitTestBehavior.opaque,
           onPointerDown: (event) {
+            _cancelDelay();
+            _rowMoved = false;
+            _highlightOnTap = false;
             _origin = event.position;
-            _deferredPointerFeedback =
-                widget.deferPressInScrollable && _scrollPosition != null;
-            if (!_deferredPointerFeedback) _press(true);
+            if (_isScrollableRow) {
+              if (enabled &&
+                  _scrollPosition?.isScrollingNotifier.value == false) {
+                _pressDelay = Timer(AppMotion.listPressDelay, () {
+                  _pressDelay = null;
+                  _press(true);
+                });
+              }
+            } else {
+              _press(true);
+            }
           },
           onPointerMove: (event) {
             final origin = _origin;
+            final slop = _isScrollableRow
+                ? FeedbackMetrics.listPressSlop
+                : kTouchSlop;
             if (origin != null &&
-                (event.position - origin).distanceSquared >
-                    kTouchSlop * kTouchSlop) {
+                (event.position - origin).distanceSquared > slop * slop) {
+              _rowMoved = _isScrollableRow;
               _cancel();
             }
           },
           onPointerUp: (_) {
             _origin = null;
+            _highlightOnTap = _pressDelay != null;
+            _cancelDelay();
             _press(false);
           },
           onPointerCancel: (_) => _cancel(),
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onTap: widget.onTap == null ? null : _tap,
-            onLongPress: widget.onLongPress == null ? null : _longPress,
+            excludeFromSemantics: true,
+            onTap: widget.onTap == null
+                ? null
+                : () {
+                    if (_rowMoved) return;
+                    if (_highlightOnTap) {
+                      _highlightOnTap = false;
+                      _press(true);
+                      _press(false);
+                    }
+                    widget.onTap?.call();
+                  },
+            onLongPress: widget.onLongPress == null
+                ? null
+                : () {
+                    if (!_rowMoved) widget.onLongPress?.call();
+                  },
             onTapCancel: _cancel,
             child: widget.builder(
               context,
@@ -286,7 +320,7 @@ class _PressScaleState extends State<PressScale>
   );
 }
 
-/// 滚动行确认点击后铺上 `pressed` 底色并在 200ms 内淡回，不缩放；
+/// 滚动行按住 70ms 后铺上 `pressed` 底色，松手淡回，不缩放；
 /// 未放入滚动视口的独立条目仍在按下时反馈。
 class PressHighlight extends StatefulWidget {
   /// 松手后底色淡回的时长(规格 §5.7 规则 3 规定,允许的非弹簧例外)

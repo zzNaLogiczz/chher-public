@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:ui';
 
@@ -71,6 +72,38 @@ void main() {
     );
     await prefetch.fetch(42);
     expect(repo.calls, isEmpty);
+    expect(cache.lookup(42), url);
+  });
+
+  test('decoded portrait waits to update the visible cover', () async {
+    final repo = FakePortalRepository(() async => article);
+    final decoding = Completer<void>();
+    final image = Completer<Size>();
+    final prefetch = FeaturedCoverPrefetch(
+      repository: repo,
+      cache: cache,
+      imageSize: (_) {
+        decoding.complete();
+        return image.future;
+      },
+    );
+    Completer<bool>? visible;
+    final waiting = Completer<void>();
+    final pending = prefetch.fetch(
+      42,
+      waitUntilVisible: () async {
+        if (visible == null) return true;
+        waiting.complete();
+        return visible.future;
+      },
+    );
+    await decoding.future;
+    visible = Completer<bool>();
+    image.complete(const Size(1000, 900));
+    await waiting.future;
+    expect(cache.lookup(42), isNull);
+    visible.complete(true);
+    await pending;
     expect(cache.lookup(42), url);
   });
 

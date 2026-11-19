@@ -4,6 +4,8 @@ library;
 import 'package:flutter/material.dart';
 import '../data/user_block_index.dart';
 import '../design/icons.dart';
+import '../design/list_end_tokens.dart';
+import '../design/thread_row_tokens.dart';
 import '../ui/editor_touch.dart';
 import '../ui/app_button.dart';
 import '../ui/plain_rows.dart';
@@ -17,6 +19,7 @@ import '../models/models.dart';
 import '../widgets/browse_controls.dart' show BrowsePaginationObserver;
 import '../widgets/search_workspace.dart';
 import '../widgets/expressive_controls.dart';
+import '../widgets/state_view.dart';
 import 'thread_detail_page.dart';
 
 class SearchPage extends StatefulWidget {
@@ -244,13 +247,12 @@ class _SearchPageState extends State<SearchPage> {
     final canPop = Navigator.canPop(context);
     return Scaffold(
       body: SafeArea(
-        bottom: false,
         child: Column(
           children: [
             // 头部只有返回圆钮与搜索胶囊,由键盘搜索键提交
             Padding(
-              padding: EdgeInsets.fromLTRB(
-                canPop ? 12 : AppSpace.screen,
+              padding: const EdgeInsets.fromLTRB(
+                AppSpace.screen,
                 8,
                 AppSpace.screen,
                 12,
@@ -281,37 +283,6 @@ class _SearchPageState extends State<SearchPage> {
                 ],
               ),
             ),
-            if (_searched)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  AppSpace.screen,
-                  0,
-                  AppSpace.screen,
-                  12,
-                ),
-                // 结果计数在左,搜索范围在右(源站只有全站帖子一种范围)
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Semantics(
-                        liveRegion: true,
-                        child: Text(
-                          _loading && _rows.isEmpty
-                              ? '正在搜索'
-                              : '已加载 ${_rows.length} 条',
-                          style: AppType.footnote.copyWith(color: t.text2),
-                        ),
-                      ),
-                    ),
-                    Icon(SolarIconsOutline.global, size: 15, color: t.text3),
-                    const SizedBox(width: 4),
-                    Text(
-                      '全站帖子',
-                      style: AppType.footnote.copyWith(color: t.text3),
-                    ),
-                  ],
-                ),
-              ),
             Expanded(
               child: SearchStateReveal(
                 key: ValueKey(_phase),
@@ -343,7 +314,7 @@ class _SearchPageState extends State<SearchPage> {
         title: '已隐藏黑名单用户的帖子',
         message: _moreError != null
             ? '后续结果加载失败，请重试。'
-            : (canContinue ? '可以继续查看后续结果。' : '已加载的结果中没有可显示的帖子。'),
+            : (canContinue ? '可以继续查看后续结果。' : '没有可显示的帖子。'),
         actionLabel: canContinue ? '继续加载' : null,
         onAction: canContinue ? _loadMore : null,
       );
@@ -370,14 +341,15 @@ class _SearchPageState extends State<SearchPage> {
         key: ValueKey('search-results-$_request'),
         primary: true,
         keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-        padding: const EdgeInsets.fromLTRB(20, 0, 20, 30),
+        padding: EdgeInsets.zero,
         itemCount: rows.length + 1,
         itemBuilder: (context, index) {
-          if (index == rows.length) return _footer(t);
+          if (index == rows.length) return _footer();
           final thread = rows[index];
           return SearchResultCard(
             thread: thread,
             keyword: _submitted,
+            trimEmptyTail: index == rows.length - 1 && _last?.nextUrl == null,
             onTap: () => _openThread(thread),
           );
         },
@@ -412,7 +384,12 @@ class _SearchPageState extends State<SearchPage> {
         key: const PageStorageKey('search-ready'),
         primary: true,
         keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-        padding: const EdgeInsets.fromLTRB(20, 6, 20, 32),
+        padding: const EdgeInsets.fromLTRB(
+          AppSpace.screen,
+          6,
+          AppSpace.screen,
+          32,
+        ),
         children: [
           if (history.isEmpty)
             Padding(
@@ -513,50 +490,28 @@ class _SearchPageState extends State<SearchPage> {
     );
   }
 
-  Widget _footer(AppTokens t) {
+  Widget _footer() {
     if (_moreError != null) {
-      return Center(
-        child: AppButton(
-          label: '继续加载',
-          variant: AppButtonVariant.plain,
-          icon: SolarIconsBold.restart,
-          onPressed: _loadMore,
+      return Padding(
+        padding: EdgeInsets.only(
+          top: ListEndTokens.markerPadding(ThreadRowTokens.verticalPadding),
+          bottom: ListEndTokens.markerGap,
+        ),
+        child: Center(
+          child: AppButton(
+            label: '继续加载',
+            variant: AppButtonVariant.plain,
+            icon: SolarIconsBold.restart,
+            onPressed: _loadMore,
+          ),
         ),
       );
     }
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 14),
-      child: Center(
-        child: _loading
-            ? Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  SizedBox(
-                    width: 14,
-                    height: 14,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 1.5,
-                      color: t.accent,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    '正在加载更多',
-                    style: TextStyle(
-                      fontSize: AppType.sizeFootnote,
-                      color: t.text2,
-                    ),
-                  ),
-                ],
-              )
-            : Text(
-                _last?.nextUrl == null ? '没有更多结果' : '',
-                style: TextStyle(
-                  fontSize: AppType.sizeFootnote,
-                  color: t.text3,
-                ),
-              ),
-      ),
+    return ListFooter(
+      loading: _loading,
+      exhausted: _last?.nextUrl == null,
+      endLabel: '没有更多结果',
+      precedingBottomPadding: ThreadRowTokens.verticalPadding,
     );
   }
 }

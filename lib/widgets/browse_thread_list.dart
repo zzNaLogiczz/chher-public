@@ -11,11 +11,14 @@ import '../models/models.dart';
 import '../design/tokens.dart';
 import '../design/motion.dart';
 import '../design/forum_tokens.dart';
+import '../design/list_end_tokens.dart';
 import '../design/shapes.dart';
+import '../design/thread_row_tokens.dart';
 import '../design/typography.dart';
 import 'browse_controls.dart';
 import 'paged_list.dart' show PageLoader;
 import 'password_sheet.dart';
+import 'chhers_refresh_indicator.dart';
 import 'state_view.dart';
 import 'expressive_controls.dart';
 
@@ -147,8 +150,8 @@ class _BrowseThreadListState extends State<BrowseThreadList> {
           return;
         }
         if (page == 1) {
+          if (_first || _committedQueryKey != queryKey) _contentRevision++;
           _items.clear();
-          _contentRevision++;
           _committedQueryKey = queryKey;
           _committedSectionLabel = sectionLabel;
           _committedBuilder = itemBuilder;
@@ -256,6 +259,12 @@ class _BrowseThreadListState extends State<BrowseThreadList> {
     }
     final firstSection = slots.indexWhere((slot) => slot.section != null);
     final visibleCount = slots.length;
+    final lastSlot = slots.lastOrNull;
+    final footerInCard =
+        widget.groupCards &&
+        lastSlot != null &&
+        lastSlot.index >= 0 &&
+        lastSlot.section == null;
     final error = _error;
     const sortKey = ValueKey('browse-sort-section');
     final childKeys = <Key>[
@@ -279,7 +288,7 @@ class _BrowseThreadListState extends State<BrowseThreadList> {
     return ExpressivePageReveal(
       active: true,
       revision: _contentRevision,
-      child: RefreshIndicator(
+      child: ChhersRefreshIndicator(
         onRefresh: () => _load(1, refresh: true),
         child: BrowsePaginationObserver(
           enabled: _hasNext && !_loading && _error == null,
@@ -290,7 +299,9 @@ class _BrowseThreadListState extends State<BrowseThreadList> {
             physics: const AlwaysScrollableScrollPhysics(),
             padding: EdgeInsets.only(
               top: widget.collapsePinned ? 0 : 4,
-              bottom: 96,
+              bottom:
+                  MediaQuery.paddingOf(context).bottom +
+                  ListEndTokens.navigationGap,
             ),
             itemCount:
                 (widget.header == null ? 0 : 1) +
@@ -372,25 +383,43 @@ class _BrowseThreadListState extends State<BrowseThreadList> {
                     );
                   }
                   if (slot == visibleCount) {
-                    if (error != null) {
-                      return Padding(
-                        padding: const EdgeInsets.only(top: 18),
-                        child: AppButton(
-                          label: '继续加载',
-                          variant: AppButtonVariant.plain,
-                          icon: AppIcons.refresh,
-                          onPressed: () => _load(
-                            _failedPage ?? _page + 1,
-                            refresh: _failedPage == 1,
-                          ),
-                        ),
-                      );
-                    }
-                    return ListFooter(
-                      loading: _loading,
-                      exhausted: !_hasNext,
-                      loadingLabel: widget.groupCards ? '正在加载更多' : null,
-                    );
+                    final rowPadding = footerInCard
+                        ? ThreadRowTokens.verticalPadding
+                        : 0.0;
+                    final cardPadding = footerInCard
+                        ? ForumTokens.groupInset
+                        : 0.0;
+                    final footer = error == null
+                        ? ListFooter(
+                            loading: _loading,
+                            exhausted: !_hasNext,
+                            precedingBottomPadding: rowPadding,
+                            followingBottomPadding: cardPadding,
+                          )
+                        : Padding(
+                            padding: EdgeInsets.only(
+                              top: ListEndTokens.markerPadding(rowPadding),
+                              bottom: ListEndTokens.markerPadding(cardPadding),
+                            ),
+                            child: Center(
+                              child: AppButton(
+                                label: '继续加载',
+                                variant: AppButtonVariant.plain,
+                                icon: AppIcons.refresh,
+                                onPressed: () => _load(
+                                  _failedPage ?? _page + 1,
+                                  refresh: _failedPage == 1,
+                                ),
+                              ),
+                            ),
+                          );
+                    return footerInCard
+                        ? ForumThreadCardSlice(
+                            first: false,
+                            last: true,
+                            child: footer,
+                          )
+                        : footer;
                   }
                   final entry = slots[slot];
                   if (entry.section case final section?) {
@@ -409,9 +438,9 @@ class _BrowseThreadListState extends State<BrowseThreadList> {
                             first:
                                 entry.index == pinned ||
                                 slots[slot - 1].section != null,
-                            last:
-                                slot == slots.length - 1 ||
-                                slots[slot + 1].section != null,
+                            last: slot == slots.length - 1
+                                ? !footerInCard
+                                : slots[slot + 1].section != null,
                             child: PlainRowScope(
                               inset: 14,
                               separator: false,
@@ -434,9 +463,9 @@ class _BrowseThreadListState extends State<BrowseThreadList> {
         header: true,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(
-            AppSpace.screen + 14,
+            AppSpace.groupLabelInset,
             12,
-            AppSpace.screen + 14,
+            AppSpace.groupLabelInset,
             6,
           ),
           child: Row(

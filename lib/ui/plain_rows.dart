@@ -4,9 +4,13 @@ library;
 import 'package:flutter/material.dart';
 import 'package:motor/motor.dart';
 
+import 'balanced_title.dart';
 import '../design/icons.dart';
 import '../design/forum_tokens.dart';
+import '../design/thread_row_tokens.dart';
 import '../core/chh_urls.dart';
+import '../core/display_time.dart';
+import '../design/display_text.dart';
 import '../widgets/avatar_image.dart';
 import '../design/motion.dart';
 import '../design/notice_tokens.dart';
@@ -17,13 +21,13 @@ import '../design/typography.dart';
 import '../models/models.dart';
 import 'app_button.dart';
 import 'press.dart';
-import 'chrome_button.dart' show BadgeAppearance;
 
 class PlainRow extends StatelessWidget {
   final Widget child;
   final VoidCallback? onTap;
   final EdgeInsetsGeometry padding;
   final bool separator;
+  final double? verticalPadding;
   final BorderRadius? borderRadius;
 
   const PlainRow({
@@ -32,25 +36,32 @@ class PlainRow extends StatelessWidget {
     this.onTap,
     this.padding = const EdgeInsets.fromLTRB(
       AppSpace.screen,
-      14,
+      AppRowTokens.plainVerticalPadding,
       AppSpace.screen,
       0,
     ),
     this.separator = true,
+    this.verticalPadding,
     this.borderRadius,
   });
 
   @override
   Widget build(BuildContext context) {
     final scope = PlainRowScope.maybeOf(context);
+    final rowPadding = padding.resolve(Directionality.of(context));
     final content = Padding(
-      padding: scope == null
-          ? padding
-          : EdgeInsets.fromLTRB(scope.inset, 14, scope.inset, 0),
-      child: Padding(
-        padding: const EdgeInsets.only(bottom: 14),
-        child: SizedBox(width: double.infinity, child: child),
+      padding: EdgeInsets.fromLTRB(
+        scope?.inset ?? rowPadding.left,
+        verticalPadding ??
+            (scope == null
+                ? rowPadding.top
+                : AppRowTokens.plainVerticalPadding),
+        scope?.inset ?? rowPadding.right,
+        verticalPadding ??
+            (scope == null ? rowPadding.bottom : 0) +
+                AppRowTokens.plainVerticalPadding,
       ),
+      child: SizedBox(width: double.infinity, child: child),
     );
     return onTap == null
         ? content
@@ -90,19 +101,6 @@ class PlainRowScope extends InheritedWidget {
 /// 标题色:只有"已看"降为 text2;未看与有新回复都保持强色
 Color readTitleColor(AppTokens t, ThreadReadState state) =>
     state is ThreadReadSeen ? t.text2 : t.text;
-
-/// 读屏标签:颜色不能是唯一线索,已看与新回复数都要说出来
-String? readSemanticsLabel(ThreadReadState state) => switch (state) {
-  ThreadReadSeen() => '已看',
-  ThreadReadNewReplies(:final count) => '有 $count 条新回复',
-  ThreadReadUnseen() => null,
-};
-
-/// 元信息行里追加的一项 `+N 新回复`,与其余项同为 Wrap 里的一个 Text,不加分隔符
-Widget newRepliesText(AppTokens t, ThreadReadNewReplies state) => Text(
-  '+${state.count} 新回复',
-  style: AppType.footnote.copyWith(color: t.accent),
-);
 
 /// 行级重绘范围:监听放在每一行内部,一次 markRead 只重建状态真正变化的那一行。
 /// 绝不能挪到 ListView 外层;也不能用裸 ListenableBuilder,
@@ -164,23 +162,20 @@ class _ReadStateBuilderState extends State<ReadStateBuilder> {
   Widget build(BuildContext context) => widget.builder(context, _state);
 }
 
-/// 方案 A：两行标题、元信息与独立回复数列。
+/// Shared title and metadata layout for forum, discussion, search and account lists.
 class ThreadRow extends StatelessWidget {
   final ThreadSummary thread;
   final String? eyebrow;
   final String? timeLabel;
   final bool showCategory;
   final bool forumStyle;
-
-  /// 可定位的回复摘要等补充文字
   final String? excerpt;
+  final String? query;
+  final bool trimEmptySearchTail;
+  final Widget? footer;
   final VoidCallback? onTap;
-
-  /// 登录墙:元信息后追加"需登录"与登录按钮
   final bool locked;
   final VoidCallback? onLogin;
-
-  /// 已看/新回复的呈现;已看只降标题色,不加文字不加行高
   final ThreadReadState readState;
 
   const ThreadRow({
@@ -191,388 +186,417 @@ class ThreadRow extends StatelessWidget {
     this.showCategory = true,
     this.forumStyle = false,
     this.excerpt,
+    this.query,
+    this.trimEmptySearchTail = false,
+    this.footer,
     this.onTap,
     this.locked = false,
     this.onLogin,
     this.readState = const ThreadReadUnseen(),
   });
 
+  /// Account rows only have a subset of the forum list fields.
+  factory ThreadRow.entry({
+    required int tid,
+    required String title,
+    String? category,
+    String? timeRaw,
+    int? replies,
+    Widget? footer,
+    VoidCallback? onTap,
+    ThreadReadState readState = const ThreadReadUnseen(),
+  }) => ThreadRow(
+    thread: ThreadSummary(
+      tid: tid,
+      title: title,
+      author: '',
+      forumName: category,
+      lastPostTimeRaw: timeRaw,
+      replies: replies ?? 0,
+      views: 0,
+    ),
+    footer: footer,
+    onTap: onTap,
+    readState: readState,
+  );
+
   @override
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
     final when = timeLabel ?? displayTime(thread);
-    final label = showCategory
+    final category = showCategory
         ? eyebrow ?? thread.forumName ?? thread.typeName
         : null;
+    final label = category == null ? null : formatForumName(category);
     final sticky =
         thread.sticky &&
         !(PlainRowScope.maybeOf(context)?.impliesSticky ?? false);
-    final reduced = MediaQuery.disableAnimationsOf(context);
-    final duration = reduced ? AppMotion.reducedFade : AppMotion.fade;
+    final duration = MediaQuery.disableAnimationsOf(context)
+        ? AppMotion.reducedFade
+        : AppMotion.fade;
+    final summary = (excerpt ?? thread.snippet)?.trim();
+    final title = TweenAnimationBuilder<Color?>(
+      tween: ColorTween(end: readTitleColor(t, readState)),
+      duration: duration,
+      builder: (context, color, _) => _text(
+        thread.title,
+        ThreadRowTokens.title.copyWith(color: color),
+        accent: t.accent,
+      ),
+    );
+    final snippet = summary == null || summary.isEmpty
+        ? null
+        : _text(
+            summary,
+            ThreadRowTokens.summary.copyWith(color: t.text2),
+            accent: t.accent,
+            lines: ThreadRowTokens.searchSummaryLines,
+          );
+    final metadata =
+        sticky ||
+            label?.isNotEmpty == true ||
+            thread.author.isNotEmpty ||
+            when.isNotEmpty ||
+            thread.hasImages ||
+            (!locked && thread.replies > 0)
+        ? _metadata(t, label, when, sticky, duration)
+        : null;
     return PlainRow(
-      separator: !forumStyle,
+      verticalPadding: ThreadRowTokens.verticalPadding,
       borderRadius: forumStyle
           ? BorderRadius.circular(ForumTokens.rowRadius)
           : null,
       onTap: onTap,
       child: Semantics(
-        label: readSemanticsLabel(readState),
-        child: Row(
+        label: readState is ThreadReadSeen ? '已看' : null,
+        child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  TweenAnimationBuilder<Color?>(
-                    tween: ColorTween(end: readTitleColor(t, readState)),
-                    duration: duration,
-                    builder: (context, color, _) => Text(
-                      thread.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: (forumStyle ? ForumTokens.title : AppType.headline)
-                          .copyWith(color: color),
-                    ),
-                  ),
-                  if ((excerpt ?? thread.snippet) case final String text) ...[
-                    const SizedBox(height: 4),
+            if (query != null && (!trimEmptySearchTail || metadata != null))
+              SearchThreadRowLayout(
+                title: title,
+                summary: snippet,
+                metadata: metadata,
+              )
+            else ...[
+              title,
+              if (snippet != null) ...[
+                const SizedBox(height: ThreadRowTokens.summaryGap),
+                snippet,
+              ],
+              if (metadata != null) ...[
+                const SizedBox(height: ThreadRowTokens.gap),
+                metadata,
+              ],
+            ],
+            if (locked)
+              Padding(
+                padding: const EdgeInsets.only(top: ThreadRowTokens.gap),
+                child: Row(
+                  children: [
                     Text(
-                      text,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppType.subhead.copyWith(color: t.text2),
+                      '需登录',
+                      style: AppType.footnote.copyWith(color: t.warn),
+                    ),
+                    const Spacer(),
+                    AppButton(
+                      label: '登录',
+                      small: true,
+                      variant: AppButtonVariant.tinted,
+                      onPressed: onLogin,
                     ),
                   ],
-                  const SizedBox(height: 5),
-                  if (forumStyle)
-                    _forumMetadata(context, t, label, when, sticky, duration)
-                  else
-                    _metadata(context, t, label, when, sticky),
-                  if (locked)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 6),
-                      child: Row(
-                        children: [
-                          Text(
-                            '需登录',
-                            style: AppType.footnote.copyWith(color: t.warn),
-                          ),
-                          const Spacer(),
-                          AppButton(
-                            label: '登录',
-                            small: true,
-                            variant: AppButtonVariant.tinted,
-                            onPressed: onLogin,
-                          ),
-                        ],
-                      ),
-                    ),
-                ],
+                ),
               ),
-            ),
-            if (!locked) ...[
-              const SizedBox(width: 12),
-              if (forumStyle)
-                _ForumReplyCount(thread: thread, state: readState)
-              else
-                _count(t, duration),
-            ],
+            ?footer,
           ],
         ),
       ),
     );
   }
 
-  Widget _forumMetadata(
-    BuildContext context,
+  Widget _text(
+    String value,
+    TextStyle style, {
+    required Color accent,
+    int lines = 1,
+  }) {
+    final display = normalizeDisplayText(value);
+    final keyword = query;
+    if (keyword == null) {
+      return Text(
+        display,
+        style: style,
+        maxLines: lines,
+        overflow: TextOverflow.ellipsis,
+      );
+    }
+    return Text.rich(
+      highlight(display, normalizeDisplayText(keyword), accent),
+      style: style,
+      maxLines: lines,
+      overflow: TextOverflow.ellipsis,
+    );
+  }
+
+  Widget _metadata(
     AppTokens t,
     String? label,
     String? when,
     bool sticky,
     Duration duration,
   ) {
-    final uid = thread.authorUid?.trim();
-    final hasUid = uid != null && RegExp(r'^\d{1,9}$').hasMatch(uid);
-    final avatar = AnimatedOpacity(
-      opacity: readState is ThreadReadSeen ? ForumTokens.seenAvatarOpacity : 1,
-      duration: duration,
-      child: AvatarImage(
-        key: ValueKey('thread-avatar-${thread.tid}'),
-        name: thread.author,
-        // Reuse the detail avatar source and its disk cache at a bounded decode size.
-        url: hasUid ? ChhUrls.avatar(uid) : null,
-        size: ForumTokens.avatarSize,
-        lazy: true,
+    const gap = SizedBox(width: ThreadRowTokens.gap);
+    final separator = Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: ThreadRowTokens.separatorInset,
+      ),
+      child: SizedBox.square(
+        dimension: ThreadRowTokens.separatorSize,
+        child: DecoratedBox(
+          decoration: BoxDecoration(color: t.text3, shape: BoxShape.circle),
+        ),
       ),
     );
-    final style = ForumTokens.metadata.copyWith(color: t.text3);
+    final style = ThreadRowTokens.metadata.copyWith(color: t.text3);
+    final hasAuthor = thread.author.isNotEmpty;
+    final hasCategory = label?.isNotEmpty == true;
+    final hasIdentity = hasAuthor || hasCategory || sticky;
+    final hasTime = when?.isNotEmpty == true;
+    final count = !locked && thread.replies > 0;
+    final uid = thread.authorUid?.trim();
     return LayoutBuilder(
-      builder: (context, constraints) => Wrap(
-        spacing: 8,
-        runSpacing: 3,
-        crossAxisAlignment: WrapCrossAlignment.center,
+      builder: (context, constraints) => Row(
         children: [
-          ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: constraints.maxWidth * .55),
+          Expanded(
             child: Row(
-              mainAxisSize: MainAxisSize.min,
               children: [
-                avatar,
-                const SizedBox(width: 6),
-                Flexible(
-                  child: Text(
-                    thread.author,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: style.copyWith(color: t.text2),
+                if (hasAuthor && query == null) ...[
+                  AnimatedOpacity(
+                    opacity: readState is ThreadReadSeen
+                        ? ThreadRowTokens.seenAvatarOpacity
+                        : 1,
+                    duration: duration,
+                    child: AvatarImage(
+                      key: ValueKey('thread-avatar-${thread.tid}'),
+                      name: thread.author,
+                      url: uid != null && RegExp(r'^\d{1,9}$').hasMatch(uid)
+                          ? ChhUrls.avatar(uid)
+                          : null,
+                      size: ThreadRowTokens.avatarSize,
+                      lazy: true,
+                    ),
                   ),
-                ),
+                  gap,
+                ],
+                if (sticky) ...[
+                  Flexible(
+                    child: _oneLine('置顶', style.copyWith(color: t.warn)),
+                  ),
+                  if (hasCategory || hasAuthor) separator,
+                ],
+                if (hasCategory) ...[
+                  Flexible(child: _oneLine(label!, style)),
+                  if (hasAuthor) separator,
+                ],
+                if (hasAuthor)
+                  Flexible(
+                    child: _oneLine(
+                      thread.author,
+                      style.copyWith(color: t.text2),
+                    ),
+                  ),
+                if (hasTime) ...[
+                  if (hasIdentity) separator,
+                  ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth:
+                          constraints.maxWidth *
+                          ThreadRowTokens.timeWidthFraction,
+                    ),
+                    child: _oneLine(when!, style),
+                  ),
+                ],
+                if (thread.hasImages) ...[
+                  if (hasIdentity || hasTime) separator,
+                  Icon(
+                    AppIcons.image,
+                    size: ThreadRowTokens.iconSize,
+                    color: t.text3,
+                    semanticLabel: '含图',
+                  ),
+                ],
               ],
             ),
           ),
-          if (sticky) Text('置顶', style: style.copyWith(color: t.warn)),
-          if (label?.isNotEmpty == true)
-            Text(
-              label!,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: style,
+          if (count) ...[
+            gap,
+            ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth:
+                    constraints.maxWidth * ThreadRowTokens.countWidthFraction,
+              ),
+              child: _replies(t, style),
             ),
-          if (when?.isNotEmpty == true)
-            Text(
-              when!,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: style,
-            ),
-          if (thread.hasImages)
-            Icon(AppIcons.image, size: 14, color: t.text3, semanticLabel: '含图'),
+          ],
         ],
       ),
     );
   }
 
-  Widget _metadata(
-    BuildContext context,
-    AppTokens t,
-    String? label,
-    String? when,
-    bool sticky,
-  ) {
-    final style = AppType.footnote.copyWith(color: t.text3);
-    final identity = Text.rich(
-      TextSpan(
-        children: [
-          if (sticky)
-            TextSpan(
-              text: '置顶  ',
-              style: style.copyWith(color: t.warn),
-            ),
-          if (label?.isNotEmpty ?? false)
-            TextSpan(text: '$label  ', style: style),
-          TextSpan(text: thread.author, style: style),
-        ],
-      ),
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-      style: style,
-    );
-    final timeAndImage = Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        if (when?.isNotEmpty ?? false)
-          Flexible(
-            child: Text(
-              when!,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: style,
-            ),
-          ),
-        if (thread.hasImages) ...[
-          if (when?.isNotEmpty ?? false) const SizedBox(width: 8),
-          Icon(AppIcons.image, size: 14, color: t.text3, semanticLabel: '含图'),
-        ],
-      ],
-    );
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final stacked =
-            MediaQuery.textScalerOf(context).scale(AppType.sizeFootnote) > 19 ||
-            constraints.maxWidth < 200;
-        if (stacked) {
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              identity,
-              if (when?.isNotEmpty == true || thread.hasImages)
-                Padding(
-                  padding: const EdgeInsets.only(top: 3),
-                  child: timeAndImage,
-                ),
-            ],
-          );
-        }
-        return Row(
+  Widget _replies(AppTokens t, TextStyle style) {
+    final state = readState;
+    final fresh = state is ThreadReadNewReplies ? state.count : null;
+    return Semantics(
+      label: fresh == null
+          ? '${thread.replies} 回复'
+          : '有 $fresh 条新回复，共 ${thread.replies} 回复',
+      excludeSemantics: true,
+      child: FittedBox(
+        key: ValueKey('thread-count-${thread.tid}'),
+        fit: BoxFit.scaleDown,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Flexible(child: identity),
-            if (when?.isNotEmpty == true || thread.hasImages) ...[
-              const SizedBox(width: 10),
-              Flexible(child: timeAndImage),
+            Icon(
+              AppIcons.comments,
+              size: ThreadRowTokens.iconSize,
+              color: t.text3,
+            ),
+            const SizedBox(width: ThreadRowTokens.iconGap),
+            _oneLine(_compactCount(thread.replies), style),
+            if (fresh != null) ...[
+              const SizedBox(width: ThreadRowTokens.iconGap),
+              _oneLine(
+                '+${_compactCount(fresh)}',
+                style.copyWith(color: t.accent, fontWeight: FontWeight.w600),
+              ),
             ],
           ],
-        );
-      },
-    );
-  }
-
-  Widget _count(AppTokens t, Duration duration) {
-    final fresh = readState is ThreadReadNewReplies
-        ? (readState as ThreadReadNewReplies).count
-        : null;
-    final seen = readState is ThreadReadSeen;
-    final text = fresh == null
-        ? _compactCount(thread.replies)
-        : '+${_compactCount(fresh)}';
-    return SizedBox(
-      key: ValueKey('thread-count-${thread.tid}'),
-      width: 44,
-      child: Align(
-        alignment: Alignment.topRight,
-        child: Semantics(
-          label: fresh == null
-              ? '${thread.replies} 回复'
-              : '有 $fresh 条新回复，共 ${thread.replies} 回复',
-          excludeSemantics: true,
-          child: AnimatedDefaultTextStyle(
-            duration: duration,
-            curve: Curves.easeOut,
-            style: AppType.subhead.copyWith(
-              fontWeight: FontWeight.w600,
-              color: fresh != null
-                  ? t.accent
-                  : seen || thread.replies == 0
-                  ? t.text3
-                  : t.text2,
-              fontFeatures: const [FontFeature.tabularFigures()],
-            ),
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Text(text, maxLines: 1),
-            ),
-          ),
         ),
       ),
     );
   }
+
+  static Widget _oneLine(String text, TextStyle style) =>
+      Text(text, style: style, maxLines: 1, overflow: TextOverflow.ellipsis);
 
   static String _compactCount(int count) => count < 10000
       ? '$count'
       : '${(count / 10000).toStringAsFixed(count < 100000 ? 1 : 0)}万';
 
-  /// 时间优先用解析出的结构化时间:今天只显示时分,今年显示月-日;拿不到就用站点原文
-  static String? displayTime(ThreadSummary thread) {
-    final at = thread.createdAt;
-    if (at != null) {
-      final now = DateTime.now();
-      final sameYear = at.year == now.year;
-      final hm =
-          '${at.hour.toString().padLeft(2, '0')}:'
-          '${at.minute.toString().padLeft(2, '0')}';
-      if (sameYear && at.month == now.month && at.day == now.day) return hm;
-      return sameYear
-          ? '${at.month}-${at.day}'
-          : '${at.year}-${at.month}-${at.day}';
+  static String displayTime(ThreadSummary thread) => formatDisplayTime(
+    raw:
+        thread.createdAtRaw ??
+        (thread.createdAt == null ? thread.lastPostTimeRaw : null),
+    at: thread.createdAt,
+    style: DisplayTimeStyle.list,
+  );
+
+  /// 不区分大小写地标出所有命中片段
+  static TextSpan highlight(String text, String query, Color color) {
+    final keyword = query.trim();
+    if (keyword.isEmpty) return TextSpan(text: text);
+    final spans = <InlineSpan>[];
+    var cursor = 0;
+    for (final match in RegExp(
+      RegExp.escape(keyword),
+      caseSensitive: false,
+    ).allMatches(text)) {
+      if (match.start > cursor) {
+        spans.add(TextSpan(text: text.substring(cursor, match.start)));
+      }
+      spans.add(
+        TextSpan(
+          text: text.substring(match.start, match.end),
+          style: TextStyle(color: color),
+        ),
+      );
+      cursor = match.end;
     }
-    final raw = thread.lastPostTimeRaw;
-    return (raw == null || raw.isEmpty) ? null : raw;
+    if (cursor < text.length) spans.add(TextSpan(text: text.substring(cursor)));
+    return TextSpan(children: spans);
   }
 }
 
-class _ForumReplyCount extends StatefulWidget {
-  const _ForumReplyCount({required this.thread, required this.state});
-  final ThreadSummary thread;
-  final ThreadReadState state;
+/// Search reserves the same line slots for placeholders and loaded results.
+class SearchThreadRowLayout extends StatelessWidget {
+  const SearchThreadRowLayout({
+    super.key,
+    required Widget this.title,
+    this.summary,
+    this.metadata,
+  }) : skeleton = false;
+
+  const SearchThreadRowLayout.skeleton({super.key})
+    : title = null,
+      summary = null,
+      metadata = null,
+      skeleton = true;
+
+  final Widget? title, summary, metadata;
+  final bool skeleton;
 
   @override
-  State<_ForumReplyCount> createState() => _ForumReplyCountState();
-}
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      _slot(context, ThreadRowTokens.title, title, const [
+        ThreadRowTokens.searchSkeletonTitleWidth,
+      ]),
+      const SizedBox(height: ThreadRowTokens.summaryGap),
+      _slot(
+        context,
+        ThreadRowTokens.summary,
+        summary,
+        ThreadRowTokens.searchSkeletonSummaryWidths,
+      ),
+      const SizedBox(height: ThreadRowTokens.gap),
+      _slot(context, ThreadRowTokens.metadata, metadata, const [
+        ThreadRowTokens.searchSkeletonMetadataWidth,
+      ]),
+    ],
+  );
 
-class _ForumReplyCountState extends State<_ForumReplyCount> {
-  int _lastFresh = 0;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = AppTokens.of(context);
-    final state = widget.state;
-    final fresh = state is ThreadReadNewReplies ? state.count : null;
-    if (fresh != null) _lastFresh = fresh;
-    final duration = MediaQuery.disableAnimationsOf(context)
-        ? AppMotion.reducedFade
-        : AppMotion.fade;
+  Widget _slot(
+    BuildContext context,
+    TextStyle style,
+    Widget? child,
+    List<double> widths,
+  ) {
+    final lineHeight =
+        (MediaQuery.textScalerOf(context).scale(style.fontSize!) *
+                style.height!)
+            .ceilToDouble();
     return SizedBox(
-      key: ValueKey('thread-count-${widget.thread.tid}'),
-      width: ForumTokens.countWidth,
-      child: Semantics(
-        label: fresh == null
-            ? '${widget.thread.replies} 回复'
-            : '有 $fresh 条新回复，共 ${widget.thread.replies} 回复',
-        excludeSemantics: true,
-        child: Stack(
-          alignment: Alignment.topRight,
-          children: [
-            AnimatedOpacity(
-              opacity: fresh == null ? 1 : 0,
-              duration: duration,
-              child: TweenAnimationBuilder<Color?>(
-                tween: ColorTween(
-                  end: state is ThreadReadSeen ? t.text3 : t.text2,
-                ),
-                duration: duration,
-                builder: (_, color, _) => Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    FittedBox(
-                      fit: BoxFit.scaleDown,
-                      child: Text(
-                        ThreadRow._compactCount(widget.thread.replies),
-                        style: AppType.subhead.copyWith(
-                          color: color,
-                          fontWeight: FontWeight.w600,
-                          fontFeatures: const [FontFeature.tabularFigures()],
+      height: lineHeight * widths.length,
+      child: skeleton
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (final width in widths)
+                  Expanded(
+                    child: Align(
+                      alignment: AlignmentDirectional.centerStart,
+                      child: FractionallySizedBox(
+                        widthFactor: width,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: AppTokens.of(context).fill,
+                            borderRadius: BorderRadius.circular(AppRadii.xs),
+                          ),
+                          child: SizedBox(
+                            height:
+                                lineHeight *
+                                ThreadRowTokens.searchSkeletonBarHeight,
+                          ),
                         ),
                       ),
                     ),
-                    Text('回复', style: AppType.caption.copyWith(color: t.text3)),
-                  ],
-                ),
-              ),
-            ),
-            BadgeAppearance(
-              visible: fresh != null,
-              child: Container(
-                key: ValueKey('thread-new-replies-${widget.thread.tid}'),
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                decoration: BoxDecoration(
-                  color: t.accentFill,
-                  borderRadius: BorderRadius.circular(ForumTokens.badgeRadius),
-                ),
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Text(
-                    '+${ThreadRow._compactCount(_lastFresh)}',
-                    style: AppType.footnote.copyWith(
-                      color: t.accent,
-                      fontWeight: FontWeight.w600,
-                    ),
                   ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
+              ],
+            )
+          : Align(alignment: AlignmentDirectional.topStart, child: child),
     );
   }
 }
@@ -742,6 +766,7 @@ class NoticeRow extends StatefulWidget {
   final bool unread;
   final VoidCallback? onTap;
   final String? title;
+  final String? replyText;
   final String? scoreText;
   final String? category;
   final bool system;
@@ -757,6 +782,7 @@ class NoticeRow extends StatefulWidget {
     this.unread = false,
     this.onTap,
     this.title,
+    this.replyText,
     this.scoreText,
     this.category,
     this.system = false,
@@ -771,7 +797,6 @@ class NoticeRow extends StatefulWidget {
 class _NoticeRowState extends State<NoticeRow>
     with SingleTickerProviderStateMixin {
   late bool _unread = widget.unread;
-  late bool _emphasized = widget.unread;
   late final _dot = AnimationController.unbounded(
     vsync: this,
     value: widget.unread ? .6 : 0,
@@ -786,11 +811,7 @@ class _NoticeRowState extends State<NoticeRow>
       target: _unread ? 1 : 0,
       motion: _unread ? AppMotion.pop : AppMotion.tap,
       reduced: MediaQuery.disableAnimationsOf(context),
-    ).whenCompleteOrCancel(() {
-      if (mounted && !_unread && _dot.value == 0 && _emphasized) {
-        setState(() => _emphasized = false);
-      }
-    });
+    );
   }
 
   @override
@@ -807,7 +828,6 @@ class _NoticeRowState extends State<NoticeRow>
     super.didUpdateWidget(oldWidget);
     if (oldWidget.unread == widget.unread) return;
     _unread = widget.unread;
-    if (_unread) _emphasized = true;
     _changeUnread();
   }
 
@@ -829,7 +849,27 @@ class _NoticeRowState extends State<NoticeRow>
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
     final name = widget.system ? '系统' : widget.name;
-    final title = widget.title;
+    final title = switch (widget.title) {
+      final value? => normalizeDisplayText(value.trim()),
+      null => null,
+    };
+    final reply = widget.replyText;
+    final score = widget.conversation ? null : widget.scoreText?.trim();
+    final hasScore = score != null && score.isNotEmpty;
+    final rawText = widget.text;
+    final action = normalizeDisplayText(
+      hasScore
+          ? rawText
+                .replaceFirst(score, '')
+                .trim()
+                .replaceAll(_ratingActionWhitespace, ' ')
+          : rawText,
+    );
+    final titleText = title == null || title.isEmpty
+        ? null
+        : title.startsWith('《') && title.endsWith('》')
+        ? title
+        : '《$title》';
     final content = Padding(
       padding: widget.conversation
           ? NoticeTokens.conversationPadding
@@ -845,51 +885,58 @@ class _NoticeRowState extends State<NoticeRow>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: widget.conversation
-                          ? Text(
-                              name,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: NoticeTokens.name.copyWith(
-                                color: t.text,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            )
-                          : Text.rich(
-                              key: const ValueKey('notice-sentence'),
-                              TextSpan(
-                                children: [
-                                  TextSpan(
-                                    text: name,
-                                    style: TextStyle(
-                                      color: _emphasized ? t.text : t.text2,
-                                      fontWeight: _emphasized
-                                          ? FontWeight.w600
-                                          : FontWeight.w500,
+                LayoutBuilder(
+                  builder: (context, constraints) => Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: widget.conversation
+                            ? Text(
+                                name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: NoticeTokens.name.copyWith(
+                                  color: t.text,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              )
+                            : Text.rich(
+                                key: const ValueKey('notice-sentence'),
+                                TextSpan(
+                                  children: [
+                                    TextSpan(
+                                      text: name,
+                                      style: TextStyle(
+                                        color: t.text,
+                                        fontWeight: FontWeight.w600,
+                                      ),
                                     ),
-                                  ),
-                                  if (widget.text.isNotEmpty)
-                                    const TextSpan(text: ' '),
-                                  ..._action(t),
-                                ],
+                                    if (action.isNotEmpty)
+                                      const TextSpan(text: ' '),
+                                    TextSpan(text: action),
+                                  ],
+                                ),
+                                maxLines: hasScore ? 1 : 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: NoticeTokens.sentence.copyWith(
+                                  color: t.text2,
+                                ),
                               ),
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: NoticeTokens.sentence.copyWith(
-                                color: t.text2,
-                              ),
-                            ),
-                    ),
-                    const SizedBox(width: 10),
-                    _time(t),
-                  ],
+                      ),
+                      const SizedBox(width: 10),
+                      ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxWidth:
+                              constraints.maxWidth *
+                              NoticeTokens.timeWidthFraction,
+                        ),
+                        child: _time(t),
+                      ),
+                    ],
+                  ),
                 ),
                 if (widget.conversation) ...[
-                  const SizedBox(height: 3),
+                  const SizedBox(height: NoticeTokens.titleGap),
                   Text.rich(
                     key: const ValueKey('notice-preview'),
                     TextSpan(
@@ -899,7 +946,7 @@ class _NoticeRowState extends State<NoticeRow>
                             text: '你：',
                             style: TextStyle(color: t.text3),
                           ),
-                        TextSpan(text: widget.text),
+                        TextSpan(text: action),
                       ],
                     ),
                     maxLines: 1,
@@ -908,27 +955,34 @@ class _NoticeRowState extends State<NoticeRow>
                       color: _unread ? t.text : t.text2,
                     ),
                   ),
-                ] else if (title != null && title.isNotEmpty) ...[
-                  const SizedBox(height: 8),
-                  Container(
-                    key: const ValueKey('notice-quote'),
-                    width: double.infinity,
-                    padding: NoticeTokens.quotePadding,
-                    decoration: BoxDecoration(
-                      color: t.fill,
-                      borderRadius: BorderRadius.circular(
-                        NoticeTokens.quoteRadius,
+                ] else ...[
+                  if (hasScore || titleText != null) ...[
+                    const SizedBox(height: NoticeTokens.titleGap),
+                    if (hasScore)
+                      _ratingDetail(t, score, titleText)
+                    else
+                      _noticeTitle(t, titleText!),
+                  ],
+                  if (reply != null && reply.trim().isNotEmpty) ...[
+                    const SizedBox(height: NoticeTokens.quoteGap),
+                    Container(
+                      key: const ValueKey('notice-quote'),
+                      width: double.infinity,
+                      padding: NoticeTokens.quotePadding,
+                      decoration: BoxDecoration(
+                        color: t.fill,
+                        borderRadius: BorderRadius.circular(
+                          NoticeTokens.quoteRadius,
+                        ),
+                      ),
+                      child: Text(
+                        reply,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: NoticeTokens.preview.copyWith(color: t.text2),
                       ),
                     ),
-                    child: Text(
-                      title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: NoticeTokens.preview.copyWith(
-                        color: _emphasized ? t.text : t.text2,
-                      ),
-                    ),
-                  ),
+                  ],
                 ],
               ],
             ),
@@ -950,21 +1004,53 @@ class _NoticeRowState extends State<NoticeRow>
     );
   }
 
-  List<InlineSpan> _action(AppTokens t) {
-    final score = widget.scoreText;
-    if (score == null || score.isEmpty) return [TextSpan(text: widget.text)];
-    final index = widget.text.indexOf(score);
-    return [
-      TextSpan(text: index < 0 ? widget.text : widget.text.substring(0, index)),
-      if (index < 0) const TextSpan(text: ' '),
-      TextSpan(
-        text: score,
-        style: TextStyle(color: t.accent, fontWeight: FontWeight.w600),
-      ),
-      if (index >= 0)
-        TextSpan(text: widget.text.substring(index + score.length)),
-    ];
-  }
+  static final _ratingActionWhitespace = RegExp(r'[\s\u3000]+');
+
+  Widget _noticeTitle(AppTokens t, String title) => Text(
+    title,
+    key: const ValueKey('notice-title'),
+    maxLines: 1,
+    overflow: TextOverflow.ellipsis,
+    style: NoticeTokens.preview.copyWith(color: t.text2),
+  );
+
+  Widget _ratingDetail(AppTokens t, String score, String? title) =>
+      LayoutBuilder(
+        builder: (context, constraints) => Row(
+          children: [
+            ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: title == null
+                    ? constraints.maxWidth
+                    : (constraints.maxWidth -
+                              NoticeTokens.scoreTitleGap -
+                              MediaQuery.textScalerOf(
+                                context,
+                              ).scale(NoticeTokens.preview.fontSize!))
+                          .clamp(0.0, constraints.maxWidth),
+              ),
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: AlignmentDirectional.centerStart,
+                child: Text(
+                  score,
+                  key: const ValueKey('notice-score'),
+                  maxLines: 1,
+                  softWrap: false,
+                  style: NoticeTokens.preview.copyWith(
+                    color: t.accent,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+            if (title != null) ...[
+              const SizedBox(width: NoticeTokens.scoreTitleGap),
+              Expanded(child: _noticeTitle(t, title)),
+            ],
+          ],
+        ),
+      );
 
   Widget _time(AppTokens t) => Row(
     mainAxisSize: MainAxisSize.min,
@@ -991,7 +1077,14 @@ class _NoticeRowState extends State<NoticeRow>
         },
       ),
       if (widget.time.isNotEmpty)
-        Text(widget.time, style: NoticeTokens.time.copyWith(color: t.text3)),
+        Flexible(
+          child: Text(
+            widget.time,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: NoticeTokens.time.copyWith(color: t.text3),
+          ),
+        ),
     ],
   );
 
@@ -1000,7 +1093,7 @@ class _NoticeRowState extends State<NoticeRow>
         ? NoticeTokens.conversationAvatar
         : NoticeTokens.avatar;
     final kind = switch (widget.category) {
-      'post' => (AppIcons.reply, '回复'),
+      'post' => (AppIcons.comments, '回复'),
       'rate' => (AppIcons.credits, '评分'),
       'pcomment' => (AppIcons.comments, '点评'),
       'at' => (null, '@'),
@@ -1076,102 +1169,6 @@ class _NoticeRowState extends State<NoticeRow>
   }
 }
 
-/// 搜索结果行:标题与摘要中命中的关键词用强调色,元信息只用间距分开
-class SearchResultRow extends StatelessWidget {
-  final String title;
-  final String query;
-  final String? snippet;
-  final List<String> meta;
-  final VoidCallback? onTap;
-
-  /// 已看只降标题基础色;高亮段仍用 accent,与 text2 不同色,依旧可辨
-  final ThreadReadState readState;
-
-  const SearchResultRow({
-    super.key,
-    required this.title,
-    required this.query,
-    this.snippet,
-    required this.meta,
-    this.onTap,
-    this.readState = const ThreadReadUnseen(),
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final t = AppTokens.of(context);
-    return PlainRow(
-      onTap: onTap,
-      child: Semantics(
-        label: readSemanticsLabel(readState),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text.rich(
-              highlight(title, query, t.accent),
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
-              style: AppType.headline.copyWith(
-                color: readTitleColor(t, readState),
-              ),
-            ),
-            if (snippet?.isNotEmpty ?? false) ...[
-              const SizedBox(height: 4),
-              Text.rich(
-                highlight(snippet!, query, t.accent),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: AppType.subhead.copyWith(color: t.text2),
-              ),
-            ],
-            if (meta.isNotEmpty || readState is ThreadReadNewReplies) ...[
-              const SizedBox(height: 6),
-              Wrap(
-                spacing: 12,
-                runSpacing: 4,
-                children: [
-                  for (final item in meta)
-                    Text(
-                      item,
-                      style: AppType.footnote.copyWith(color: t.text3),
-                    ),
-                  if (readState case final ThreadReadNewReplies fresh)
-                    newRepliesText(t, fresh),
-                ],
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// 不区分大小写地标出所有命中片段
-  static TextSpan highlight(String text, String query, Color color) {
-    final keyword = query.trim();
-    if (keyword.isEmpty) return TextSpan(text: text);
-    final spans = <InlineSpan>[];
-    var cursor = 0;
-    for (final match in RegExp(
-      RegExp.escape(keyword),
-      caseSensitive: false,
-    ).allMatches(text)) {
-      if (match.start > cursor) {
-        spans.add(TextSpan(text: text.substring(cursor, match.start)));
-      }
-      spans.add(
-        TextSpan(
-          text: text.substring(match.start, match.end),
-          style: TextStyle(color: color),
-        ),
-      );
-      cursor = match.end;
-    }
-    if (cursor < text.length) spans.add(TextSpan(text: text.substring(cursor)));
-    return TextSpan(children: spans);
-  }
-}
-
 /// 更多评测:88×60 缩略图(只用门户给出的封面,没有就不留位)+ 眉题 + 两行标题
 class ArticleRow extends StatelessWidget {
   final Widget? thumbnail;
@@ -1216,10 +1213,9 @@ class ArticleRow extends StatelessWidget {
                     eyebrow!,
                     style: AppType.footnote.copyWith(color: t.text3),
                   ),
-                Text(
+                BalancedTitle(
                   title,
                   maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
                   style: AppType.subhead.copyWith(
                     color: t.text,
                     fontWeight: FontWeight.w600,
@@ -1256,10 +1252,9 @@ class NewsRow extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
-            child: Text(
+            child: BalancedTitle(
               title,
               maxLines: 2,
-              overflow: TextOverflow.ellipsis,
               style: AppType.subhead.copyWith(color: t.text),
             ),
           ),

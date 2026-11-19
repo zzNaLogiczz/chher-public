@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../core/display_time.dart';
 import '../data/user_block_index.dart';
 import '../design/icons.dart';
 import '../design/tokens.dart';
@@ -50,7 +51,12 @@ class _BlockedUsersPageState extends State<BlockedUsersPage> {
           children: [
             if (index.entries.isNotEmpty)
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpace.screen,
+                  4,
+                  AppSpace.screen,
+                  4,
+                ),
                 child: SearchCapsule(
                   key: const ValueKey('blocked-user-search'),
                   controller: _search,
@@ -113,9 +119,9 @@ class _BlockedUserRow extends StatelessWidget {
     final date = user.blockedAt.toLocal();
     final added = user.blockedAt.millisecondsSinceEpoch == 0
         ? '加入时间未记录'
-        : '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')} 加入';
+        : '${formatDisplayTime(at: date, style: DisplayTimeStyle.dateOnly)} 加入';
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 12, 8),
+      padding: const EdgeInsets.fromLTRB(AppSpace.groupedRowInset, 8, 12, 8),
       child: Row(
         children: [
           Expanded(
@@ -148,6 +154,8 @@ class _BlockedUserRow extends StatelessWidget {
                           ),
                           Text(
                             'UID ${user.uid}  $added',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                             style: AppType.footnote.copyWith(color: t.text3),
                           ),
                         ],

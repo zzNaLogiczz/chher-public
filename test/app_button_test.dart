@@ -2,6 +2,7 @@ import 'package:chh_app/design/icons.dart';
 import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/design/tokens.dart';
 import 'package:chh_app/ui/app_button.dart';
+import 'package:chh_app/widgets/chhers_loader.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -32,9 +33,8 @@ void main() {
   ) async {
     await tester.pumpWidget(app(AppButton(label: '发布', onPressed: () {})));
     final decoration =
-        tester.widget<DecoratedBox>(
-          find.byKey(AppButton.surfaceKey),
-        ).decoration as BoxDecoration;
+        tester.widget<DecoratedBox>(find.byKey(AppButton.surfaceKey)).decoration
+            as BoxDecoration;
     expect(decoration.gradient, AppTokens.light.btnGradient);
     expect(decoration.color, isNull);
     expect(
@@ -143,6 +143,10 @@ void main() {
   });
 
   testWidgets('busy shows a spinner and ignores taps', (tester) async {
+    tester.view.physicalSize = const Size(390, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     var taps = 0;
     await tester.pumpWidget(
       app(
@@ -153,8 +157,19 @@ void main() {
         ),
       ),
     );
-    await tester.pump(const Duration(milliseconds: 400));
-    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    final spinner = find.byType(ChhersSpinner);
+    final rotation = find.descendant(
+      of: spinner,
+      matching: find.byType(RotationTransition),
+    );
+    await tester.pump(const Duration(milliseconds: 299));
+    expect(rotation, findsNothing);
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(rotation, findsOneWidget);
+    expect(
+      tester.widget<ChhersSpinner>(spinner).color,
+      AppTokens.light.onAccent,
+    );
     await tester.tap(find.byType(AppButton), warnIfMissed: false);
     expect(taps, 0);
   });

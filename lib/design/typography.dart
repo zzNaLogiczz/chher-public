@@ -4,6 +4,9 @@ library;
 import 'package:flutter/painting.dart';
 
 abstract final class AppType {
+  static const titleOrphanMinLength = 3;
+  static const titleBalancePrecision = .5;
+
   static const largeTitle = TextStyle(
     fontSize: 32,
     fontWeight: FontWeight.w700,

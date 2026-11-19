@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
 import '../core/link_target.dart';
+import '../design/loading_tokens.dart';
 import '../design/content_video_tokens.dart';
 import '../design/icons.dart';
 import '../design/motion.dart';
@@ -19,6 +20,7 @@ import '../design/tokens.dart';
 import '../models/models.dart';
 import '../ui/press.dart';
 import 'link_opener.dart';
+import 'chhers_loader.dart';
 
 /// 播放器构造;测试里替换掉真实 WebView
 typedef BilibiliPlayerBuilder =
@@ -129,7 +131,7 @@ class _BilibiliCardState extends State<BilibiliCard>
       motion: _phase == _Phase.loading ? AppMotion.tap : AppMotion.reveal,
       reduced: _reduced,
     );
-    _fade.forward(from: 0);
+    if (_phase == _Phase.failed) _fade.forward(from: 0);
   }
 
   void _ready(int generation) {
@@ -175,10 +177,24 @@ class _BilibiliCardState extends State<BilibiliCard>
               ),
             if (_phase != _Phase.playing) ...[
               const _VideoSurface(),
-              if (_phase != _Phase.failed) Center(child: _playControl()),
+              if (_phase != _Phase.failed)
+                Center(
+                  key: const ValueKey('bilibili-play-control'),
+                  child: _playControl(),
+                ),
               Positioned(left: 14, right: 14, bottom: 11, child: _platform()),
               if (_phase == _Phase.failed) _failed(context),
             ],
+            if (showPlayer)
+              IgnorePointer(
+                child: Center(
+                  child: ChhersSpinner(
+                    active: _phase == _Phase.loading,
+                    size: LoadingTokens.standalone,
+                    color: ContentVideoTokens.foreground,
+                  ),
+                ),
+              ),
           ],
         ),
       ),
@@ -187,7 +203,7 @@ class _BilibiliCardState extends State<BilibiliCard>
 
   Widget _playControl() => PressScale(
     onTap: _phase == _Phase.idle ? _play : null,
-    semanticLabel: _phase == _Phase.loading ? '正在加载视频' : '播放视频',
+    semanticLabel: _phase == _Phase.idle ? '播放视频' : null,
     child: Container(
       key: const ValueKey('bilibili-play-circle'),
       width: ContentVideoTokens.playSize,
@@ -197,37 +213,21 @@ class _BilibiliCardState extends State<BilibiliCard>
         shape: const CircleBorder(),
       ),
       child: AnimatedBuilder(
-        animation: Listenable.merge([_spring, _fade]),
-        builder: (context, _) => Stack(
-          alignment: Alignment.center,
-          children: [
-            Transform.scale(
-              key: const ValueKey('bilibili-play-triangle'),
-              scale: _phase == _Phase.idle ? 1 : 1 - _spring.value,
-              child: const Padding(
-                padding: EdgeInsets.only(left: 3),
-                child: Icon(
-                  AppIcons.play,
-                  size: ContentVideoTokens.playIconSize,
-                  color: ContentVideoTokens.foreground,
-                ),
-              ),
+        animation: _spring,
+        child: const Center(
+          child: Padding(
+            padding: EdgeInsets.only(left: 3),
+            child: Icon(
+              AppIcons.play,
+              size: ContentVideoTokens.playIconSize,
+              color: ContentVideoTokens.foreground,
             ),
-            if (_phase == _Phase.loading)
-              FadeTransition(
-                opacity: _fade,
-                child: SizedBox.square(
-                  dimension: ContentVideoTokens.spinnerSize,
-                  child: CircularProgressIndicator(
-                    // 减少动态效果时保留静态进度标记，不运行持续 Ticker。
-                    value: _reduced ? .65 : null,
-                    strokeWidth: ContentVideoTokens.spinnerStroke,
-                    color: ContentVideoTokens.foreground,
-                    semanticsLabel: '正在加载视频',
-                  ),
-                ),
-              ),
-          ],
+          ),
+        ),
+        builder: (context, child) => Transform.scale(
+          key: const ValueKey('bilibili-play-triangle'),
+          scale: _phase == _Phase.idle ? 1 : 1 - _spring.value,
+          child: child,
         ),
       ),
     ),

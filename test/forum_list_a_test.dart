@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:chh_app/data/forum_repository.dart';
 import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/design/icons.dart';
+import 'package:chh_app/design/list_end_tokens.dart';
 import 'package:chh_app/design/tokens.dart';
 import 'package:chh_app/ui/chrome_button.dart';
 import 'package:chh_app/models/models.dart';
@@ -106,6 +107,50 @@ Future<void> _pick(
 }
 
 void main() {
+  for (final bottomInset in [0.0, 34.0]) {
+    testWidgets(
+      'forum footer stays inside the final card with inset $bottomInset',
+      (tester) async {
+        tester.view.padding = FakeViewPadding(bottom: bottomInset);
+        tester.view.viewPadding = FakeViewPadding(bottom: bottomInset);
+        addTearDown(tester.view.resetPadding);
+        addTearDown(tester.view.resetViewPadding);
+        await _forum(tester, _Forums(), 2105);
+        final marker = find.text('没有更多了');
+        final scroll = find.descendant(
+          of: find.byType(ListView),
+          matching: find.byType(Scrollable),
+        );
+        await tester.scrollUntilVisible(marker, 500, scrollable: scroll);
+        final position = tester.state<ScrollableState>(scroll).position;
+        position.jumpTo(position.maxScrollExtent);
+        await tester.pumpAndSettle();
+
+        final row = find.byKey(const ValueKey('forum-card-79'));
+        final meta = find.descendant(of: row, matching: find.text('测试读者'));
+        final card = find.ancestor(
+          of: marker,
+          matching: find.byType(ForumThreadCardSlice),
+        );
+        final markerRect = tester.getRect(marker);
+        final cardBottom = tester.getRect(card).bottom;
+        expect(
+          markerRect.top - tester.getRect(meta).bottom,
+          closeTo(ListEndTokens.markerGap, 1),
+        );
+        expect(
+          cardBottom - markerRect.bottom,
+          closeTo(ListEndTokens.markerGap, .01),
+        );
+        expect(
+          844 - bottomInset - cardBottom,
+          closeTo(ListEndTokens.navigationGap, .01),
+        );
+        expect(find.byTooltip('发帖').hitTestable(), findsNothing);
+      },
+    );
+  }
+
   testWidgets(
     'category filter is a navigation icon and sorting belongs to the list',
     (tester) async {
@@ -305,14 +350,30 @@ void main() {
     await _forum(tester, _Forums(), 2101);
     final transform = find.byKey(const ValueKey('forum-compose-visibility'));
     expect(tester.widget<Transform>(transform).transform.storage[13], 0);
+    expect(tester.getSize(find.byTooltip('发帖')), const Size(56, 56));
+    final semantics = tester.ensureSemantics();
+    expect(find.bySemanticsLabel('发帖'), findsOneWidget);
+    semantics.dispose();
     await tester.drag(find.byType(ListView), const Offset(0, -550));
     await tester.pumpAndSettle();
     expect(tester.widget<Transform>(transform).transform.storage[13], 100);
-    expect(find.byTooltip('发主题').hitTestable(), findsNothing);
-    await tester.drag(find.byType(ListView), const Offset(0, 200));
+    expect(find.byTooltip('发帖').hitTestable(), findsNothing);
+    final reverse = await tester.startGesture(
+      tester.getCenter(find.byType(ListView)),
+    );
+    await reverse.moveBy(const Offset(0, 25));
+    await tester.pump();
+    await reverse.moveBy(const Offset(0, 24));
+    await tester.pump();
+    expect(
+      tester.widget<Transform>(transform).transform.storage[13],
+      inExclusiveRange(0, 100),
+    );
+    await reverse.moveBy(const Offset(0, 175));
+    await reverse.up();
     await tester.pumpAndSettle();
     expect(tester.widget<Transform>(transform).transform.storage[13], 0);
-    expect(find.byTooltip('发主题').hitTestable(), findsOneWidget);
+    expect(find.byTooltip('发帖').hitTestable(), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

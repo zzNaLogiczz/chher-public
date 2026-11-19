@@ -134,7 +134,7 @@ class LinkPreviewRepository {
         return switch (await openArticle(aid)) {
           ArticleContent(:final detail) => LinkPreview(
             title: detail.title,
-            time: ChhUrls.parseTime(detail.metaRaw ?? ''),
+            time: ChhUrls.parseTime(detail.metaRaw ?? '', embedded: true),
             isThread: false,
             coverUrl: detail.content.whereType<ImageBlock>().firstOrNull?.url,
           ),

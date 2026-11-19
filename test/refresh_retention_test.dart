@@ -14,22 +14,26 @@ import 'package:chh_app/pages/medals_page.dart';
 import 'package:chh_app/pages/messages_page.dart';
 import 'package:chh_app/pages/user_page.dart';
 import 'package:chh_app/ui/feedback.dart';
+import 'package:chh_app/widgets/chhers_loader.dart';
+import 'package:chh_app/widgets/chhers_refresh_indicator.dart';
 import 'package:chh_app/widgets/expressive_controls.dart';
 import 'package:chh_app/widgets/lacquer_tab_scaffold.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'messages_ui_test.dart' show FakeMessages, notice;
+import 'messages_ui_test.dart' show FakeMessages, notice, pmFixture;
 import 'support/space_fixtures.dart';
 
-PortalHighlights _highlights({String title = '初始精选'}) => PortalHighlights(
-  reviews: [
-    PortalArticle(aid: 400001, title: title),
-    const PortalArticle(aid: 400002, title: '另一篇评测'),
-  ],
-  banners: const [PortalArticle(aid: 400003, title: '社区精选文章')],
-  news: const [NewsItem(tid: 400004, title: '快讯标题')],
-);
+PortalHighlights _highlights({String title = '初始精选', bool addReview = false}) =>
+    PortalHighlights(
+      reviews: [
+        PortalArticle(aid: 400001, title: title),
+        const PortalArticle(aid: 400002, title: '另一篇评测'),
+        if (addReview) const PortalArticle(aid: 400005, title: '新加入的评测'),
+      ],
+      banners: const [PortalArticle(aid: 400003, title: '社区精选文章')],
+      news: const [NewsItem(tid: 400004, title: '快讯标题')],
+    );
 
 class _Portal extends PortalRepository {
   _Portal() : super(ChhClient(fetchers: []));
@@ -82,6 +86,17 @@ class _Space extends FixtureSpace {
 
 class _Messages extends FakeMessages {
   Completer<Paged<Notice>>? pendingNotices;
+  Completer<Paged<PmConversation>>? pendingConversations;
+
+  @override
+  Future<Paged<PmConversation>> conversations({
+    PmFilter filter = PmFilter.privatePm,
+    int page = 1,
+    bool refresh = false,
+  }) =>
+      pendingConversations?.future ??
+      super.conversations(filter: filter, page: page, refresh: refresh);
+
   @override
   Future<Paged<Notice>> notices({
     NoticeView view = NoticeView.all,
@@ -153,11 +168,32 @@ Animation<double> _arrival(WidgetTester tester, int id) =>
             .animation
         as Animation<double>;
 
+Finder get _pullWordmark => find.byWidgetPredicate(
+  (widget) => widget is ChhersLoader && widget.size == ChhersLoaderSize.refresh,
+);
+
+Future<TestGesture> _dragForWordmark(WidgetTester tester, Finder row) async {
+  final gesture = await tester.startGesture(tester.getCenter(row));
+  await gesture.moveBy(const Offset(0, 40));
+  await tester.pump();
+  final mark = tester.widget<ChhersLoader>(_pullWordmark);
+  expect(mark.progress, inExclusiveRange(0, 1));
+  final tokens = AppTokens.of(tester.element(_pullWordmark));
+  final onLac = tokens.style == AppearanceStyle.cinnabar;
+  expect(mark.color, onLac ? tokens.onLac : tokens.text3);
+  await gesture.moveBy(const Offset(0, 260));
+  await tester.pump();
+  final armed = tester.widget<ChhersLoader>(_pullWordmark);
+  expect(armed.progress, 1);
+  expect(armed.color, onLac ? tokens.onLac : tokens.accent);
+  return gesture;
+}
+
 void main() {
   for (final style in AppearanceStyle.values) {
     for (final brightness in Brightness.values) {
       testWidgets(
-        'feed refresh retains sections and fades only changed rows ${style.name} ${brightness.name}',
+        'feed refresh writes the wordmark and fades only new rows ${style.name} ${brightness.name}',
         (tester) async {
           final portal = _Portal();
           await _feed(tester, portal, style: style, brightness: brightness);
@@ -168,11 +204,11 @@ void main() {
           final oldMoreState = tester.state(find.byKey(const ValueKey(400002)));
           final oldSize = tester.getSize(find.byKey(const ValueKey(400001)));
           portal.pending = Completer<PortalHighlights>();
-          // Exercise the same refresh callback as the pull gesture, holding the response.
-          final refresh = tester
-              .widget<LacquerTabScaffold>(find.byType(LacquerTabScaffold))
-              .onRefresh!();
+          final gesture = await _dragForWordmark(tester, find.text('初始精选'));
+          await gesture.up();
           await tester.pump();
+          await tester.pump(const Duration(seconds: 1));
+          expect(tester.widget<ChhersLoader>(_pullWordmark).progress, isNull);
           for (final title in ['初始精选', '社区精选', '更多评测', '快讯', '快讯标题']) {
             expect(find.text(title), findsOneWidget);
           }
@@ -186,23 +222,31 @@ void main() {
           );
           expect(tester.getSize(find.byKey(const ValueKey(400001))), oldSize);
           expect(_arrival(tester, 400001).value, 1);
-          portal.pending!.complete(_highlights(title: '更新后的精选'));
-          await refresh;
+          portal.pending!.complete(
+            _highlights(title: '更新后的精选', addReview: true),
+          );
           await tester.pump();
           await tester.pump();
           expect(find.text('更新后的精选'), findsOneWidget);
           expect(
+            tester.state(find.byKey(const ValueKey(400001))),
+            same(oldFeatureState),
+          );
+          expect(
             tester.state(find.byKey(const ValueKey(400002))),
             same(oldMoreState),
           );
-          expect(_arrival(tester, 400001).value, 0);
+          expect(_arrival(tester, 400001).value, 1);
           expect(_arrival(tester, 400002).value, 1);
           expect(_arrival(tester, 1).value, 1);
+          expect(_arrival(tester, 400005).value, 0);
           await tester.pump(const Duration(milliseconds: 90));
-          expect(_arrival(tester, 400001).value, closeTo(.5, .01));
+          expect(_arrival(tester, 400001).value, 1);
+          expect(_arrival(tester, 400005).value, closeTo(.5, .01));
           expect(_arrival(tester, 400002).value, 1);
           await tester.pump(const Duration(milliseconds: 90));
           expect(_arrival(tester, 400001).value, 1);
+          expect(_arrival(tester, 400005).value, 1);
           await tester.pump(const Duration(seconds: 2));
           expect(tester.binding.transientCallbackCount, 0);
           await tester.pumpWidget(const SizedBox());
@@ -255,7 +299,7 @@ void main() {
       final scroll = tester.element(find.byType(ListView));
       repo.pendingProfile = Completer<UserProfile>();
       final refresh = tester
-          .widget<RefreshIndicator>(find.byType(RefreshIndicator))
+          .widget<ChhersRefreshIndicator>(find.byType(ChhersRefreshIndicator))
           .onRefresh();
       await tester.pump();
       expect(find.byKey(UserPage.identityKey), findsOneWidget);
@@ -283,7 +327,7 @@ void main() {
     await tester.pumpWidget(profile('43'));
     expect(find.byKey(UserPage.identityKey), findsNothing);
     expect(find.text('装机爱好者'), findsNothing);
-    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(find.byType(ChhersLoader), findsOneWidget);
     repo.pendingProfile!.complete(const UserProfile(uid: '43', name: '另一位用户'));
     await tester.pumpAndSettle();
     expect(find.text('另一位用户'), findsOneWidget);
@@ -300,7 +344,7 @@ void main() {
     await tester.tap(find.text('我的勋章'));
     await tester.pump();
     expect(find.text('社区分享纪念勋章'), findsNothing);
-    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(find.byType(ChhersLoader), findsOneWidget);
     repo.pendingMedals!.complete(const [MedalItem(id: 'mine', name: '我的样例勋章')]);
     await tester.pumpAndSettle();
     expect(find.text('我的样例勋章'), findsOneWidget);
@@ -314,7 +358,7 @@ void main() {
     await tester.pumpAndSettle();
     repo.pendingMedals = Completer<List<MedalItem>>();
     final refresh = tester
-        .widget<RefreshIndicator>(find.byType(RefreshIndicator))
+        .widget<ChhersRefreshIndicator>(find.byType(ChhersRefreshIndicator))
         .onRefresh();
     await tester.pump();
     expect(find.text('社区分享纪念勋章'), findsOneWidget);
@@ -324,58 +368,99 @@ void main() {
     expect(find.text('新勋章'), findsOneWidget);
   });
 
-  testWidgets('messages refresh retains loaded notice instead of skeleton', (
-    tester,
-  ) async {
-    final repo = _Messages();
-    await tester.pumpWidget(
-      _app(Scaffold(body: MessagesTabPage(repository: repo))),
-    );
-    await tester.pumpAndSettle();
-    repo.pendingNotices = Completer<Paged<Notice>>();
-    final refresh = tester
-        .widget<LacquerTabScaffold>(find.byType(LacquerTabScaffold).first)
-        .onRefresh!();
-    await tester.pump();
-    expect(find.textContaining('坛友'), findsWidgets);
-    expect(find.byType(SkeletonPulse), findsNothing);
-    repo.pendingNotices!.complete(
-      const Paged(items: [notice], page: PageInfo(current: 1, hasNext: false)),
-    );
-    await refresh;
-    await tester.pumpAndSettle();
-    expect(find.textContaining('坛友'), findsWidgets);
-  });
+  for (final pm in [false, true]) {
+    testWidgets(
+      'messages refresh keeps ${pm ? 'PM rows' : 'notice rows'} opaque',
+      (tester) async {
+        final repo = _Messages();
+        await tester.pumpWidget(
+          _app(Scaffold(body: MessagesTabPage(repository: repo))),
+        );
+        await tester.pumpAndSettle();
+        if (pm) {
+          await tester.tap(find.text('私信').hitTestable().first);
+          await tester.pumpAndSettle();
+        }
+        final row = find.ancestor(
+          of: find.textContaining(pm ? '对方' : '坛友').hitTestable().first,
+          matching: find.byType(ContentFade),
+        );
+        final element = tester.element(row);
+        final origin = tester.getTopLeft(row);
+        void expectRetained() {
+          expect(tester.element(row), same(element));
+          expect(tester.getTopLeft(row), origin);
+          expect(tester.widget<ContentFade>(row).opacity.value, 1);
+        }
 
-  testWidgets('forum directory refresh retains loaded categories', (
-    tester,
-  ) async {
-    final pending = Completer<List<ForumCategory>>();
-    const categories = [
-      ForumCategory(
-        name: '互动区',
-        forums: [Forum(fid: 1, name: '讨论区')],
-      ),
-    ];
-    await tester.pumpWidget(
-      _app(
-        Scaffold(
-          body: ForumIndexView(
-            loadForums: (refresh) =>
-                refresh ? pending.future : Future.value(categories),
+        repo.pendingNotices = Completer<Paged<Notice>>();
+        repo.pendingConversations = Completer<Paged<PmConversation>>();
+        final refresh = tester
+            .widget<LacquerTabScaffold>(find.byType(LacquerTabScaffold).first)
+            .onRefresh!();
+        await tester.pump();
+        expectRetained();
+        expect(find.byType(SkeletonPulse), findsNothing);
+        if (pm) {
+          repo.pendingConversations!.complete(
+            const Paged(
+              items: [pmFixture],
+              page: PageInfo(current: 1, hasNext: false),
+            ),
+          );
+        } else {
+          repo.pendingNotices!.complete(
+            const Paged(
+              items: [notice],
+              page: PageInfo(current: 1, hasNext: false),
+            ),
+          );
+        }
+        await refresh;
+        await tester.pump();
+        expectRetained();
+        await tester.pump(const Duration(milliseconds: 90));
+        expectRetained();
+        await tester.pumpAndSettle();
+      },
+    );
+  }
+
+  testWidgets(
+    'forum directory pull writes the wordmark and retains categories',
+    (tester) async {
+      final pending = Completer<List<ForumCategory>>();
+      const categories = [
+        ForumCategory(
+          name: '互动区',
+          forums: [Forum(fid: 1, name: '讨论区')],
+        ),
+      ];
+      await tester.pumpWidget(
+        _app(
+          Scaffold(
+            body: ForumIndexView(
+              loadForums: (refresh) =>
+                  refresh ? pending.future : Future.value(categories),
+            ),
           ),
         ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    final refresh = tester
-        .widget<LacquerTabScaffold>(find.byType(LacquerTabScaffold))
-        .onRefresh!();
-    await tester.pump();
-    expect(find.text('讨论区'), findsOneWidget);
-    pending.complete(categories);
-    await refresh;
-    await tester.pumpAndSettle();
-    expect(find.text('讨论区'), findsOneWidget);
-  });
+      );
+      await tester.pumpAndSettle();
+      final row = find.text('讨论区');
+      final element = tester.element(row);
+      final gesture = await _dragForWordmark(tester, row);
+      await gesture.up();
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      expect(tester.widget<ChhersLoader>(_pullWordmark).progress, isNull);
+      expect(tester.element(row), same(element));
+      pending.complete(categories);
+      await tester.pump();
+      expect(tester.element(row), same(element));
+      await tester.pumpAndSettle();
+      expect(_pullWordmark, findsNothing);
+      expect(tester.element(row), same(element));
+    },
+  );
 }

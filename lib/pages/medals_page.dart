@@ -6,10 +6,12 @@ import '../ui/segmented.dart';
 import '../ui/picker.dart';
 import '../di.dart';
 import '../data/space_repository.dart';
+import '../widgets/chhers_loading_transition.dart';
+import '../widgets/chhers_refresh_indicator.dart';
 import '../widgets/large_title_scaffold.dart';
 import '../widgets/expressive_controls.dart';
 import '../design/tokens.dart';
-import '../design/shapes.dart';
+import '../design/list_end_tokens.dart';
 import '../design/typography.dart';
 import '../ui/grouped.dart';
 import '../ui/sheet_scaffold.dart';
@@ -58,7 +60,6 @@ class _MedalsPageState extends State<MedalsPage> {
   @override
   Widget build(BuildContext context) => LargeTitleScaffold(
     title: '勋章',
-    surface: AppSurface.grouped,
     body: Column(
       children: [
         Padding(
@@ -82,122 +83,108 @@ class _MedalsPageState extends State<MedalsPage> {
           child: FutureBuilder<List<MedalItem>>(
             key: ValueKey((_seg, widget.repository)),
             future: _future,
-            builder: (context, snap) {
-              if (!snap.hasData &&
-                  snap.connectionState != ConnectionState.done) {
-                return StateView.loading();
-              }
-              final err = snap.error;
-              if (err is PageMessage) {
-                return StateView.forMessage(
-                  err,
-                  onLogin: () async {
-                    await Navigator.of(context).pushNamed('/login');
-                    if (mounted) await _reload();
-                  },
-                );
-              }
-              if (err != null) return StateView.error(err, onRetry: _reload);
-              final medals = snap.data ?? const [];
-              if (medals.isEmpty) {
-                return StateView.empty(
-                  message: _seg == 1 ? '还没有获得勋章' : '没有可展示的勋章',
-                );
-              }
-              final t = AppTokens.of(context);
-              return ExpressivePageReveal(
-                active: true,
-                animateOnMount: true,
-                child: RefreshIndicator(
-                  onRefresh: _reload,
-                  child: CustomScrollView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    slivers: [
-                      SliverToBoxAdapter(
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(32, 20, 32, 7),
-                          child: Text(
-                            '${medals.length} 枚勋章',
-                            style: AppType.footnote.copyWith(
-                              color: t.text3,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      ),
-                      SliverPadding(
-                        padding: const EdgeInsets.fromLTRB(
-                          AppSpace.groupInset,
-                          0,
-                          AppSpace.groupInset,
-                          40,
-                        ),
-                        sliver: SliverList.builder(
-                          itemCount: medals.length,
-                          itemBuilder: (context, i) => _MedalCard(
-                            medal: medals[i],
-                            first: i == 0,
-                            last: i == medals.length - 1,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            },
+            builder: (context, snap) => ChhersLoadingTransition(
+              animateOnMount: true,
+              child:
+                  !snap.hasData && snap.connectionState != ConnectionState.done
+                  ? null
+                  : _loadedBody(context, snap),
+            ),
           ),
         ),
       ],
     ),
   );
+
+  Widget _loadedBody(
+    BuildContext context,
+    AsyncSnapshot<List<MedalItem>> snap,
+  ) {
+    final err = snap.error;
+    if (err is PageMessage) {
+      return StateView.forMessage(
+        err,
+        onLogin: () async {
+          await Navigator.of(context).pushNamed('/login');
+          if (mounted) await _reload();
+        },
+      );
+    }
+    if (err != null) return StateView.error(err, onRetry: _reload);
+    final medals = snap.data ?? const [];
+    if (medals.isEmpty) {
+      return StateView.empty(message: _seg == 1 ? '还没有获得勋章' : '没有可展示的勋章');
+    }
+    final t = AppTokens.of(context);
+    return ChhersRefreshIndicator(
+      onRefresh: _reload,
+      child: CustomScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: [
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpace.groupLabelInset,
+                20,
+                AppSpace.groupLabelInset,
+                7,
+              ),
+              child: Text(
+                '${medals.length} 枚勋章',
+                style: AppType.footnote.copyWith(
+                  color: t.text3,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+          SliverPadding(
+            padding: EdgeInsets.fromLTRB(
+              AppSpace.groupInset,
+              0,
+              AppSpace.groupInset,
+              ListEndTokens.navigationGap +
+                  MediaQuery.paddingOf(context).bottom,
+            ),
+            sliver: SliverList.builder(
+              itemCount: medals.length,
+              itemBuilder: (context, i) =>
+                  _MedalRow(medal: medals[i], last: i == medals.length - 1),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
-/// 勋章行:分组面里的一行,44dp 勋章图 + 可换行的名称与说明
-class _MedalCard extends StatelessWidget {
+class _MedalRow extends StatelessWidget {
   final MedalItem medal;
-  final bool first;
   final bool last;
-  const _MedalCard({
-    required this.medal,
-    required this.first,
-    required this.last,
-  });
+  const _MedalRow({required this.medal, required this.last});
   String get _name => medal.name.isEmpty ? '勋章 ${medal.id}' : medal.name;
   @override
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
-    return AppClip.borderRadius(
-      borderRadius: BorderRadius.vertical(
-        top: first ? const Radius.circular(AppRadii.md) : Radius.zero,
-        bottom: last ? const Radius.circular(AppRadii.md) : Radius.zero,
-      ),
-      child: ColoredBox(
-        color: t.surface,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            GroupedRow(
-              title: _name,
-              subtitle: medal.description?.isNotEmpty == true
-                  ? medal.description
-                  : null,
-              leading: SizedBox.square(
-                dimension: 44,
-                child: medal.imageUrl == null
-                    ? Icon(AppIcons.medal, size: 28, color: t.text3)
-                    : NetImage(
-                        url: medal.imageUrl!,
-                        width: 44,
-                        height: 44,
-                        fit: BoxFit.contain,
-                      ),
-              ),
-              onTap: () => _details(context),
-            ),
-            if (!last) const SizedBox(height: 8),
-          ],
+    return Padding(
+      padding: EdgeInsets.only(bottom: last ? 0 : 8),
+      child: GroupedRow(
+        title: _name,
+        subtitle: medal.description?.isNotEmpty == true
+            ? medal.description
+            : null,
+        leading: SizedBox.square(
+          dimension: 44,
+          child: medal.imageUrl == null
+              ? Icon(AppIcons.medal, size: 28, color: t.text3)
+              : NetImage(
+                  url: medal.imageUrl!,
+                  width: 44,
+                  height: 44,
+                  fit: BoxFit.contain,
+                ),
         ),
+        onTap: () => _details(context),
       ),
     );
   }

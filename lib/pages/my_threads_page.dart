@@ -9,6 +9,7 @@ import '../ui/segmented.dart';
 import '../ui/app_button.dart';
 import '../ui/picker.dart';
 import '../design/typography.dart';
+import '../design/display_text.dart';
 import '../ui/press.dart';
 import '../ui/plain_rows.dart';
 
@@ -19,6 +20,7 @@ import '../ui/user_block_action.dart';
 import '../data/space_repository.dart';
 import '../widgets/large_title_scaffold.dart';
 import '../design/tokens.dart';
+import '../design/thread_row_tokens.dart';
 import '../models/models.dart';
 import '../widgets/paged_list.dart';
 import 'thread_detail_page.dart';
@@ -93,7 +95,12 @@ class _MyThreadsPageState extends State<MyThreadsPage> {
                 child: PagedList<MyThread>(
                   key: ValueKey(_seg),
                   emptyMessage: '还没有相关的帖子',
-                  padding: const EdgeInsets.only(top: 4, bottom: 40),
+                  padding: const EdgeInsets.only(top: 4),
+                  precedingBottomPadding: (item) =>
+                      ThreadRowTokens.verticalPadding +
+                      (item.replySnippets.isEmpty
+                          ? 0
+                          : MyThreadTokens.replySnippetPadding.bottom),
                   loader: (page, {bool refresh = false}) =>
                       (widget.repository ?? spaceRepo).threads(
                         uid: widget.uid,
@@ -140,82 +147,44 @@ class _Row extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
-    return PlainRow(
+    return ThreadRow.entry(
+      tid: item.tid,
+      title: item.title,
+      category: item.forumName,
+      timeRaw: item.lastTimeRaw,
+      replies: item.replies,
+      readState: readState,
       onTap: () => _openThread(context),
-      child: Semantics(
-        label: readSemanticsLabel(readState),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (item.forumName != null) ...[
-              Text(
-                item.forumName!,
-                style: AppType.caption.copyWith(color: t.accent),
-              ),
-              const SizedBox(height: 4),
-            ],
-            Text(
-              item.title,
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
-              style: AppType.headline.copyWith(
-                color: readTitleColor(t, readState),
-              ),
-            ),
-            const SizedBox(height: 6),
-            // 新回复并入元信息行,不另起一行
-            Wrap(
-              spacing: 12,
-              runSpacing: 4,
+      footer: item.replySnippets.isEmpty
+          ? null
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // 元信息为空时不放空 Text,免得白占一格 Wrap 间距
-                if (_meta().isNotEmpty)
-                  Text(
-                    _meta(),
-                    style: AppType.footnote.copyWith(color: t.text3),
-                  ),
-                if (readState case final ThreadReadNewReplies fresh)
-                  newRepliesText(t, fresh),
-              ],
-            ),
-            // 可定位的回复摘要：浅底引用，点按直接跳到那一楼
-            for (final snippet in item.replySnippets)
-              Padding(
-                padding: const EdgeInsets.only(top: 10),
-                child: PressHighlight(
-                  onTap: () => _openThread(context, snippet: snippet),
-                  borderRadius: BorderRadius.circular(AppRadii.xs),
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: t.fill,
-                      borderRadius: BorderRadius.circular(AppRadii.sm),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 2, 4, 2),
-                      child: Text(
-                        snippet.text,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppType.subhead.copyWith(color: t.text2),
+                for (final snippet in item.replySnippets)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 10),
+                    child: PressHighlight(
+                      onTap: () => _openThread(context, snippet: snippet),
+                      borderRadius: BorderRadius.circular(AppRadii.xs),
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: t.fill,
+                          borderRadius: BorderRadius.circular(AppRadii.sm),
+                        ),
+                        child: Padding(
+                          padding: MyThreadTokens.replySnippetPadding,
+                          child: Text(
+                            normalizeDisplayText(snippet.text),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppType.subhead.copyWith(color: t.text2),
+                          ),
+                        ),
                       ),
                     ),
                   ),
-                ),
-              ),
-          ],
-        ),
-      ),
+              ],
+            ),
     );
-  }
-
-  /// 元信息不使用间隔号,用全角空格分隔
-  String _meta() {
-    final parts = <String>[
-      if (item.replies != null) '回复 ${item.replies}',
-      if (item.views != null) '查看 ${item.views}',
-      if (item.lastTimeRaw != null && item.lastTimeRaw!.isNotEmpty)
-        item.lastTimeRaw!,
-    ];
-    return parts.join('  ');
   }
 }

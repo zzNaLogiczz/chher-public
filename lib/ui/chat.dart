@@ -16,29 +16,18 @@ import '../design/motion.dart';
 import '../design/tokens.dart';
 import '../design/typography.dart';
 import 'press.dart';
+import '../widgets/chhers_loader.dart';
 
 /// Only known source timestamps can establish a ten-minute gap.
 bool chatShowsTimestamp(PmMessage current, PmMessage? previous) {
   if (current.timeRaw.isEmpty) return false;
   if (previous == null) return true;
-  final now = ChhUrls.parseTime(current.timeRaw);
-  final before = ChhUrls.parseTime(previous.timeRaw);
-  return now != null &&
+  final now = DateTime.now();
+  final at = ChhUrls.parseTime(current.timeRaw, now: now);
+  final before = ChhUrls.parseTime(previous.timeRaw, now: now);
+  return at != null &&
       before != null &&
-      now.difference(before) > const Duration(minutes: 10);
-}
-
-String chatTimestamp(String raw, {DateTime? now}) {
-  final date = ChhUrls.parseTime(raw);
-  if (date == null) return raw;
-  now ??= DateTime.now();
-  final day = DateUtils.dateOnly(date);
-  final clock =
-      '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
-  if (day == DateUtils.dateOnly(now)) return clock;
-  if (day == DateTime(now.year, now.month, now.day - 1)) return '昨天 $clock';
-  final year = date.year == now.year ? '' : '${date.year}年';
-  return '$year${date.month}月${date.day}日 $clock';
+      at.difference(before) > const Duration(minutes: 10);
 }
 
 class ChatBubble extends StatefulWidget {
@@ -408,10 +397,8 @@ class ChatSendButton extends StatelessWidget {
                 child: SizedBox.square(
                   dimension: ChatTokens.sendSize,
                   child: sending
-                      ? Padding(
-                          padding: const EdgeInsets.all(11),
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
+                      ? Center(
+                          child: ChhersSpinner(
                             color: ChatTokens.outgoingForeground(t),
                           ),
                         )

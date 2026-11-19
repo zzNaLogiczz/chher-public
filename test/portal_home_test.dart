@@ -72,6 +72,17 @@ void main() {
   });
 
   group('快讯', () {
+    test('D2 prefers a nonempty full title on the anchor', () {
+      final news = parsePortalHighlights(
+        _page('''
+<div id="portal_block_673_content">
+  <a href="thread-900601-1-1.html" title="合成标题完整内容">合成标题</a>
+  <a href="thread-900602-1-1.html" title=" ">没有完整标题</a>
+</div>'''),
+      ).news;
+      expect(news.map((item) => item.title), ['合成标题完整内容', '没有完整标题']);
+    });
+
     test('只收论坛帖,区块标题指向版块会被过滤', () {
       final n = parsePortalHighlights(_page(_home)).news;
       expect(n.length, 2);

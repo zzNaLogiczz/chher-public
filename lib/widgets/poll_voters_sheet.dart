@@ -8,6 +8,8 @@ import '../pages/user_drawer.dart';
 import '../ui/press.dart';
 import '../ui/sheet_scaffold.dart';
 import 'avatar_image.dart';
+import 'chhers_loader.dart';
+import 'chhers_loading_transition.dart';
 import 'state_view.dart';
 
 Future<void> showPollVotersSheet(
@@ -147,72 +149,84 @@ class _PollVotersSheetState extends State<PollVotersSheet> {
               ),
             ),
           Flexible(
-            child: _voters.isEmpty
-                ? _state()
-                : ListView.builder(
-                    shrinkWrap: true,
-                    itemCount: _voters.length + 1,
-                    itemBuilder: (context, index) {
-                      if (index == _voters.length) {
-                        return _error != null
-                            ? _state()
-                            : _loading
-                            ? SizedBox(
-                                height: PollTokens.voterHeight,
-                                child: StateView.loading(),
-                              )
-                            : !_exhausted && _data!.page.hasNext
-                            ? PressScale(
-                                onTap: () => _load(append: true),
-                                child: SizedBox(
+            child: ChhersLoadingTransition(
+              placeholderBuilder: (indicator) => SizedBox(
+                height: PollTokens.voterHeight,
+                child: Center(child: indicator),
+              ),
+              child: _voters.isEmpty && _loading
+                  ? null
+                  : _voters.isEmpty
+                  ? _state()
+                  : ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: _voters.length + 1,
+                      itemBuilder: (context, index) {
+                        if (index == _voters.length) {
+                          return _error != null
+                              ? _state()
+                              : _loading
+                              ? SizedBox(
                                   height: PollTokens.voterHeight,
                                   child: Center(
-                                    child: Text(
-                                      '下一页',
-                                      style: PollTokens.text(
-                                        PollTokens.linkSize,
-                                        t.text2,
+                                    child: ChhersLoader(
+                                      size: ChhersLoaderSize.list,
+                                    ),
+                                  ),
+                                )
+                              : !_exhausted && _data!.page.hasNext
+                              ? PressScale(
+                                  onTap: () => _load(append: true),
+                                  child: SizedBox(
+                                    height: PollTokens.voterHeight,
+                                    child: Center(
+                                      child: Text(
+                                        '下一页',
+                                        style: PollTokens.text(
+                                          PollTokens.linkSize,
+                                          t.text2,
+                                        ),
                                       ),
                                     ),
                                   ),
-                                ),
-                              )
-                            : const SizedBox.shrink();
-                      }
-                      final voter = _voters[index];
-                      return PressHighlight(
-                        onTap: () =>
-                            showUserDrawer(context, voter.uid.toString()),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: PollTokens.optionInset,
-                          ),
-                          child: SizedBox(
-                            height: PollTokens.voterHeight,
-                            child: Row(
-                              children: [
-                                AvatarImage(
-                                  url: voter.avatarUrl,
-                                  name: voter.name,
-                                  size: PollTokens.iconBox,
-                                ),
-                                const SizedBox(width: PollTokens.optionsGap),
-                                Expanded(
-                                  child: Text(
-                                    voter.name,
-                                    style: PollTokens.text(
-                                      PollTokens.voterSize,
-                                      t.text,
+                                )
+                              : const SizedBox.shrink();
+                        }
+                        final voter = _voters[index];
+                        return PressHighlight(
+                          onTap: () =>
+                              showUserDrawer(context, voter.uid.toString()),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: PollTokens.optionInset,
+                            ),
+                            child: SizedBox(
+                              height: PollTokens.voterHeight,
+                              child: Row(
+                                children: [
+                                  AvatarImage(
+                                    url: voter.avatarUrl,
+                                    name: voter.name,
+                                    size: PollTokens.iconBox,
+                                  ),
+                                  const SizedBox(width: PollTokens.optionsGap),
+                                  Expanded(
+                                    child: Text(
+                                      voter.name,
+                                      style: PollTokens.text(
+                                        PollTokens.voterSize,
+                                        t.text,
+                                      ),
                                     ),
                                   ),
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
                           ),
-                        ),
-                      );
-                    },
-                  ),
+                        );
+                      },
+                    ),
+            ),
           ),
         ],
       ),
@@ -221,12 +235,6 @@ class _PollVotersSheetState extends State<PollVotersSheet> {
 
   Widget _state() {
     final error = _error;
-    if (_loading) {
-      return SizedBox(
-        height: PollTokens.voterHeight,
-        child: StateView.loading(),
-      );
-    }
     if (error is PageMessage) {
       return StateView(icon: Icons.lock_outline, message: error.text);
     }

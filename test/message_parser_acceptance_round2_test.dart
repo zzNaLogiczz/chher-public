@@ -101,15 +101,16 @@ void main() {
           );
           final finder = find.byKey(const ValueKey('notice-sentence'));
           final sentence = tester.widget<Text>(finder).textSpan! as TextSpan;
-          expect(sentence.toPlainText(), '合成坛友 评分了您的帖子　邪恶指数 +5　就是NB');
-          final score = sentence.children!.cast<TextSpan>().singleWhere(
-            (s) => s.text == '邪恶指数 +5',
+          expect(sentence.toPlainText(), '合成坛友 评分了您的帖子 就是NB');
+          final score = tester.widget<Text>(
+            find.byKey(const ValueKey('notice-score')),
           );
+          expect(score.data, '邪恶指数 +5');
           expect(
             score.style!.color,
             AppTokens.of(tester.element(finder)).accent,
           );
-          expect(find.text(_title), findsOneWidget);
+          expect(find.text('《$_title》'), findsOneWidget);
           expect(find.text('查看'), findsNothing);
           expect(tester.takeException(), isNull);
         });
@@ -133,6 +134,7 @@ void main() {
         ),
       );
       expect(find.byKey(const ValueKey('notice-quote')), findsNothing);
+      expect(find.byKey(const ValueKey('notice-title')), findsNothing);
       expect(find.text('查看'), findsNothing);
     });
   });

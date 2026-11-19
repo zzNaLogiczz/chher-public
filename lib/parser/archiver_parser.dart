@@ -54,7 +54,7 @@ ArchiverThreadMeta? parseArchiverThread(String html) {
   final author = authorRow?.querySelector('strong')?.text.trim();
   return ArchiverThreadMeta(
     title: title,
-    time: ChhUrls.parseTime(authorRow?.text ?? ''),
+    time: ChhUrls.parseTime(authorRow?.text ?? '', embedded: true),
     author: author == null || author.isEmpty ? null : author,
     excerpt: _firstParagraph(heading!),
   );

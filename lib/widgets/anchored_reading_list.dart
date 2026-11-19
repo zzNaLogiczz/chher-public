@@ -1,3 +1,4 @@
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter/widgets.dart';
 
 /// The retained row is the viewport origin; prepended rows grow upward without
@@ -8,6 +9,7 @@ class AnchoredReadingList extends StatelessWidget {
   final int itemCount;
   final IndexedWidgetBuilder itemBuilder;
   final ChildIndexGetter findChildIndexCallback;
+  final ScrollCacheExtent? scrollCacheExtent;
 
   const AnchoredReadingList({
     super.key,
@@ -16,6 +18,7 @@ class AnchoredReadingList extends StatelessWidget {
     required this.itemCount,
     required this.itemBuilder,
     required this.findChildIndexCallback,
+    this.scrollCacheExtent,
   });
 
   static const _center = ValueKey('reading-list-center');
@@ -23,6 +26,7 @@ class AnchoredReadingList extends StatelessWidget {
   @override
   Widget build(BuildContext context) => CustomScrollView(
     controller: controller,
+    scrollCacheExtent: scrollCacheExtent,
     center: _center,
     physics: const AlwaysScrollableScrollPhysics(),
     slivers: [

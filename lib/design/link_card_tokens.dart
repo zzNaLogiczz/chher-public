@@ -12,6 +12,19 @@ abstract final class LinkCardTokens {
   static const compactMarker = 36.0;
   static const markerRadius = 12.0;
   static const compactMarkerRadius = 11.0;
+  static const markerGap = 12.0;
+  static const compactMarkerGap = 10.0;
+  static const markerIconSize = 20.0;
+  static const compactMarkerIconSize = 17.0;
+  static const titleLines = 2;
+  static const metadataGap = 4.0;
+  static const authorDateGap = 10.0;
+  static const chevronGap = 8.0;
+  static const chevronSize = 14.0;
+  static const skeletonTitleBarHeight = 13.0;
+  static const skeletonDateBarHeight = 10.0;
+  static const skeletonTitleWidths = [.78, .58];
+  static const skeletonDateWidth = .38;
   static const title = TextStyle(
     fontSize: 15.5,
     height: 1.42,

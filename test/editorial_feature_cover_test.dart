@@ -2,6 +2,7 @@ import 'dart:ui' as ui;
 
 import 'package:chh_app/data/editorial_cover_cache.dart';
 import 'package:chh_app/design/theme.dart';
+import 'package:chh_app/design/image_tokens.dart';
 import 'package:chh_app/design/tokens.dart';
 import 'package:chh_app/design/shapes.dart';
 import 'package:chh_app/models/models.dart';
@@ -39,8 +40,9 @@ Widget cover(
   PortalArticle article,
   ValueNotifier<double> offset, {
   bool reduced = false,
+  Brightness brightness = Brightness.light,
 }) => MaterialApp(
-  theme: buildAppTheme(Brightness.light),
+  theme: buildAppTheme(brightness),
   home: MediaQuery(
     data: const MediaQueryData(
       size: Size(800, 600),
@@ -102,6 +104,7 @@ void main() {
       final photoFinder = find.byKey(const ValueKey('editorial-feature-photo'));
       dynamic painter() => tester.widget<CustomPaint>(photoFinder).painter;
       expect(painter().blur, isNotNull);
+      expect(painter().colorFilter, isNull);
       final blurred = painter().blur;
       final initialSize = tester.getSize(find.byType(EditorialCover));
       expect(
@@ -136,7 +139,7 @@ void main() {
     },
   );
   testWidgets(
-    'wide remembered images retain fallback and reduced motion fixes parallax',
+    'dark feature keeps the wide fallback, applies the static filter and respects reduced motion',
     (tester) async {
       const wide = 'https://static.chiphell.com/feature-wide-existing.jpg';
       const remembered = 'https://static.chiphell.com/feature-wide-body.jpg';
@@ -147,7 +150,9 @@ void main() {
         await seedImage(remembered, 400, 300);
         await editorialCoverCache.remember(article.aid, remembered);
       });
-      await tester.pumpWidget(cover(article, offset, reduced: true));
+      await tester.pumpWidget(
+        cover(article, offset, reduced: true, brightness: Brightness.dark),
+      );
       await tester.pumpAndSettle();
       final dynamic painter = tester
           .widget<CustomPaint>(
@@ -156,6 +161,7 @@ void main() {
           .painter;
       expect(painter.portrait, isNull);
       expect(painter.wide, isNotNull);
+      expect(painter.colorFilter, ImageTokens.darkFilter);
       final transform = tester.widget<Transform>(
         find.byKey(const ValueKey('editorial-parallax')),
       );

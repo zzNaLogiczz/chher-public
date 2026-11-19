@@ -4,12 +4,14 @@ library;
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../core/display_time.dart';
+import '../widgets/chhers_loading_transition.dart';
+import '../widgets/chhers_refresh_indicator.dart';
 import '../widgets/compact_scaffold.dart';
 import '../ui/editor_touch.dart';
 import '../ui/app_button.dart';
 import '../design/chat_tokens.dart';
 import '../widgets/avatar_image.dart';
-import '../ui/chrome_button.dart';
 import '../design/motion.dart';
 import '../design/typography.dart';
 import '../ui/feedback.dart';
@@ -17,10 +19,10 @@ import '../ui/chat.dart';
 
 import '../data/message_repository.dart';
 import '../di.dart';
+import '../design/icons.dart';
 import '../design/tokens.dart';
 import '../models/models.dart';
 import '../widgets/state_view.dart';
-import '../widgets/expressive_controls.dart';
 
 class PmThreadPage extends StatefulWidget {
   final PmConversation conversation;
@@ -45,6 +47,7 @@ class _PmThreadPageState extends State<PmThreadPage> {
   bool _sending = false;
   bool _loaded = false;
   Object? _loadError;
+  bool _scrollWhenReady = false;
   bool get _hasUnconfirmedReply => _localReplies.any(
     (reply) => reply.result?.kind == PostResultKind.unknown,
   );
@@ -168,7 +171,11 @@ class _PmThreadPageState extends State<PmThreadPage> {
 
   void _scrollToEnd({bool animate = false}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_scroll.hasClients) return;
+      if (!mounted) return;
+      if (!_scroll.hasClients) {
+        _scrollWhenReady = true;
+        return;
+      }
       if (animate && !MediaQuery.disableAnimationsOf(context)) {
         AppMotion.scrollTo(_scroll.position, _scroll.position.maxScrollExtent);
       } else {
@@ -278,22 +285,16 @@ class _PmThreadPageState extends State<PmThreadPage> {
       ),
       showBack: Navigator.canPop(context),
       resizeToAvoidBottomInset: true,
-      actions: [
-        ChromeButton(
-          tooltip: '刷新会话',
-          icon: AppIcons.refresh,
-          onPressed: _loading || _sending ? null : () => _load(),
-        ),
-        const SizedBox(width: 8),
-      ],
       body: Column(
         children: [
           Expanded(
-            child: ExpressivePageReveal(
-              active: true,
-              fade: false,
-              revision: _loaded,
-              child: _body(t),
+            child: ChhersLoadingTransition(
+              child: _loading && !_loaded ? null : _body(t),
+              onContentReady: () {
+                if (!_scrollWhenReady || !_scroll.hasClients) return;
+                _scrollWhenReady = false;
+                _scroll.jumpTo(_scroll.position.maxScrollExtent);
+              },
             ),
           ),
           if (_announcement)
@@ -325,7 +326,6 @@ class _PmThreadPageState extends State<PmThreadPage> {
   }
 
   Widget _body(AppTokens t) {
-    if (_loading && !_loaded) return StateView.loading();
     final error = _loadError;
     if (error != null && !_loaded) {
       if (error is PageMessage) {
@@ -339,7 +339,7 @@ class _PmThreadPageState extends State<PmThreadPage> {
       }
       return StateView.error(error, onRetry: () => _load());
     }
-    return RefreshIndicator(
+    return ChhersRefreshIndicator(
       onRefresh: _load,
       child: ListView.builder(
         controller: _scroll,
@@ -347,7 +347,7 @@ class _PmThreadPageState extends State<PmThreadPage> {
           parent: BouncingScrollPhysics(),
         ),
         keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-        padding: const EdgeInsets.fromLTRB(14, 18, 14, 24),
+        padding: ChatTokens.listPadding,
         itemCount: _messages.length + 1,
         itemBuilder: (context, index) {
           if (index == 0) {
@@ -554,7 +554,9 @@ class _ConversationMessage extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(top: 18, bottom: 12),
             child: Text(
-              chatTimestamp(message.timeRaw),
+              formatDisplayTime(raw: message.timeRaw),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.center,
               key: ValueKey('pm-time-${message.timeRaw}'),
               style: AppType.footnote.copyWith(color: t.text3),

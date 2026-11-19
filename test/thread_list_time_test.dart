@@ -31,7 +31,7 @@ void main() {
       expect(time.section, sort == ThreadSort.latest ? '今天' : null);
     }
     final posted = ThreadListTime.of(t, ThreadSort.posted, now: now);
-    expect(posted.label, '2025-8-2');
+    expect(posted.label, '2025年8月2日');
     expect(posted.section, '更早');
   });
 
@@ -41,8 +41,8 @@ void main() {
       for (final (raw, label, section) in [
         ('2026-11-4 09:05', '09:05', '今天'),
         ('2026-11-3 23:59', '昨天 23:59', '昨天'),
-        ('2026-10-31 11:30', '10-31', '更早'),
-        ('2025-12-31 23:59', '2025-12-31', '更早'),
+        ('2026-10-31 11:30', '10月31日', '更早'),
+        ('2025-12-31 23:59', '2025年12月31日', '更早'),
       ]) {
         final time = ThreadListTime.of(
           thread(last: raw),
@@ -63,7 +63,7 @@ void main() {
         ThreadSort.latest,
         now: jan1,
       );
-      expect(time.label, '昨天 23:59');
+      expect(time.label, '4 分钟前');
       expect(time.section, '昨天');
     }
   });
@@ -71,11 +71,11 @@ void main() {
   test('recognised relative source times retain the correct day', () {
     final midnight = DateTime(2026, 11, 4, 0, 10);
     for (final (raw, label, section) in [
-      ('刚刚', '00:10', '今天'),
-      ('今天 0:09', '00:09', '今天'),
-      ('30分钟前', '昨天 23:40', '昨天'),
+      ('刚刚', '刚刚', '今天'),
+      ('今天 0:09', '1 分钟前', '今天'),
+      ('30分钟前', '30 分钟前', '昨天'),
       ('2 小时前', '昨天 22:10', '昨天'),
-      ('前天 12:30', '11-2', '更早'),
+      ('前天 12:30', '11月2日', '更早'),
     ]) {
       final time = ThreadListTime.of(
         thread(last: raw),
@@ -125,7 +125,7 @@ void main() {
       ThreadSort.latest,
       now: now,
     );
-    expect(time.label, '11-4');
+    expect(time.label, '11月4日');
     expect(time.section, '今天');
   });
 
@@ -135,7 +135,7 @@ void main() {
       ThreadSort.latest,
       now: now,
     );
-    expect(time.label, '11-5');
+    expect(time.label, '11月5日');
     expect(time.section, isNull);
   });
 }

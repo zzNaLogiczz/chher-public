@@ -1,3 +1,4 @@
+import 'package:chh_app/core/display_time.dart';
 import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/design/tokens.dart';
 import 'package:chh_app/models/models.dart';
@@ -25,31 +26,13 @@ RenderParagraph paragraph(WidgetTester tester, Finder text) =>
     );
 
 void main() {
-  test(
-    'conversation timestamps use calendar days and retain unknown source text',
-    () {
-      final now = DateTime(2026, 11, 15, 0, 1);
-      expect(chatTimestamp('2026-11-15 17:41', now: now), '17:41');
-      expect(chatTimestamp('2026-11-14 17:41', now: now), '昨天 17:41');
-      expect(chatTimestamp('2026-11-12 17:41', now: now), '11月12日 17:41');
-      expect(chatTimestamp('2025-11-12 17:41', now: now), '2025年11月12日 17:41');
-      expect(chatTimestamp('2026-1-3 7:04', now: now), '1月3日 07:04');
-      expect(
-        chatTimestamp('2025-12-31 23:41', now: DateTime(2026, 1, 1)),
-        '昨天 23:41',
-      );
-      expect(chatTimestamp('刚刚', now: now), '刚刚');
-      expect(chatTimestamp('', now: now), '');
-    },
-  );
-
   testWidgets('conversation separator renders a clock for today', (
     tester,
   ) async {
     final now = DateTime.now();
     final stamp = '${now.year}-${now.month}-${now.day} 17:41';
     await showPm(tester, _TimestampMessages(stamp));
-    expect(find.text('17:41'), findsOneWidget);
+    expect(find.text(formatDisplayTime(raw: stamp, now: now)), findsOneWidget);
     expect(find.text(stamp), findsNothing);
     expect(find.text('本地时间样例'), findsOneWidget);
   });

@@ -22,7 +22,8 @@ const feedbackEmail = 'zznalogic@gmail.com';
 Uri feedbackMailUri() => Uri(
   scheme: 'mailto',
   path: feedbackEmail,
-  query: 'subject=${Uri.encodeComponent('Chher 反馈（${AppInfo.version}）')}',
+  query:
+      'subject=${Uri.encodeComponent('$appDisplayName 反馈（${AppInfo.version}）')}',
 );
 
 class AboutPage extends StatelessWidget {
@@ -48,7 +49,7 @@ class AboutPage extends StatelessWidget {
     final t = AppTokens.of(context);
     final body = AppType.body.copyWith(color: t.text, height: 1.75);
     return LargeTitleScaffold(
-      title: '关于',
+      title: '关于 $appDisplayName',
       surface: AppSurface.grouped,
       body: ListView(
         padding: const EdgeInsets.only(bottom: 48),
@@ -65,17 +66,12 @@ class AboutPage extends StatelessWidget {
                   appLogoAsset,
                   width: _logoSize,
                   height: _logoSize,
-                  semanticLabel: 'Chher 图标',
+                  semanticLabel: '$appDisplayName 图标',
                 ),
               ),
             ),
           ),
           const SizedBox(height: 16),
-          Text(
-            'Chher',
-            textAlign: TextAlign.center,
-            style: AppType.title2.copyWith(color: t.text),
-          ),
           // 版本号右侧就是检查更新:有新版本时文字变成"有新版本"
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -104,7 +100,7 @@ class AboutPage extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Chher 是 Chiphell 论坛的第三方 Android 客户端，'
+                      '$appDisplayName 是 Chiphell 论坛的第三方 Android 客户端，'
                       '为在手机上阅读和参与讨论而做，由坛友自制。',
                       style: body,
                     ),
@@ -131,9 +127,9 @@ class AboutPage extends StatelessWidget {
           Padding(
             // 与分组说明同一缩进
             padding: const EdgeInsets.fromLTRB(
-              AppSpace.groupInset + AppSpace.rowInset,
+              AppSpace.groupLabelInset,
               4,
-              AppSpace.groupInset + AppSpace.rowInset,
+              AppSpace.groupLabelInset,
               0,
             ),
             child: Text(

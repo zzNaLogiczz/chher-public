@@ -48,6 +48,7 @@ abstract final class AppIcons {
   static const image = SolarIconsOutline.gallery;
   static const imageBold = SolarIconsBold.gallery;
   static const info = SolarIconsOutline.infoCircle;
+  static const infoBold = SolarIconsBold.infoCircle;
   static const warning = SolarIconsOutline.dangerTriangle;
   static const more = SolarIconsOutline.menuDots;
   static const forbidden = SolarIconsOutline.forbidden;

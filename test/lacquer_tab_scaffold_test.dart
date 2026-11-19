@@ -385,6 +385,8 @@ void main() {
         expect(requests, 0);
         await gesture.up();
         await tester.pump();
+        // Let the loader's viewport check start the static wordmark entrance.
+        await tester.pump();
         await tester.pump(const Duration(seconds: 2));
         expect(requests, 1);
         expect(

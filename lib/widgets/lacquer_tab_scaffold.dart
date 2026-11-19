@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
@@ -13,6 +14,7 @@ import '../design/tokens.dart';
 import '../design/typography.dart';
 import '../ui/nav_bar.dart';
 import '../ui/feedback.dart';
+import 'chhers_loader.dart';
 
 /// The three scroll ranges are independent; there is no time animation while
 /// the finger or scroll activity owns the position.
@@ -37,8 +39,16 @@ class TabReselectScope extends InheritedWidget {
       requests != oldWidget.requests;
 }
 
-/// One lazy scroll view for the mast and content. The seam is painted behind
-/// the first content sliver, so a card crossing it keeps its real hit bounds.
+typedef TabScrollBuilder =
+    Widget Function(
+      ScrollController controller,
+      List<Widget> slivers, {
+      required bool active,
+      double? mistyContentGap,
+    });
+
+/// The mast and seam paint behind the lazy content. A pager can share the mast
+/// while each section keeps its own scroll view.
 class LacquerTabScaffold extends StatefulWidget {
   const LacquerTabScaffold({
     super.key,
@@ -58,8 +68,11 @@ class LacquerTabScaffold extends StatefulWidget {
     this.compactLeading,
     this.compactTitle,
     this.mistyCompact = false,
-    this.mistyHeaderBody,
+    this.headerBody,
+    this.fadeHeaderBody = false,
     this.mistyContentGap = TabChromeTokens.mistyContentGap,
+    this.scrollBody,
+    this.mastOffsetForScroll,
   });
   final String title;
 
@@ -67,14 +80,17 @@ class LacquerTabScaffold extends StatefulWidget {
   final bool mistyCompact;
   final double mistyContentGap;
 
-  /// Me identity card participates in collapse geometry, without fading a card subtree.
-  final Widget? mistyHeaderBody;
+  /// Additional mast content below the common title.
+  final Widget? headerBody;
+  final bool fadeHeaderBody;
   final String? eyebrow;
   final Widget? header;
   final List<Widget> actions;
   final List<Widget> slivers;
   final ScrollController? controller;
   final ValueNotifier<double>? scrollOffset;
+  final Widget Function(TabScrollBuilder, double collapseExtent)? scrollBody;
+  final double Function(double)? mastOffsetForScroll;
   final Future<void> Function()? onRefresh;
   final double seamOverlap;
 
@@ -90,7 +106,7 @@ class LacquerTabScaffold extends StatefulWidget {
 }
 
 class _LacquerTabScaffoldState extends State<LacquerTabScaffold>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   late final ScrollController _ownedScroll = ScrollController();
   late final ValueNotifier<double> _ownedOffset = ValueNotifier(0);
   ScrollController get _scroll => widget.controller ?? _ownedScroll;
@@ -98,9 +114,11 @@ class _LacquerTabScaffoldState extends State<LacquerTabScaffold>
   final _headerKey = GlobalKey();
   final _discussion = ValueNotifier(false);
   late final _pull = AnimationController.unbounded(vsync: this);
-  late final _spin = AnimationController(
+  late final _refreshFade = AnimationController(
     vsync: this,
-    duration: AppMotion.skeletonCycle,
+    duration: AppMotion.loadingOut,
+    value: 1,
+    animationBehavior: AnimationBehavior.preserve,
   );
   ValueNotifier<int>? _reselect;
   double _headerHeight = 160;
@@ -109,6 +127,8 @@ class _LacquerTabScaffoldState extends State<LacquerTabScaffold>
   bool _armed = false;
   bool _hapticSent = false;
   bool _refreshing = false;
+  bool _refreshFading = false;
+  bool _tickerEnabled = true;
   bool _pointerDown = false;
   int? _pointerId;
   Offset? _pointerStart;
@@ -124,10 +144,17 @@ class _LacquerTabScaffoldState extends State<LacquerTabScaffold>
     _headerHeight + (_mistyCompact ? 0 : widget.seamOverlap) - _barBottom,
   );
   bool get _reduced => MediaQuery.disableAnimationsOf(context);
+  bool get _refreshVisible =>
+      _tickerEnabled &&
+      switch (WidgetsBinding.instance.lifecycleState) {
+        null || AppLifecycleState.resumed => true,
+        _ => false,
+      };
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _scroll.addListener(_onScroll);
   }
 
@@ -140,7 +167,24 @@ class _LacquerTabScaffoldState extends State<LacquerTabScaffold>
       _reselect = requests;
       _reselect?.addListener(_scrollToTop);
     }
-    if (_reduced) _spin.stop();
+    _tickerEnabled = TickerMode.valuesOf(context).enabled;
+    _settleHiddenRefresh();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) =>
+      _settleHiddenRefresh();
+
+  void _settleHiddenRefresh() {
+    if (_refreshVisible) return;
+    _pointerId = null;
+    _pointerDown = false;
+    _rawPull = 0;
+    _armed = false;
+    if (_refreshFading) _refreshFade.value = 0;
+    _pull.value = _refreshing && !_refreshFading
+        ? TabChromeTokens.refreshHold
+        : 0;
   }
 
   @override
@@ -160,7 +204,8 @@ class _LacquerTabScaffoldState extends State<LacquerTabScaffold>
 
   bool _discussionMeasurePending = false;
   void _onScroll() {
-    _offset.value = _scroll.offset;
+    _offset.value =
+        widget.mastOffsetForScroll?.call(_scroll.offset) ?? _scroll.offset;
     _discussion.value = _offset.value >= _discussionAt;
     if (_discussionMeasurePending || widget.discussionAnchor == null) return;
     _discussionMeasurePending = true;
@@ -260,7 +305,7 @@ class _LacquerTabScaffoldState extends State<LacquerTabScaffold>
 
   void _settlePull(double target, double velocity) {
     if (_pull.value == target && velocity == 0) return;
-    if (_reduced) {
+    if (_reduced || !_refreshVisible) {
       _pull.value = target;
       return;
     }
@@ -278,15 +323,23 @@ class _LacquerTabScaffoldState extends State<LacquerTabScaffold>
   Future<void> _refresh(double velocity) async {
     setState(() => _refreshing = true);
     _settlePull(TabChromeTokens.refreshHold, velocity);
-    if (!_reduced) _spin.repeat();
+    _refreshFade.value = 1;
     try {
       await widget.onRefresh!();
     } catch (_) {
       if (mounted) AppToast.show(context, '刷新失败，请重试');
     } finally {
+      if (mounted && _refreshVisible) {
+        setState(() => _refreshFading = true);
+        try {
+          await _refreshFade.reverse().orCancel;
+        } on TickerCanceled {
+          // The page can leave during the fade.
+        }
+      }
       if (mounted) {
-        _spin.stop();
         setState(() {
+          _refreshFading = false;
           _refreshing = false;
           _armed = false;
         });
@@ -295,15 +348,53 @@ class _LacquerTabScaffoldState extends State<LacquerTabScaffold>
     }
   }
 
+  Widget _wordmark(AppTokens t, {required bool misty}) {
+    final normal = misty ? t.text3 : t.onLac;
+    return AnimatedBuilder(
+      animation: _pull,
+      child: _refreshing
+          ? FadeTransition(
+              opacity: _refreshFade,
+              child: ChhersLoader(
+                size: ChhersLoaderSize.refresh,
+                color: normal,
+                delayed: false,
+                animate: !_refreshFading,
+              ),
+            )
+          : null,
+      builder: (_, loading) => SizedBox(
+        height: math.max(0.0, _pull.value),
+        child: ClipRect(
+          child: OverflowBox(
+            minWidth: 0,
+            minHeight: 0,
+            maxHeight: double.infinity,
+            child:
+                loading ??
+                (_pointerDown && _pull.value > 0
+                    ? ChhersLoader.progress(
+                        progress: (_pull.value / TabChromeTokens.refreshHold)
+                            .clamp(0.0, 1.0),
+                        color: misty && _armed ? t.accent : normal,
+                      )
+                    : null),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _reselect?.removeListener(_scrollToTop);
     _scroll.removeListener(_onScroll);
     _ownedScroll.dispose();
     _ownedOffset.dispose();
     _discussion.dispose();
     _pull.dispose();
-    _spin.dispose();
+    _refreshFade.dispose();
     super.dispose();
   }
 
@@ -314,32 +405,33 @@ class _LacquerTabScaffoldState extends State<LacquerTabScaffold>
     final compact = _mistyCompact;
     final headerBottom = compact
         ? 0.0
-        : widget.header == null
+        : widget.header == null && widget.headerBody == null
         ? TabChromeTokens.editorialBottom
         : TabChromeTokens.headerBottom;
     final top = MediaQuery.paddingOf(context).top;
     WidgetsBinding.instance.addPostFrameCallback((_) => _measure());
+    final title =
+        widget.header ??
+        TabHeader(
+          title: widget.title,
+          eyebrow: widget.eyebrow,
+          actionCount: widget.actions.length,
+        );
     final headerContent = Padding(
       padding: EdgeInsets.only(
         top:
             top +
-            (compact
+            (widget.header == null
+                ? 0
+                : compact
                 ? TabChromeTokens.mistyTop
-                : widget.header == null
-                ? TabChromeTokens.editorialTop
                 : TabChromeTokens.headerTop),
-        bottom: headerBottom,
       ),
       child: ValueListenableBuilder<double>(
         valueListenable: _offset,
-        child:
-            widget.header ??
-            LargeTitleHeader(
-              title: widget.title,
-              eyebrow: widget.eyebrow,
-              onLac: !misty,
-              compact: compact,
-            ),
+        child: widget.fadeHeaderBody
+            ? Column(children: [title, ?widget.headerBody])
+            : title,
         builder: (_, offset, child) => Opacity(
           key: const ValueKey('tab-large-title'),
           opacity: CompactBarProgress.largeTitle(offset / _collapseAt),
@@ -348,35 +440,17 @@ class _LacquerTabScaffoldState extends State<LacquerTabScaffold>
       ),
     );
     final header = Stack(
-      key: _headerKey,
+      key: widget.scrollBody == null
+          ? _headerKey
+          : const ValueKey('tab-shared-header'),
       clipBehavior: Clip.none,
       children: [
-        if (!misty)
-          Positioned(
-            bottom: -widget.seamOverlap,
-            right: -14,
-            child: IgnorePointer(
-              child: RepaintBoundary(
-                child: Text(
-                  'chh',
-                  textScaler: TextScaler.noScaling,
-                  style: TextStyle(
-                    fontSize: TabChromeTokens.watermarkSize,
-                    height: 1,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: -6,
-                    color: t.onLac.withValues(alpha: .065),
-                  ),
-                ),
-              ),
-            ),
-          ),
         Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             headerContent,
-            if (compact && widget.mistyHeaderBody != null)
-              widget.mistyHeaderBody!,
+            if (!widget.fadeHeaderBody) ?widget.headerBody,
+            SizedBox(height: headerBottom),
           ],
         ),
       ],
@@ -385,65 +459,117 @@ class _LacquerTabScaffoldState extends State<LacquerTabScaffold>
       backgroundColor: t.background(widget.surface),
       body: LayoutBuilder(
         builder: (context, constraints) {
+          Widget scrollView(
+            ScrollController controller,
+            List<Widget> slivers, {
+            required bool active,
+            double? mistyContentGap,
+          }) => CustomScrollView(
+            controller: controller,
+            physics: _PullPhysics(
+              holding: () => active && _rawPull > 0,
+              parent: const AlwaysScrollableScrollPhysics(),
+            ),
+            slivers: [
+              SliverToBoxAdapter(
+                child: widget.scrollBody == null
+                    ? header
+                    : SizedBox(height: _headerHeight),
+              ),
+              if (compact)
+                SliverToBoxAdapter(
+                  child: SizedBox(
+                    height: mistyContentGap ?? widget.mistyContentGap,
+                  ),
+                )
+              else if (widget.contentOnPaper)
+                SliverToBoxAdapter(
+                  child: SizedBox(
+                    height: widget.seamOverlap + TabChromeTokens.paperTopInset,
+                  ),
+                ),
+              ...slivers,
+              SliverLayoutBuilder(
+                builder: (_, c) => SliverToBoxAdapter(
+                  child: SizedBox(
+                    height: math.max(
+                      0,
+                      constraints.maxHeight +
+                          _collapseAt -
+                          c.precedingScrollExtent,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          );
+          final shared = widget.scrollBody != null;
           final scrolling = Listener(
             onPointerDown: _down,
             onPointerMove: _move,
             onPointerUp: (e) => _release(e.pointer),
             onPointerCancel: (e) => _release(e.pointer, cancelled: true),
-            child: CustomScrollView(
-              controller: _scroll,
-              physics: _PullPhysics(
-                holding: () => _rawPull > 0,
-                parent: const AlwaysScrollableScrollPhysics(),
-              ),
-              slivers: [
-                SliverToBoxAdapter(child: header),
-                if (compact)
-                  SliverToBoxAdapter(
-                    child: SizedBox(height: widget.mistyContentGap),
+            child: shared
+                ? ClipRect(
+                    clipper: _SharedMastClip(_offset, _headerHeight),
+                    child: widget.scrollBody!(scrollView, _collapseAt),
                   )
-                else if (widget.contentOnPaper)
-                  SliverToBoxAdapter(
-                    child: SizedBox(
-                      height:
-                          widget.seamOverlap + TabChromeTokens.paperTopInset,
-                    ),
-                  ),
-                ...widget.slivers,
-                SliverLayoutBuilder(
-                  builder: (_, c) => SliverToBoxAdapter(
-                    child: SizedBox(
-                      height: math.max(
-                        0,
-                        constraints.maxHeight +
-                            _collapseAt -
-                            c.precedingScrollExtent,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
+                : scrollView(_scroll, widget.slivers, active: true),
           );
           return Stack(
             children: [
               Positioned.fill(
+                key: const ValueKey('tab-mast-background'),
                 child: AnimatedBuilder(
                   animation: Listenable.merge([_offset, _pull]),
-                  builder: (_, _) => CustomPaint(
-                    painter: _MastPainter(
-                      tokens: t,
-                      paper: t.background(widget.surface),
-                      seam: compact
-                          ? TabChromeTokens.mistyGlowHeight
-                          : _headerHeight + widget.seamOverlap,
-                      scroll: _offset.value,
-                      pull: _pull.value,
-                    ),
-                  ),
+                  child: misty ? null : _MastWatermark(color: t.onLac),
+                  builder: (_, watermark) {
+                    final paper = t.background(widget.surface);
+                    final seam = compact
+                        ? TabChromeTokens.mistyGlowHeight
+                        : _headerHeight + widget.seamOverlap;
+                    final paperTop = seam - _offset.value + _pull.value;
+                    return CustomPaint(
+                      painter: _MastPainter(
+                        tokens: t,
+                        paper: paper,
+                        seam: seam,
+                        scroll: _offset.value,
+                        pull: _pull.value,
+                      ),
+                      foregroundPainter: misty
+                          ? null
+                          : _MastPaperPainter(paper, paperTop),
+                      child: watermark == null
+                          ? null
+                          : IgnorePointer(
+                              child: Stack(
+                                children: [
+                                  Positioned(
+                                    top: 0,
+                                    right:
+                                        TabChromeTokens.pageInset +
+                                        widget.actions.length *
+                                            TabChromeTokens.actionSize,
+                                    child: Transform.translate(
+                                      offset: Offset(
+                                        0,
+                                        paperTop -
+                                            TabChromeTokens
+                                                .watermarkVisibleHeight,
+                                      ),
+                                      child: watermark,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                    );
+                  },
                 ),
               ),
               AnimatedBuilder(
+                key: const ValueKey('tab-scroll-content'),
                 animation: _pull,
                 child: scrolling,
                 builder: (_, child) => Transform.translate(
@@ -451,39 +577,26 @@ class _LacquerTabScaffoldState extends State<LacquerTabScaffold>
                   child: child,
                 ),
               ),
+              if (shared)
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  child: AnimatedBuilder(
+                    animation: Listenable.merge([_offset, _pull]),
+                    child: KeyedSubtree(key: _headerKey, child: header),
+                    builder: (_, child) => Transform.translate(
+                      offset: Offset(0, _pull.value - _offset.value),
+                      child: child,
+                    ),
+                  ),
+                ),
               if (widget.onRefresh != null)
                 Positioned(
                   top: top,
                   left: 0,
                   right: 0,
-                  child: IgnorePointer(
-                    child: Center(
-                      child: AnimatedBuilder(
-                        animation: Listenable.merge([_pull, _spin]),
-                        builder: (_, _) => SingleMotionBuilder(
-                          value: _armed || _refreshing ? 1.0 : 0.0,
-                          motion: AppMotion.pop,
-                          active: !_reduced,
-                          builder: (_, pop, _) => Transform.scale(
-                            scale: .8 + .2 * pop,
-                            child: CustomPaint(
-                              size: const Size(
-                                TabChromeTokens.refreshSize,
-                                TabChromeTokens.refreshSize,
-                              ),
-                              painter: _RefreshPainter(
-                                color: misty ? t.accent : t.onLac,
-                                progress:
-                                    (_pull.value / TabChromeTokens.refreshHold)
-                                        .clamp(0.0, 1.0),
-                                rotation: _spin.value,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
+                  child: IgnorePointer(child: _wordmark(t, misty: misty)),
                 ),
               Positioned(
                 top: 0,
@@ -590,12 +703,14 @@ class _LacquerTabScaffoldState extends State<LacquerTabScaffold>
                     clipBehavior: Clip.none,
                     delegate: _TabActionsFlow(
                       scroll: _scroll,
+                      mastOffset: shared ? _offset : null,
                       pull: _pull,
-                      expandedY:
-                          _headerHeight -
-                          top -
-                          headerBottom -
-                          TabChromeTokens.actionSize,
+                      expandedY: widget.header == null
+                          ? TabHeader.actionTop(context)
+                          : _headerHeight -
+                                top -
+                                headerBottom -
+                                TabChromeTokens.actionSize,
                     ),
                     children: [
                       Row(
@@ -613,14 +728,35 @@ class _LacquerTabScaffoldState extends State<LacquerTabScaffold>
   }
 }
 
+class _SharedMastClip extends CustomClipper<Rect> {
+  _SharedMastClip(this.offset, this.height) : super(reclip: offset);
+
+  final ValueListenable<double> offset;
+  final double height;
+
+  @override
+  Rect getClip(Size size) => Rect.fromLTRB(
+    0,
+    (height - offset.value).clamp(0, size.height),
+    size.width,
+    size.height,
+  );
+
+  @override
+  bool shouldReclip(_SharedMastClip oldClipper) =>
+      height != oldClipper.height || offset != oldClipper.offset;
+}
+
 class _TabActionsFlow extends FlowDelegate {
   _TabActionsFlow({
     required this.scroll,
     required this.pull,
     required this.expandedY,
-  }) : super(repaint: Listenable.merge([scroll, pull]));
+    this.mastOffset,
+  }) : super(repaint: Listenable.merge([mastOffset ?? scroll, pull]));
 
   final ScrollController scroll;
+  final ValueListenable<double>? mastOffset;
   final Animation<double> pull;
   final double expandedY;
 
@@ -636,7 +772,12 @@ class _TabActionsFlow extends FlowDelegate {
       0,
       transform: Matrix4.translationValues(
         context.size.width - childSize.width,
-        math.max(4, expandedY - (scroll.hasClients ? scroll.offset : 0)) +
+        math.max(
+              TabChromeTokens.pinnedActionTop,
+              expandedY -
+                  (mastOffset?.value ??
+                      (scroll.hasClients ? scroll.offset : 0)),
+            ) +
             pull.value,
         0,
       ),
@@ -646,6 +787,7 @@ class _TabActionsFlow extends FlowDelegate {
   @override
   bool shouldRepaint(_TabActionsFlow oldDelegate) =>
       scroll != oldDelegate.scroll ||
+      mastOffset != oldDelegate.mastOffset ||
       pull != oldDelegate.pull ||
       expandedY != oldDelegate.expandedY;
 }
@@ -754,7 +896,57 @@ class _MastPainter extends CustomPainter {
       );
     }
     canvas.restore();
-    if (tokens.style == AppearanceStyle.cinnabar) {
+  }
+
+  @override
+  bool shouldRepaint(_MastPainter old) =>
+      tokens != old.tokens ||
+      paper != old.paper ||
+      seam != old.seam ||
+      scroll != old.scroll ||
+      pull != old.pull;
+}
+
+class _MastWatermark extends StatelessWidget {
+  const _MastWatermark({required this.color});
+
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => ExcludeSemantics(
+    child: RepaintBoundary(
+      child: ClipRect(
+        child: Align(
+          alignment: Alignment.topRight,
+          heightFactor:
+              TabChromeTokens.watermarkVisibleHeight /
+              TabChromeTokens.watermarkSize,
+          child: Text(
+            'chh',
+            textScaler: TextScaler.noScaling,
+            style: TextStyle(
+              fontSize: TabChromeTokens.watermarkSize,
+              height: 1,
+              fontWeight: FontWeight.w800,
+              letterSpacing: TabChromeTokens.watermarkLetterSpacing,
+              color: color.withValues(alpha: TabChromeTokens.watermarkOpacity),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+class _MastPaperPainter extends CustomPainter {
+  const _MastPaperPainter(this.paper, this.y);
+
+  final Color paper;
+  final double y;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (y > -TabChromeTokens.reverseRadius) {
       final r = TabChromeTokens.reverseRadius;
       canvas.drawPath(
         Path()
@@ -771,12 +963,7 @@ class _MastPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_MastPainter old) =>
-      tokens != old.tokens ||
-      paper != old.paper ||
-      seam != old.seam ||
-      scroll != old.scroll ||
-      pull != old.pull;
+  bool shouldRepaint(_MastPaperPainter old) => paper != old.paper || y != old.y;
 }
 
 class _CompactBackground extends CustomPainter {
@@ -811,35 +998,4 @@ class _CompactBackground extends CustomPainter {
   @override
   bool shouldRepaint(_CompactBackground old) =>
       color != old.color || gradient != old.gradient || bottom != old.bottom;
-}
-
-class _RefreshPainter extends CustomPainter {
-  const _RefreshPainter({
-    required this.color,
-    required this.progress,
-    required this.rotation,
-  });
-  final Color color;
-  final double progress, rotation;
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (progress == 0) return;
-    canvas.drawArc(
-      Offset.zero & size,
-      -math.pi / 2 + rotation * math.pi * 2,
-      progress * math.pi * 1.9,
-      false,
-      Paint()
-        ..color = color
-        ..style = PaintingStyle.stroke
-        ..strokeCap = StrokeCap.round
-        ..strokeWidth = TabChromeTokens.refreshStroke,
-    );
-  }
-
-  @override
-  bool shouldRepaint(_RefreshPainter old) =>
-      color != old.color ||
-      progress != old.progress ||
-      rotation != old.rotation;
 }

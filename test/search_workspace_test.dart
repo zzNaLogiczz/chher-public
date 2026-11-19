@@ -1,10 +1,13 @@
 import 'dart:async';
+import 'package:chh_app/design/list_end_tokens.dart';
+import 'package:chh_app/design/motion.dart';
 import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/models/models.dart';
 import 'package:chh_app/pages/search_page.dart';
 import 'package:chh_app/widgets/expressive_controls.dart';
 import 'package:chh_app/widgets/search_workspace.dart';
 import 'package:chh_app/ui/chrome_button.dart';
+import 'package:chh_app/ui/plain_rows.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -15,6 +18,7 @@ ThreadSummary _thread(int id, {String? title, String? snippet}) =>
       author: 'reader',
       replies: id,
       views: 22,
+      createdAtRaw: '2020-10-18 12:00',
       forumName: '电脑讨论',
       forumFid: 146,
       snippet: snippet,
@@ -50,6 +54,69 @@ Future<void> _submit(WidgetTester tester, String value) async {
 void main() {
   setUp(searchSessionHistory.clear);
   tearDown(searchSessionHistory.clear);
+
+  for (final (bottomInset, sparse) in [(0.0, false), (34.0, true)]) {
+    testWidgets(
+      'search result end respects the marker gap and inset $bottomInset',
+      (tester) async {
+        await _phone(tester);
+        tester.view.devicePixelRatio = 1;
+        tester.view.padding = FakeViewPadding(bottom: bottomInset);
+        tester.view.viewPadding = FakeViewPadding(bottom: bottomInset);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        addTearDown(tester.view.resetPadding);
+        addTearDown(tester.view.resetViewPadding);
+        await tester.pumpWidget(
+          _app(
+            SearchPage(
+              initialQuery: '论坛',
+              search: (_) async => _result([
+                for (var i = 0; i < 13; i++) _thread(i),
+                if (sparse)
+                  const ThreadSummary(
+                    tid: 13,
+                    title: '搜索结果 13',
+                    author: '',
+                    replies: 0,
+                    views: 0,
+                  )
+                else
+                  _thread(13),
+              ]),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final marker = find.text('没有更多结果');
+        final scroll = find.descendant(
+          of: find.byType(ListView),
+          matching: find.byType(Scrollable),
+        );
+        await tester.scrollUntilVisible(marker, 500, scrollable: scroll);
+        final position = tester.state<ScrollableState>(scroll).position;
+        position.jumpTo(position.maxScrollExtent);
+        await tester.pumpAndSettle();
+
+        final title = find.text('搜索结果 13');
+        final row = find.ancestor(
+          of: title,
+          matching: find.byType(SearchResultCard),
+        );
+        final lastText = sparse
+            ? title
+            : find.descendant(of: row, matching: find.text('reader'));
+        final markerRect = tester.getRect(marker);
+        expect(
+          markerRect.top - tester.getRect(lastText).bottom,
+          closeTo(ListEndTokens.markerGap, 1),
+        );
+        expect(
+          844 - bottomInset - markerRect.bottom,
+          closeTo(ListEndTokens.markerGap, .01),
+        );
+      },
+    );
+  }
 
   testWidgets('entry autofocus waits for its route transition to complete', (
     tester,
@@ -121,30 +188,28 @@ void main() {
     expect(find.text('搜索'), findsNothing);
   });
 
-  testWidgets(
-    'the compact workspace exposes scope and only real session history',
-    (tester) async {
-      await _phone(tester);
-      await tester.pumpWidget(_app(const SearchPage()));
-      await tester.pumpAndSettle();
-      // 范围标签只在结果计数行出现,搜索前不占位
-      expect(find.text('全站帖子'), findsNothing);
-      expect(find.text('建议关键词'), findsNothing);
-      expect(find.text('最近搜索'), findsNothing);
-      expect(find.text('还没有搜索记录'), findsOneWidget);
-      for (final keyword in ['装机', '显示器', '摄影', 'NAS']) {
-        expect(find.text(keyword), findsNothing);
-      }
-      expect(find.textContaining('热搜'), findsNothing);
-      // 没有顶栏标题,输入框就是头部
-      expect(find.byType(AppBar), findsNothing);
-      expect(find.text('搜索'), findsNothing);
-      expect(tester.getRect(find.byType(TextField)).top, lessThan(125));
-      expect(tester.takeException(), isNull);
-    },
-  );
+  testWidgets('the compact workspace exposes only real session history', (
+    tester,
+  ) async {
+    await _phone(tester);
+    await tester.pumpWidget(_app(const SearchPage()));
+    await tester.pumpAndSettle();
+    expect(find.text('全站帖子'), findsNothing);
+    expect(find.text('建议关键词'), findsNothing);
+    expect(find.text('最近搜索'), findsNothing);
+    expect(find.text('还没有搜索记录'), findsOneWidget);
+    for (final keyword in ['装机', '显示器', '摄影', 'NAS']) {
+      expect(find.text(keyword), findsNothing);
+    }
+    expect(find.textContaining('热搜'), findsNothing);
+    // 没有顶栏标题,输入框就是头部
+    expect(find.byType(AppBar), findsNothing);
+    expect(find.text('搜索'), findsNothing);
+    expect(tester.getRect(find.byType(TextField)).top, lessThan(125));
+    expect(tester.takeException(), isNull);
+  });
 
-  testWidgets('a submitted keyword shows loaded count and matching context', (
+  testWidgets('search results align at 20dp and omit the count and scope', (
     tester,
   ) async {
     await _phone(tester);
@@ -165,20 +230,67 @@ void main() {
     await _submit(tester, '装机');
     await tester.pumpAndSettle();
     expect(queries, ['装机']);
-    expect(find.text('已加载 1 条'), findsOneWidget);
-    // 范围放在结果计数行右侧
-    expect(
-      tester.getCenter(find.text('全站帖子')).dy,
-      moreOrLessEquals(tester.getCenter(find.text('已加载 1 条')).dy, epsilon: 2),
-    );
-    expect(
-      tester.getCenter(find.text('全站帖子')).dx,
-      greaterThan(tester.getCenter(find.text('已加载 1 条')).dx),
-    );
-    expect(find.text('装机散热记录'), findsOneWidget);
-    expect(find.text('这是一段装机经验的真实搜索摘要'), findsOneWidget);
+    expect(find.textContaining('已加载'), findsNothing);
+    expect(find.text('全站帖子'), findsNothing);
+    expect(find.byType(ThreadRow), findsOneWidget);
+    final title = find.text('装机散热记录');
+    final summary = find.text('这是一段装机经验的真实搜索摘要');
+    final replies = find.text('3');
+    expect(tester.widget<Text>(title).maxLines, 1);
+    expect(tester.widget<Text>(summary).maxLines, 2);
+    expect(tester.getTopLeft(title).dx, 20);
+    expect(tester.getTopRight(replies).dx, moreOrLessEquals(370, epsilon: 1));
     expect(find.text('电脑讨论'), findsOneWidget);
-    expect(find.text('3 回复'), findsOneWidget);
+    expect(find.text('reader'), findsOneWidget);
+    expect(find.text('2020年10月18日'), findsOneWidget);
+    expect(find.text('3 回复'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('search skeleton and results share row geometry at large type', (
+    tester,
+  ) async {
+    await _phone(tester, width: 320);
+    final pending = Completer<SearchResultPage>();
+    await tester.pumpWidget(
+      _app(
+        SearchPage(initialQuery: '散热', search: (_) => pending.future),
+        scale: 2,
+      ),
+    );
+    await tester.pump();
+    await tester.pump(AppMotion.skeletonDelay);
+    final row = find.byType(SearchThreadRowLayout);
+    final placeholderRect = tester.getRect(row.first);
+    final nextPlaceholderRect = tester.getRect(row.at(1));
+    final bars = find.descendant(
+      of: row.first,
+      matching: find.byType(DecoratedBox),
+    );
+    expect(bars, findsNWidgets(4));
+    for (final bar in bars.evaluate()) {
+      expect(
+        (bar.renderObject! as RenderBox).localToGlobal(Offset.zero).dx,
+        20,
+      );
+    }
+    final field = tester.element(find.byType(TextField));
+    final fieldRect = tester.getRect(find.byType(TextField));
+
+    pending.complete(
+      _result([
+        _thread(1, title: '散热改装', snippet: '一段简短摘要'),
+        _thread(2, title: '风扇更换'),
+      ]),
+    );
+    await tester.pump();
+    await tester.pumpAndSettle();
+    expect(tester.getRect(row.first), placeholderRect);
+    expect(tester.getRect(row.at(1)), nextPlaceholderRect);
+    expect(tester.getTopLeft(find.text('散热改装')).dx, 20);
+    expect(tester.getTopRight(find.text('1')).dx, closeTo(300, 1));
+    expect(tester.element(find.byType(TextField)), same(field));
+    expect(tester.getRect(find.byType(TextField)), fieldRect);
     expect(tester.takeException(), isNull);
   });
 
@@ -263,7 +375,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('新的结果'), findsOneWidget);
       expect(find.text('旧的结果'), findsNothing);
-      expect(find.text('已加载 1 条'), findsOneWidget);
+      expect(find.textContaining('已加载'), findsNothing);
     },
   );
 
@@ -315,7 +427,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('已加载 1 条'), findsOneWidget);
+    expect(find.textContaining('已加载'), findsNothing);
     expect(find.text('主板配置与日常使用讨论'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
@@ -354,7 +466,9 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(continuations, 1);
-      expect(find.text('已加载 8 条'), findsOneWidget);
+      await tester.binding.setSurfaceSize(const Size(390, 1200));
+      await tester.pumpAndSettle();
+      expect(find.byType(ThreadRow), findsNWidgets(8));
       expect(tester.takeException(), isNull);
     },
   );

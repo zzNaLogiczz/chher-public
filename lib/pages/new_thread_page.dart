@@ -2,6 +2,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import '../widgets/chhers_loading_transition.dart';
 import '../widgets/compact_scaffold.dart';
 import '../ui/editor_touch.dart';
 import '../ui/picker.dart';
@@ -9,6 +10,8 @@ import '../design/typography.dart';
 import '../ui/app_button.dart';
 
 import '../attachments/attachment_controller.dart';
+import '../design/display_text.dart';
+import '../design/editor_tokens.dart';
 import '../design/tokens.dart';
 import '../design/shapes.dart';
 import '../di.dart';
@@ -178,12 +181,13 @@ class _NewThreadPageState extends State<NewThreadPage> {
       canPop: !_sending,
       child: CompactScaffold(
         title: '发表主题',
+        centerTitle: true,
+        leading: AppButton(
+          label: '取消',
+          variant: AppButtonVariant.quiet,
+          onPressed: _sending ? null : () => Navigator.maybePop(context),
+        ),
         actions: [
-          AppButton(
-            label: '取消',
-            variant: AppButtonVariant.quiet,
-            onPressed: _sending ? null : () => Navigator.maybePop(context),
-          ),
           AppButton(
             label: _sending ? '发表中' : '发表',
             small: true,
@@ -193,70 +197,69 @@ class _NewThreadPageState extends State<NewThreadPage> {
         ],
         body: FutureBuilder<PostForm?>(
           future: _future,
-          builder: (context, snap) {
-            if (snap.connectionState != ConnectionState.done) {
-              return StateView.loading();
-            }
-            final error = snap.error;
-            if (error is PageMessage) {
-              return StateView.forMessage(
-                error,
-                onLogin: () => Navigator.of(context).pushNamed('/login'),
-              );
-            }
-            if (error != null) {
-              return StateView.error(
-                error,
-                onRetry: () => setState(() => _future = _load()),
-              );
-            }
-            final form = snap.data;
-            if (form == null) {
-              return const StateView(
-                icon: AppIcons.forbidden,
-                message: '当前版块无法发表主题',
-              );
-            }
-            // 页面随键盘收缩,图片横栏始终停在可视区域底部
-            return Column(
-              children: [
-                Expanded(
-                  child: ExpressivePageReveal(
-                    active: true,
-                    animateOnMount: true,
-                    child: _editor(form, t),
-                  ),
-                ),
-                AttachmentBar(controller: _images, enabled: !_sending),
-              ],
-            );
-          },
+          builder: (context, snap) => ChhersLoadingTransition(
+            child: snap.connectionState != ConnectionState.done
+                ? null
+                : _loadedBody(context, snap, t),
+          ),
         ),
       ),
     );
   }
 
-  Widget _editor(PostForm form, AppTokens t) => ListView(
-    padding: const EdgeInsets.fromLTRB(24, 24, 24, 40),
-    children: [
-      Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(AppIcons.forums, color: t.accent, size: 22),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              widget.forumName,
-              style: TextStyle(
-                fontSize: AppType.sizeBody,
-                color: t.text2,
-                height: 1.4,
-              ),
-            ),
+  Widget _loadedBody(
+    BuildContext context,
+    AsyncSnapshot<PostForm?> snap,
+    AppTokens t,
+  ) {
+    final error = snap.error;
+    if (error is PageMessage) {
+      return StateView.forMessage(
+        error,
+        onLogin: () => Navigator.of(context).pushNamed('/login'),
+      );
+    }
+    if (error != null) {
+      return StateView.error(
+        error,
+        onRetry: () => setState(() => _future = _load()),
+      );
+    }
+    final form = snap.data;
+    if (form == null) {
+      return const StateView(icon: AppIcons.forbidden, message: '当前版块无法发表主题');
+    }
+    // 页面随键盘收缩,图片横栏始终停在可视区域底部
+    return Column(
+      children: [
+        Expanded(
+          child: ExpressivePageReveal(
+            active: true,
+            animateOnMount: true,
+            child: _editor(form, t),
           ),
-        ],
+        ),
+        AttachmentBar(controller: _images, enabled: !_sending),
+      ],
+    );
+  }
+
+  Widget _editor(PostForm form, AppTokens t) => ListView(
+    padding: EditorTokens.insets,
+    children: [
+      Text.rich(
+        TextSpan(
+          text: '发布到 ',
+          children: [
+            TextSpan(
+              text: formatForumName(widget.forumName),
+              style: TextStyle(color: t.text, fontWeight: FontWeight.w600),
+            ),
+          ],
+        ),
+        style: EditorTokens.destination.copyWith(color: t.text2),
       ),
-      const SizedBox(height: 20),
+      const SizedBox(height: EditorTokens.destinationGap),
       if (form.types.isNotEmpty) ...[
         _typePicker(form.types, t),
         const SizedBox(height: 18),
@@ -271,20 +274,16 @@ class _NewThreadPageState extends State<NewThreadPage> {
           minLines: 1,
           maxLines: 3,
           textInputAction: TextInputAction.next,
-          decoration: const InputDecoration(
-            hintText: '为你的分享起个标题',
+          decoration: InputDecoration(
+            hintText: '标题',
+            hintStyle: EditorTokens.title.copyWith(color: t.text3),
             filled: false,
             border: InputBorder.none,
             enabledBorder: InputBorder.none,
             focusedBorder: InputBorder.none,
-            contentPadding: EdgeInsets.symmetric(vertical: 10),
+            contentPadding: const EdgeInsets.symmetric(vertical: 10),
           ),
-          style: TextStyle(
-            fontSize: AppType.sizeTitle2,
-            color: t.text,
-            fontWeight: FontWeight.w700,
-            height: 1.45,
-          ),
+          style: EditorTokens.title.copyWith(color: t.text),
         ),
       ),
       const SizedBox(height: AppSpace.section),
@@ -298,19 +297,16 @@ class _NewThreadPageState extends State<NewThreadPage> {
           minLines: 12,
           maxLines: null,
           textCapitalization: TextCapitalization.sentences,
-          decoration: const InputDecoration(
+          decoration: InputDecoration(
             hintText: '从这里开始分享',
+            hintStyle: EditorTokens.body.copyWith(color: t.text3),
             filled: false,
             border: InputBorder.none,
             enabledBorder: InputBorder.none,
             focusedBorder: InputBorder.none,
-            contentPadding: EdgeInsets.symmetric(vertical: 8),
+            contentPadding: const EdgeInsets.symmetric(vertical: 8),
           ),
-          style: TextStyle(
-            fontSize: AppType.sizeBody,
-            color: t.text,
-            height: 1.8,
-          ),
+          style: EditorTokens.body.copyWith(color: t.text),
         ),
       ),
       ExpressiveVisibility(

@@ -1,3 +1,4 @@
+import 'package:chh_app/widgets/chhers_loader.dart';
 import 'dart:io';
 
 import 'package:chh_app/design/icons.dart';
@@ -173,12 +174,16 @@ void main() {
     tester,
   ) async {
     await tester.pumpWidget(app(StateView.loading()));
-    expect(placeholderVisible(tester), isFalse);
+    final paint = find.descendant(
+      of: find.byType(ChhersLoader),
+      matching: find.byType(CustomPaint),
+    );
+    expect(paint, findsNothing);
     expect(tester.binding.transientCallbackCount, 0);
     await tester.pump(const Duration(milliseconds: 300));
-    expect(placeholderVisible(tester), isTrue);
+    expect(paint, findsOneWidget);
     await tester.pumpWidget(app(const Text('已加载')));
-    expect(find.byType(LoadingPlaceholder), findsNothing);
+    expect(find.byType(ChhersLoader), findsNothing);
     await tester.pumpAndSettle();
     expect(tester.binding.transientCallbackCount, 0);
     expect(tester.takeException(), isNull);

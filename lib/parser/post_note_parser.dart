@@ -1,5 +1,6 @@
 import 'package:html/dom.dart' as dom;
 
+import '../core/display_time.dart';
 import '../models/models.dart';
 
 final _dateTime = RegExp(
@@ -45,15 +46,6 @@ DateTime? _validTime(String raw) {
   return (timeRaw: match[1]!.trim(), text: body);
 }
 
-String supplementDateLabel(String raw, {DateTime? now}) {
-  final date = _validTime(raw);
-  if (date == null) return raw;
-  final year = date.year == (now ?? DateTime.now()).year ? '' : '${date.year}年';
-  final hour = date.hour.toString().padLeft(2, '0');
-  final minute = date.minute.toString().padLeft(2, '0');
-  return '$year${date.month}月${date.day}日 $hour:$minute';
-}
-
 DateTime? postEditedTime(String text) {
   final raw = _edited.firstMatch(text.trim())?[1];
   return raw == null ? null : _validTime(raw);
@@ -68,9 +60,9 @@ bool showPostEdit(PostNote note, Post post) {
       edited.difference(published) >= const Duration(minutes: 10);
 }
 
-String? postEditedLabel(String text) {
-  if (postEditedTime(text) == null) return null;
-  return '最后编辑于 ${_edited.firstMatch(text.trim())![1]}';
+String? postEditedLabel(String text, {DateTime? now}) {
+  final time = postEditedTime(text);
+  return time == null ? null : '最后编辑于 ${formatDisplayTime(at: time, now: now)}';
 }
 
 /// Only site notices carry this meaning; quoted or ordinary author text does not.

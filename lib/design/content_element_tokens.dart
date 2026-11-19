@@ -7,7 +7,6 @@ abstract final class ContentElementTokens {
   static const panelRadius = 18.0;
   static const supplementTop = 24.0;
   static const supplementGap = 18.0;
-  static const supplementParagraphGap = 6.0;
   static const supplementHeadingGap = 6.0;
   static const supplementDateGap = 10.0;
   static const supplementIconSize = 14.0;

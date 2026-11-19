@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the universal chher-preview app on its independent 90.x.y version line."""
+"""Build the universal chhers-preview app on its independent 90.x.y version line."""
 from pathlib import Path
 import datetime
 import hashlib
@@ -13,7 +13,7 @@ from zipfile import ZipFile
 
 ROOT = Path(__file__).resolve().parent.parent
 PACKAGE = 'com.chhreader.chh_app.preview'
-LABEL = 'chher-preview'
+LABEL = 'chhers-preview'
 ABIS = ('armeabi-v7a', 'arm64-v8a', 'x86_64')
 
 
@@ -41,8 +41,10 @@ def main():
         local.write_text(text)
     out = ROOT / 'build' / 'preview' / version
     apk = out / f'{LABEL}-{version}.apk'
-    if apk.exists():
-        raise SystemExit(f'{apk} 已存在；新的测试交付请递增版本')
+    # An APK delivered under the previous label still occupies this version.
+    existing_apk = next(out.glob(f'*-preview-{version}.apk'), None)
+    if existing_apk is not None:
+        raise SystemExit(f'{existing_apk} 已存在；新的测试交付请递增版本')
     init = Path.home() / '.gradle/init.d/chher-isolated-preview.gradle'
     if init.exists():
         raise SystemExit(f'已有临时构建配置，拒绝覆盖: {init}')
@@ -51,7 +53,7 @@ def main():
     content = template.replace(
         "project.name == 'app' &&",
         f"project.name == 'app' && project.projectDir.canonicalPath == '{app_dir}' &&",
-    ).replace('Chher-preview', LABEL)
+    )
     out.mkdir(parents=True, exist_ok=True)
     init.parent.mkdir(parents=True, exist_ok=True)
     init.write_text(content)

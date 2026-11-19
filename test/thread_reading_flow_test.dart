@@ -252,12 +252,7 @@ void main() {
         );
       } else {
         expect(
-          find
-              .textContaining(
-                feedback == 'comment' ? '通知对应点评' : '邪恶指数',
-                findRichText: true,
-              )
-              .hitTestable(),
+          find.text(feedback == 'comment' ? '通知对应点评' : '★ +1').hitTestable(),
           findsOneWidget,
         );
         final scroll = tester.state<ScrollableState>(

@@ -10,8 +10,6 @@ abstract final class ContentVideoTokens {
   static const compactRadius = 14.0;
   static const playSize = 58.0;
   static const playIconSize = 20.0;
-  static const spinnerSize = 30.0;
-  static const spinnerStroke = 2.2;
   static const failureTravel = 6.0;
   static const foreground = Radix.whiteA12;
   static const browserText = Radix.slate12Light;

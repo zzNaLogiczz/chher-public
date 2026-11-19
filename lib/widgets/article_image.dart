@@ -5,8 +5,11 @@ library;
 
 import 'package:flutter/material.dart';
 import '../design/typography.dart';
+import '../design/image_tokens.dart';
 
 import '../design/tokens.dart';
+import 'chhers_loader.dart';
+import 'chhers_loading_transition.dart';
 import 'net_image.dart';
 
 class ArticleImage extends StatelessWidget {
@@ -37,24 +40,25 @@ class ArticleImage extends StatelessWidget {
                     MediaQuery.devicePixelRatioOf(context),
                   ),
                 ),
+            color: t.isDark ? ImageTokens.darkTint : null,
+            colorBlendMode: BlendMode.modulate,
             width: double.infinity,
             fit: BoxFit.fitWidth,
             gaplessPlayback: true,
-            frameBuilder: (context, child, frame, wasSynchronouslyLoaded) =>
-                wasSynchronouslyLoaded || frame != null
-                ? child
-                : AspectRatio(
-                    aspectRatio: 4 / 3,
-                    child: ColoredBox(
-                      color: t.fill,
-                      child: Center(
-                        child: CircularProgressIndicator(
-                          strokeWidth: 1.5,
-                          color: t.text3,
-                        ),
-                      ),
-                    ),
+            frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+              if (wasSynchronouslyLoaded) return child;
+              return ChhersLoadingTransition(
+                size: ChhersLoaderSize.list,
+                placeholderBuilder: (indicator) => AspectRatio(
+                  aspectRatio: 4 / 3,
+                  child: ColoredBox(
+                    color: t.fill,
+                    child: Center(child: indicator),
                   ),
+                ),
+                child: frame == null ? null : child,
+              );
+            },
             errorBuilder: (context, error, stack) => AspectRatio(
               aspectRatio: 4 / 3,
               child: ColoredBox(

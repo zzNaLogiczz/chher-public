@@ -364,13 +364,25 @@ abstract final class LevelTokens {
   static const radius = 6.0;
   static const tileSize = 16.0;
   static const tileRadius = 4.0;
-  static const fontSize = 11.5;
+  static const fontSize = 12.0;
   static const fontWeight = FontWeight.w600;
-  static const royalFontVariations = [FontVariation('wght', 650)];
-  static const iconSize = 11.5;
-  static const royalIconSize = 12.5;
+  static const iconSize = 12.0;
   static const gap = 4.0;
   static const authorGap = 6.0;
+  static const authorNameMinWidth = 24.0;
+  static const ownerHeight = 18.0;
+  static const ownerRadius = 5.0;
+  static const ownerInset = 5.0;
+  static const ownerBorder = 1.0;
+  static const ownerBorderAlpha = .5;
+  static const ownerFontSize = 11.0;
+  static const ownerText = '楼主';
+  static const ownerStyle = TextStyle(
+    fontSize: ownerFontSize,
+    fontWeight: fontWeight,
+    height: 1,
+  );
+  static const coldTiers = {'jade', 'sapph', 'iris'};
   static const inset = 2.0;
   static const rightInset = 7.0;
   static const glyphGrid = 24.0;

@@ -4,8 +4,12 @@ library;
 import 'package:flutter/material.dart';
 import 'package:motor/motor.dart';
 
+import '../ui/balanced_title.dart';
+import '../design/display_text.dart';
+import '../core/display_time.dart';
 import '../design/forum_icons.dart';
 import '../design/icons.dart';
+import '../design/list_end_tokens.dart';
 import '../design/motion.dart';
 import '../design/shapes.dart';
 import '../design/tokens.dart';
@@ -16,6 +20,7 @@ import '../ui/nav_bar.dart';
 import '../ui/picker.dart';
 import '../ui/press.dart';
 import '../widgets/lacquer_tab_scaffold.dart';
+import '../widgets/chhers_loading_transition.dart';
 import '../widgets/state_view.dart';
 import 'forum_threads_page.dart';
 
@@ -202,112 +207,146 @@ class _ForumIndexViewState extends State<ForumIndexView> {
               ),
             ),
             slivers: [
-              if (!hasData)
-                SliverToBoxAdapter(
-                  child: SizedBox(
-                    height: 300,
-                    child: snapshot.hasError
-                        ? StateView.error(snapshot.error!, onRetry: _refresh)
-                        : snapshot.connectionState != ConnectionState.done
-                        ? StateView.loading()
-                        : StateView.empty(message: '这里还没有版块'),
-                  ),
+              ChhersLoadingTransition.sliver(
+                placeholderBuilder: (indicator) => SliverToBoxAdapter(
+                  child: SizedBox(height: 300, child: Center(child: indicator)),
                 ),
-              if (hasData && visible.isEmpty)
-                SliverToBoxAdapter(
-                  child: SizedBox(
-                    height: 300,
-                    child: StateView.empty(message: '这里还没有版块'),
-                  ),
-                ),
-              for (final (index, category) in visible.indexed) ...[
-                SliverLayoutBuilder(
-                  builder: (_, constraints) {
-                    _recordOffset(index, constraints.precedingScrollExtent);
-                    final name = forumCategoryName(category.name);
-                    return SliverPadding(
-                      padding: index == 0 && t.style == AppearanceStyle.misty
-                          ? ForumDirectoryTokens.sectionPadding.copyWith(top: 0)
-                          : ForumDirectoryTokens.sectionPadding,
-                      sliver: SliverToBoxAdapter(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              name.title,
-                              key: ValueKey('forum-section-$index'),
-                              style: ForumDirectoryTokens.heading.copyWith(
-                                color: t.text,
+                child:
+                    !hasData &&
+                        !snapshot.hasError &&
+                        snapshot.connectionState != ConnectionState.done
+                    ? null
+                    : SliverMainAxisGroup(
+                        slivers: [
+                          if (snapshot.hasError && !hasData || visible.isEmpty)
+                            SliverToBoxAdapter(
+                              child: SizedBox(
+                                height: 300,
+                                child: !hasData && snapshot.hasError
+                                    ? StateView.error(
+                                        snapshot.error!,
+                                        onRetry: _refresh,
+                                      )
+                                    : StateView.empty(message: '这里还没有版块'),
                               ),
                             ),
-                            if (name.description != null)
-                              Text(
-                                name.description!,
-                                style: AppType.footnote.copyWith(
-                                  color: t.text3,
+                          for (final (index, category) in visible.indexed) ...[
+                            SliverLayoutBuilder(
+                              builder: (_, constraints) {
+                                _recordOffset(
+                                  index,
+                                  constraints.precedingScrollExtent,
+                                );
+                                final name = forumCategoryName(category.name);
+                                return SliverPadding(
+                                  padding:
+                                      index == 0 &&
+                                          t.style == AppearanceStyle.misty
+                                      ? ForumDirectoryTokens.sectionPadding
+                                            .copyWith(top: 0)
+                                      : ForumDirectoryTokens.sectionPadding,
+                                  sliver: SliverToBoxAdapter(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          normalizeDisplayText(name.title),
+                                          key: ValueKey('forum-section-$index'),
+                                          style: ForumDirectoryTokens.heading
+                                              .copyWith(color: t.text),
+                                        ),
+                                        if (name.description != null)
+                                          Text(
+                                            normalizeDisplayText(
+                                              name.description!,
+                                            ),
+                                            style: AppType.footnote.copyWith(
+                                              color: t.text3,
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                            SliverPadding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: AppSpace.groupInset,
+                              ),
+                              sliver: DecoratedSliver(
+                                decoration: ShapeDecoration(
+                                  color: t.surface,
+                                  shape: appShape(
+                                    ForumDirectoryTokens.cardRadius,
+                                  ),
+                                  shadows: t.shadowE1,
+                                ),
+                                sliver: SliverPadding(
+                                  padding: const EdgeInsets.all(
+                                    ForumDirectoryTokens.cardInset,
+                                  ),
+                                  sliver: SliverList.builder(
+                                    key: ValueKey(
+                                      'forum-category-${category.name}',
+                                    ),
+                                    itemCount: category.forums.length,
+                                    findChildIndexCallback: (key) {
+                                      final i = category.forums.indexWhere(
+                                        (f) => ValueKey(f.fid) == key,
+                                      );
+                                      return i < 0 ? null : i;
+                                    },
+                                    itemBuilder: (context, i) {
+                                      final forum = category.forums[i];
+                                      final isFavorite =
+                                          index == 0 && favorites.isNotEmpty;
+                                      final insert =
+                                          isFavorite &&
+                                          added.contains(forum.fid);
+                                      return SingleMotionBuilder(
+                                        key: ValueKey(forum.fid),
+                                        from: insert ? 0 : 1,
+                                        value: 1,
+                                        motion: AppMotion.reveal,
+                                        active: !MediaQuery.disableAnimationsOf(
+                                          context,
+                                        ),
+                                        child: _ForumRow(
+                                          forum: forum,
+                                          categoryName: isFavorite
+                                              ? categoryById[forum.fid] ?? ''
+                                              : category.name,
+                                        ),
+                                        builder: (_, progress, child) =>
+                                            ClipRect(
+                                              child: Align(
+                                                alignment: Alignment.topCenter,
+                                                heightFactor: progress.clamp(
+                                                  0.0,
+                                                  1.0,
+                                                ),
+                                                child: child,
+                                              ),
+                                            ),
+                                      );
+                                    },
+                                  ),
                                 ),
                               ),
+                            ),
                           ],
-                        ),
+                        ],
                       ),
-                    );
-                  },
+              ),
+              SliverToBoxAdapter(
+                child: SizedBox(
+                  height:
+                      ListEndTokens.navigationGap +
+                      MediaQuery.paddingOf(context).bottom,
                 ),
-                SliverPadding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpace.groupInset,
-                  ),
-                  sliver: DecoratedSliver(
-                    decoration: ShapeDecoration(
-                      color: t.surface,
-                      shape: appShape(ForumDirectoryTokens.cardRadius),
-                      shadows: t.shadowE1,
-                    ),
-                    sliver: SliverPadding(
-                      padding: const EdgeInsets.all(
-                        ForumDirectoryTokens.cardInset,
-                      ),
-                      sliver: SliverList.builder(
-                        key: ValueKey('forum-category-${category.name}'),
-                        itemCount: category.forums.length,
-                        findChildIndexCallback: (key) {
-                          final i = category.forums.indexWhere(
-                            (f) => ValueKey(f.fid) == key,
-                          );
-                          return i < 0 ? null : i;
-                        },
-                        itemBuilder: (context, i) {
-                          final forum = category.forums[i];
-                          final isFavorite = index == 0 && favorites.isNotEmpty;
-                          final insert =
-                              isFavorite && added.contains(forum.fid);
-                          return SingleMotionBuilder(
-                            key: ValueKey(forum.fid),
-                            from: insert ? 0 : 1,
-                            value: 1,
-                            motion: AppMotion.reveal,
-                            active: !MediaQuery.disableAnimationsOf(context),
-                            child: _ForumRow(
-                              forum: forum,
-                              categoryName: isFavorite
-                                  ? categoryById[forum.fid] ?? ''
-                                  : category.name,
-                            ),
-                            builder: (_, progress, child) => ClipRect(
-                              child: Align(
-                                alignment: Alignment.topCenter,
-                                heightFactor: progress.clamp(0.0, 1.0),
-                                child: child,
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-              const SliverToBoxAdapter(child: SizedBox(height: 100)),
+              ),
             ],
           ),
         );
@@ -415,14 +454,21 @@ class _ForumRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
     final tint = forumCategoryTint(categoryName, t);
-    final raw = forum.lastPostTimeRaw?.trim();
     final now = DateTime.now();
-    final today =
-        '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')} ';
-    final activity = raw?.replaceFirst(today, '今天 ');
-    final active = activity?.startsWith('今天 ') ?? false;
+    final activity = formatDisplayTime(
+      raw: forum.lastPostTimeRaw,
+      style: DisplayTimeStyle.list,
+      now: now,
+    );
+    final active =
+        formatDisplayTime(
+          raw: forum.lastPostTimeRaw,
+          style: DisplayTimeStyle.section,
+          now: now,
+        ) ==
+        '今天';
     final count = forum.threadCount;
-    final countLabel = count == null
+    final countLabel = count == null || count == 0
         ? null
         : count < 10000
         ? '$count'
@@ -475,11 +521,11 @@ class _ForumRow extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    forum.name,
+                  BalancedTitle(
+                    formatForumName(forum.name),
                     style: ForumDirectoryTokens.name.copyWith(color: t.text),
                   ),
-                  if (activity != null && activity.isNotEmpty)
+                  if (activity.isNotEmpty)
                     Row(
                       children: [
                         Flexible(

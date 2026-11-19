@@ -131,10 +131,12 @@ void main() {
         profiles.respond = (uid) async => _profile(uid, gid: 41);
         await tester.pumpWidget(_app(style: style));
         await tester.pumpAndSettle();
-        expect(tester.widget<LevelBadge>(find.byType(LevelBadge)).gid, 41);
+        final badge = tester.widget<LevelBadge>(find.byType(LevelBadge));
+        expect(badge.gid, 41);
+        expect(badge.onLacquer, style == AppearanceStyle.cinnabar);
         expect(find.text('能天使'), findsOneWidget);
         expect(find.text('测试用户组'), findsNothing);
-        expect(tester.getBottomLeft(find.text('CHHER')).dy, 844 - 84 - 28);
+        expect(tester.getBottomLeft(find.text('Chhers')).dy, 844 - 84 - 28);
         expect(tester.takeException(), isNull);
       },
     );
@@ -173,7 +175,7 @@ void main() {
       }
       expect(profiles.requests, [('42', false)]);
       expect(tester.getSize(_stats).height, 44);
-      expect(tester.getSize(find.byType(LacEntryStrip)).height, 84);
+      expect(tester.getSize(find.byType(LacEntryStrip)).height, 90);
       final avatar = find.descendant(
         of: _card,
         matching: find.byType(AccountAvatar),
@@ -184,7 +186,7 @@ void main() {
       )) {
         expect(tester.getSize(find.byWidget(row)).height, 52);
       }
-      expect(tester.getBottomLeft(find.text('CHHER')).dy, 844 - 84 - 28);
+      expect(tester.getBottomLeft(find.text('Chhers')).dy, 844 - 84 - 28);
       final scroll = tester
           .widget<LacquerTabScaffold>(find.byType(LacquerTabScaffold))
           .controller;
@@ -509,7 +511,7 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
-        for (final label in ['图片缓存', '运行日志', '关于 Chher']) {
+        for (final label in ['图片缓存', '运行日志', '关于 Chhers']) {
           final row = find.byWidgetPredicate(
             (w) => w is PressHighlight && w.semanticLabel == label,
           );

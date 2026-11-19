@@ -1,12 +1,21 @@
 import 'package:flutter/widgets.dart';
 
+import 'loading_tokens.dart';
+
 /// Feedback dimensions from the opening-post and reply reference designs.
 abstract final class FeedbackMetrics {
+  static const listPressSlop = 8.0;
   static const cardRadius = 22.0;
   static const floorRadius = 14.0;
   static const panelRadius = 14.0;
   static const capsuleHeight = 28.0;
-  static const stripHeight = 36.0;
+  static const stripHeight = 26.0;
+  static const stripRadius = 9.0;
+  static const stripAvatar = 16.0;
+  static const stripCountFraction = .4;
+  static const stripHitSlop = (touchTarget - stripHeight) / 2;
+  static const ratingTop = 8.0;
+  static const ratingBottom = 6.0;
   static const touchTarget = 44.0;
   static const capsuleHitSlop = (touchTarget - capsuleHeight) / 2;
   static const gap = 8.0;
@@ -32,9 +41,7 @@ abstract final class FeedbackMetrics {
   static const reasonSize = 13.5;
   static const reasonHeight = 1.6;
   static const reasonTop = 4.0;
-  static const reasonLoadingSize = 12.0;
-  static const reasonLoadingStroke = 1.5;
-  static const reasonLoadingGutter = reasonLoadingSize + smallGap;
+  static const reasonLoadingGutter = LoadingTokens.input + smallGap;
   // The rows sit inside the card's horizontal inset.
   static const ratingRowRadius = cardRadius - inset;
   static const compactRatingRowRadius = floorRadius - compactInset;
@@ -43,27 +50,23 @@ abstract final class FeedbackMetrics {
   static const lineHeight = 1.6;
   static const summaryAvatar = 20.0;
   static const floorSummaryAvatar = 18.0;
-  static const floorAvatar = 20.0;
   static const rowAvatar = 22.0;
   static const smallAvatar = 18.0;
   static const avatarBorder = 2.0;
   static const compactAvatarBorder = 1.5;
   static const avatarOverlap = 8.0;
   static const compactOverlap = 6.0;
-  static const capsuleOverlap = 7.0;
   static const avatarIconRatio = .6;
   static const userWidth = 82.0;
   static const compactUserWidth = 76.0;
   static const scoreWidth = 52.0;
   static const compactScoreWidth = 44.0;
   static const userFraction = .3;
-  static const reasonFraction = .45;
   static const arrowSize = 14.0;
   static const halfTurn = .5;
   static const halfTurnQuarters = 2;
   static const openingFold = 3;
   static const compactFold = 2;
   static const headerAvatars = 4;
-  static const capsuleAvatars = 3;
   static const tabular = [FontFeature.tabularFigures()];
 }

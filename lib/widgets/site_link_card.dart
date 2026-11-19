@@ -3,23 +3,23 @@ library;
 
 import 'package:flutter/material.dart';
 
+import '../core/display_time.dart';
 import '../core/link_target.dart';
 import '../data/link_preview_repository.dart';
+import '../design/display_text.dart';
 import '../design/icons.dart';
 import '../design/link_card_tokens.dart';
 import '../design/motion.dart';
 import '../design/tokens.dart';
 import '../di.dart';
 import '../models/models.dart';
+import '../ui/balanced_title.dart';
 import '../ui/feedback.dart';
 import '../ui/press.dart';
 import 'link_opener.dart';
 import 'net_image.dart';
 
 typedef SiteLinkOpener = void Function(LinkTarget target, String title);
-
-String siteLinkDate(DateTime date, {DateTime? now}) =>
-    '${date.year == (now ?? DateTime.now()).year ? '' : '${date.year}年'}${date.month}月${date.day}日';
 
 bool _urlLabel(String label) =>
     label.trim().isEmpty ||
@@ -157,9 +157,10 @@ class _SiteLinkGroupCardState extends State<SiteLinkGroupCard> {
           context,
           compact: compact,
           width: constraints.maxWidth - inset * 2,
-          title:
-              _entries[block.target.key]?.preview?.title ??
-              siteLinkFallbackTitle(block),
+          title: normalizeDisplayText(
+            _entries[block.target.key]?.preview?.title ??
+                siteLinkFallbackTitle(block),
+          ),
         ),
     ];
     final background = compact ? t.fill : t.surface;
@@ -202,6 +203,7 @@ class _SiteLinkGroupCardState extends State<SiteLinkGroupCard> {
                 child: ExcludeSemantics(
                   child: SkeletonPulse(
                     active: _entries.values.any((e) => e.loading),
+                    immediate: true,
                     child: Column(
                       children: [
                         for (final (index, block) in widget.blocks.indexed)
@@ -262,6 +264,7 @@ class _SliceShadowClipper extends CustomClipper<Rect> {
 class _RowGeometry {
   final bool compact;
   late final double titleHeight;
+  late final int titleLines;
   final double metaHeight;
   _RowGeometry(
     BuildContext context, {
@@ -275,31 +278,39 @@ class _RowGeometry {
                      : LinkCardTokens.metadata)
                  .fontSize!,
            ) *
-           1.4 {
-    // Share actual title height with the group's skeleton overlay.
+           LinkCardTokens.metadata.height! {
+    final defaults = DefaultTextStyle.of(context);
+    var style = defaults.style.merge(titleStyle);
+    if (MediaQuery.boldTextOf(context)) {
+      style = style.merge(const TextStyle(fontWeight: FontWeight.bold));
+    }
     final painter =
         TextPainter(
-          text: TextSpan(
-            text: title,
-            style: DefaultTextStyle.of(context).style.merge(titleStyle),
-          ),
+          text: TextSpan(text: title, style: style),
           textDirection: Directionality.of(context),
           textScaler: MediaQuery.textScalerOf(context),
-          maxLines: 2,
+          locale: Localizations.maybeLocaleOf(context),
+          textHeightBehavior:
+              defaults.textHeightBehavior ??
+              DefaultTextHeightBehavior.maybeOf(context),
+          maxLines: LinkCardTokens.titleLines,
           ellipsis: '…',
         )..layout(
-          maxWidth: (width - padding.horizontal - marker - gap - 22).clamp(
-            0,
-            double.infinity,
-          ),
+          maxWidth: (width - padding.horizontal - marker - gap - chevronWidth)
+              .clamp(0, double.infinity),
         );
     titleHeight = painter.height;
+    titleLines = painter.computeLineMetrics().length;
     painter.dispose();
   }
   double get marker =>
       compact ? LinkCardTokens.compactMarker : LinkCardTokens.marker;
-  double get gap => compact ? 10 : 12;
-  double get textHeight => titleHeight + 4 + metaHeight;
+  double get gap =>
+      compact ? LinkCardTokens.compactMarkerGap : LinkCardTokens.markerGap;
+  static const chevronWidth =
+      LinkCardTokens.chevronGap + LinkCardTokens.chevronSize;
+  double get textHeight =>
+      titleHeight + LinkCardTokens.metadataGap + metaHeight;
   double get rowHeight => textHeight < marker ? marker : textHeight;
   EdgeInsets get padding =>
       compact ? LinkCardTokens.compactPadding : LinkCardTokens.rowPadding;
@@ -351,24 +362,39 @@ class _SkeletonRow extends StatelessWidget {
                   children: [
                     SizedBox(
                       height: g.titleHeight,
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: bar(.78, 13, 'site-card-title-placeholder'),
+                      child: Column(
+                        children: [
+                          for (var line = 0; line < g.titleLines; line++)
+                            Expanded(
+                              child: Align(
+                                alignment: Alignment.centerLeft,
+                                child: bar(
+                                  LinkCardTokens.skeletonTitleWidths[line],
+                                  LinkCardTokens.skeletonTitleBarHeight,
+                                  'site-card-title-placeholder-$line',
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: LinkCardTokens.metadataGap),
                     SizedBox(
                       height: g.metaHeight,
                       child: Align(
                         alignment: Alignment.centerLeft,
-                        child: bar(.38, 10, 'site-card-date-placeholder'),
+                        child: bar(
+                          LinkCardTokens.skeletonDateWidth,
+                          LinkCardTokens.skeletonDateBarHeight,
+                          'site-card-date-placeholder',
+                        ),
                       ),
                     ),
                   ],
                 ),
               ),
             ),
-            const SizedBox(width: 22),
+            const SizedBox(width: _RowGeometry.chevronWidth),
           ],
         ),
       ),
@@ -376,7 +402,7 @@ class _SkeletonRow extends StatelessWidget {
   }
 }
 
-class _PreviewRow extends StatefulWidget {
+class _PreviewRow extends StatelessWidget {
   final SiteLinkBlock block;
   final _PreviewEntry entry;
   final _RowGeometry geometry;
@@ -389,42 +415,15 @@ class _PreviewRow extends StatefulWidget {
     required this.onOpen,
   });
   @override
-  State<_PreviewRow> createState() => _PreviewRowState();
-}
-
-class _PreviewRowState extends State<_PreviewRow>
-    with SingleTickerProviderStateMixin {
-  late final _arrival = AnimationController(
-    vsync: this,
-    value: widget.entry.loading ? 0 : 1,
-  );
-  @override
-  void didUpdateWidget(covariant _PreviewRow oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.entry.loading) {
-      _arrival.value = 0;
-    } else if (_arrival.value == 0) {
-      _arrival.duration = MediaQuery.disableAnimationsOf(context)
-          ? AppMotion.reducedFade
-          : AppMotion.fade;
-      _arrival.forward();
-    }
-  }
-
-  @override
-  void dispose() {
-    _arrival.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
-    final g = widget.geometry;
-    final preview = widget.entry.preview;
-    final isThread = preview?.isThread ?? widget.block.target is ThreadLink;
-    final title = preview?.title ?? siteLinkFallbackTitle(widget.block);
-    final failed = !widget.entry.loading && preview == null;
+    final g = geometry;
+    final preview = entry.preview;
+    final isThread = preview?.isThread ?? block.target is ThreadLink;
+    final title = normalizeDisplayText(
+      preview?.title ?? siteLinkFallbackTitle(block),
+    );
+    final failed = !entry.loading && preview == null;
     final background = g.compact ? t.surface : t.fill;
     return ClipRRect(
       borderRadius: BorderRadius.circular(
@@ -435,7 +434,7 @@ class _PreviewRowState extends State<_PreviewRow>
       child: PressScale(
         scale: AppPressScale.content,
         pressedColor: t.fill,
-        onTap: widget.onOpen,
+        onTap: onOpen,
         semanticLabel: '${isThread ? '帖子' : '文章'} $title',
         child: Padding(
           padding: g.padding,
@@ -457,7 +456,9 @@ class _PreviewRowState extends State<_PreviewRow>
                       size: g.marker,
                       fallback: Icon(
                         isThread ? AppIcons.thread : AppIcons.article,
-                        size: g.compact ? 17 : 20,
+                        size: g.compact
+                            ? LinkCardTokens.compactMarkerIconSize
+                            : LinkCardTokens.markerIconSize,
                         color: t.text3,
                       ),
                     ),
@@ -468,73 +469,92 @@ class _PreviewRowState extends State<_PreviewRow>
               Expanded(
                 child: SizedBox(
                   height: g.textHeight,
-                  child: FadeTransition(
-                    opacity: _arrival,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        SizedBox(
-                          height: g.titleHeight,
-                          child: Text(
-                            title,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: g.titleStyle.copyWith(
-                              color: failed ? t.text2 : t.text,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        SizedBox(
-                          height: g.metaHeight,
-                          child: failed && _urlLabel(widget.block.label)
-                              ? Text(
-                                  '点开查看原帖',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: g.metaStyle.copyWith(color: t.text3),
-                                )
-                              : Row(
-                                  children: [
-                                    if (preview?.author case final author?) ...[
-                                      Flexible(
-                                        child: Text(
-                                          author,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: g.metaStyle.copyWith(
-                                            color: t.text2,
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                        ),
-                                      ),
-                                      if (preview?.time != null)
-                                        const SizedBox(width: 10),
-                                    ],
-                                    if (preview?.time case final date?)
-                                      Flexible(
-                                        child: Text(
-                                          siteLinkDate(date),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: g.metaStyle.copyWith(
-                                            color: t.text3,
-                                          ),
-                                        ),
-                                      ),
-                                  ],
+                  child: AnimatedOpacity(
+                    opacity: entry.loading ? 0 : 1,
+                    duration: MediaQuery.disableAnimationsOf(context)
+                        ? AppMotion.reducedFade
+                        : AppMotion.fade,
+                    child: entry.loading
+                        ? null
+                        : Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              SizedBox(
+                                height: g.titleHeight,
+                                child: BalancedTitle(
+                                  title,
+                                  maxLines: LinkCardTokens.titleLines,
+                                  style: g.titleStyle.copyWith(
+                                    color: failed ? t.text2 : t.text,
+                                  ),
                                 ),
-                        ),
-                      ],
-                    ),
+                              ),
+                              const SizedBox(
+                                height: LinkCardTokens.metadataGap,
+                              ),
+                              SizedBox(
+                                height: g.metaHeight,
+                                child: failed && _urlLabel(block.label)
+                                    ? Text(
+                                        '点开查看原帖',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: g.metaStyle.copyWith(
+                                          color: t.text3,
+                                        ),
+                                      )
+                                    : Row(
+                                        children: [
+                                          if (preview?.author
+                                              case final author?) ...[
+                                            Flexible(
+                                              child: Text(
+                                                author,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: g.metaStyle.copyWith(
+                                                  color: t.text2,
+                                                  fontWeight: FontWeight.w500,
+                                                ),
+                                              ),
+                                            ),
+                                            if (preview?.time != null)
+                                              const SizedBox(
+                                                width: LinkCardTokens
+                                                    .authorDateGap,
+                                              ),
+                                          ],
+                                          if (preview?.time case final date?)
+                                            Flexible(
+                                              child: Text(
+                                                formatDisplayTime(
+                                                  at: date,
+                                                  style: DisplayTimeStyle.list,
+                                                ),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: g.metaStyle.copyWith(
+                                                  color: t.text3,
+                                                ),
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                              ),
+                            ],
+                          ),
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: LinkCardTokens.chevronGap),
               SizedBox(
                 height: g.textHeight,
                 child: Center(
-                  child: Icon(AppIcons.forward, size: 14, color: t.text3),
+                  child: Icon(
+                    AppIcons.forward,
+                    size: LinkCardTokens.chevronSize,
+                    color: t.text3,
+                  ),
                 ),
               ),
             ],

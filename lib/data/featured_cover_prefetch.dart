@@ -23,17 +23,23 @@ class FeaturedCoverPrefetch {
       size.width > 0 &&
       size.height >= size.width * .9;
 
-  Future<void> fetch(int aid) async {
+  Future<void> fetch(
+    int aid, {
+    Future<bool> Function()? waitUntilVisible,
+  }) async {
     if (aid <= 0 || cache.lookup(aid) != null || !_attempted.add(aid)) return;
     try {
       await cache.load();
+      if (waitUntilVisible != null && !await waitUntilVisible()) return;
       if (cache.lookup(aid) != null) return;
       final content = await repository.openArticle(aid);
       if (content is! ArticleContent) return;
       final first = content.detail.content.whereType<ImageBlock>().firstOrNull;
       if (first == null) return;
+      if (waitUntilVisible != null && !await waitUntilVisible()) return;
       final size = await imageSize(first.url);
       if (size == null || !isPortrait(size)) return;
+      if (waitUntilVisible != null && !await waitUntilVisible()) return;
       // A foreground read can complete while the background request is pending.
       if (cache.lookup(aid) == null) await cache.remember(aid, first.url);
     } catch (_) {

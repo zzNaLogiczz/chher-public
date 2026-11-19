@@ -7,6 +7,7 @@ import 'package:chh_app/pages/new_thread_page.dart';
 import 'package:chh_app/widgets/composer_sheet.dart';
 import 'package:chh_app/ui/app_button.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 Future<void> _composer(
@@ -129,15 +130,16 @@ void main() {
     expect(find.text('ITX'), findsNothing);
   });
 
-  testWidgets('new topic cancel uses secondary text, not accent', (
+  testWidgets('new topic places Cancel left and renders a static destination', (
     tester,
   ) async {
+    final semantics = tester.ensureSemantics();
     await tester.pumpWidget(
       MaterialApp(
         theme: buildAppTheme(Brightness.light),
         home: NewThreadPage(
           fid: 99991,
-          forumName: '离线测试版块',
+          forumName: '离线测试版块(新)',
           loadForm: () async => const PostForm(action: 'unused', formhash: 'f'),
           onSubmit: (title, body, type) async =>
               const PostResult(PostResultKind.failed, '离线'),
@@ -145,10 +147,81 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    final cancel = find.text('取消');
+    final title = find.text('发表主题');
+    final submit = find.text('发表');
+    expect(tester.getCenter(cancel).dx, lessThan(tester.getCenter(title).dx));
     expect(
-      tester.widget<Text>(find.text('取消')).style!.color,
-      AppTokens.light.text2,
+      tester.getCenter(submit).dx,
+      greaterThan(tester.getCenter(title).dx),
     );
+    expect(find.byTooltip('返回'), findsNothing);
+    expect(tester.widget<Text>(cancel).style!.color, AppTokens.light.text2);
+    final destination = find.text('发布到 离线测试版块');
+    expect(tester.getTopLeft(destination).dx, 20);
+    expect(
+      tester
+          .getSemantics(destination)
+          .getSemanticsData()
+          .hasAction(SemanticsAction.tap),
+      isFalse,
+    );
+    semantics.dispose();
+
+    final fields = tester
+        .widgetList<TextField>(find.byType(TextField))
+        .toList();
+    expect(fields[0].style!.fontSize, 22);
+    expect(fields[0].style!.fontWeight, FontWeight.w600);
+    expect(fields[1].style!.fontSize, 17);
+    expect(fields[1].style!.fontWeight, FontWeight.w400);
+    for (final field in fields) {
+      expect(field.decoration!.hintStyle!.fontSize, field.style!.fontSize);
+      expect(field.decoration!.hintStyle!.fontWeight, field.style!.fontWeight);
+    }
+  });
+
+  testWidgets('system back and Cancel both preserve the topic draft', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(Brightness.light),
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: TextButton(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => NewThreadPage(
+                    fid: 99993,
+                    forumName: '离线测试版块',
+                    loadForm: () async =>
+                        const PostForm(action: 'unused', formhash: 'fake'),
+                  ),
+                ),
+              ),
+              child: const Text('打开发帖页'),
+            ),
+          ),
+        ),
+      ),
+    );
+    final open = find.text('打开发帖页');
+    await tester.tap(open);
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, '保留标题');
+    await tester.enterText(find.byType(TextField).last, '保留正文');
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.byType(NewThreadPage), findsNothing);
+
+    await tester.tap(open);
+    await tester.pumpAndSettle();
+    expect(find.text('保留标题'), findsOneWidget);
+    expect(find.text('保留正文'), findsOneWidget);
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    expect(find.byType(NewThreadPage), findsNothing);
   });
 
   testWidgets(

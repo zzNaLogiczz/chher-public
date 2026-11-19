@@ -35,7 +35,7 @@ void main() {
   });
 
   testWidgets(
-    'favorite pill shows authoritative zero and count, hides unknown',
+    'favorite pill displays positive counts and omits zero or unknown',
     (tester) async {
       for (final count in [null, 0, 65]) {
         await tester.pumpWidget(
@@ -56,7 +56,7 @@ void main() {
         );
         expect(
           find.text('$count'),
-          count == null ? findsNothing : findsOneWidget,
+          (count ?? 0) > 0 ? findsOneWidget : findsNothing,
         );
         expect(tester.takeException(), isNull);
       }

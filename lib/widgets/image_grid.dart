@@ -3,7 +3,7 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
-import 'package:flutter/physics.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/rendering.dart' show RenderAbstractViewport;
 import '../design/image_tokens.dart';
 import '../attachments/image_save.dart';
@@ -14,6 +14,7 @@ import '../design/motion.dart';
 import '../design/typography.dart';
 import '../ui/chrome_button.dart';
 import '../ui/nav_bar.dart';
+import '../ui/image_viewer_chrome.dart';
 import '../ui/reading_bar.dart';
 
 import '../design/tokens.dart';
@@ -154,6 +155,8 @@ class _InlineImageViewerState extends State<InlineImageViewer> {
                   ? ArticleImage(url: widget.url, imageProvider: provider)
                   : Image(
                       image: provider,
+                      color: t.isDark ? ImageTokens.darkTint : null,
+                      colorBlendMode: BlendMode.modulate,
                       fit: BoxFit.cover,
                       gaplessPlayback: true,
                       frameBuilder: (context, child, frame, synchronous) =>
@@ -203,21 +206,31 @@ Future<void> openImageViewer(
   ImageProvider<Object> Function(int)? previewImageForIndex,
   ValueChanged<int>? onPageChanged,
 }) async {
-  if (urls.isEmpty) return;
-  await Navigator.of(context).push<void>(
-    _ImageViewerRoute(
-      reduced: MediaQuery.disableAnimationsOf(context),
-      builder: (_) => ImageViewerPage(
-        urls: urls,
-        initialIndex: initialIndex,
-        heroTag: heroTag,
-        heroTagForIndex: heroTagForIndex,
-        previewImage: previewImage,
-        previewImageForIndex: previewImageForIndex,
-        onPageChanged: onPageChanged,
-      ),
+  final chrome = ImageViewerChromeController.maybeOf(context);
+  if (urls.isEmpty || chrome?.covered.value == true) return;
+  final navigator = Navigator.of(context);
+  final readerStyle = AppSystemUi.forBrightness(Theme.of(context).brightness);
+  final route = _ImageViewerRoute(
+    reduced: MediaQuery.disableAnimationsOf(context),
+    readerStyle: () => chrome?.overlayStyle() ?? readerStyle,
+    builder: (_) => ImageViewerPage(
+      urls: urls,
+      initialIndex: initialIndex,
+      heroTag: heroTag,
+      heroTagForIndex: heroTagForIndex,
+      previewImage: previewImage,
+      previewImageForIndex: previewImageForIndex,
+      onPageChanged: onPageChanged,
     ),
   );
+  chrome?.covered.value = true;
+  try {
+    await navigator.push<void>(route);
+    // Restore the reading bars when the return flight has left the overlay.
+    await route.completed;
+  } finally {
+    chrome?.restore();
+  }
 }
 
 class _ViewerPagePhysics extends PageScrollPhysics {
@@ -232,33 +245,81 @@ class _ViewerPagePhysics extends PageScrollPhysics {
 }
 
 class _ImageViewerRoute extends PageRouteBuilder<void> {
-  _ImageViewerRoute({required WidgetBuilder builder, required this.reduced})
-    : super(
-        opaque: false,
-        allowSnapshotting: false,
-        barrierColor: Colors.transparent,
-        transitionDuration: reduced
-            ? AppMotion.reducedFade
-            : AppMotion.sheetDuration,
-        reverseTransitionDuration: reduced
-            ? AppMotion.reducedFade
-            : AppMotion.reveal.duration,
-        pageBuilder: (context, _, _) =>
-            SizedBox.expand(child: builder(context)),
-        transitionsBuilder: (context, animation, _, child) => child,
-      );
+  _ImageViewerRoute({
+    required WidgetBuilder builder,
+    required this.reduced,
+    required this.readerStyle,
+  }) : super(
+         opaque: false,
+         allowSnapshotting: false,
+         barrierColor: Colors.transparent,
+         transitionDuration: reduced
+             ? AppMotion.reducedFade
+             : AppMotion.heroDuration,
+         reverseTransitionDuration: reduced
+             ? AppMotion.reducedFade
+             : AppMotion.reveal.duration + AppMotion.viewerChromeOut,
+         pageBuilder: (context, _, _) =>
+             SizedBox.expand(child: builder(context)),
+         transitionsBuilder: (context, animation, _, child) => child,
+       );
 
   final bool reduced;
+  final ValueGetter<SystemUiOverlayStyle> readerStyle;
+  bool _predictiveBack = false;
+  bool _holdReturnForChrome = false;
+  late final Curve returnCurve = _ViewerReturnCurve(this);
+
+  Animation<double> get progress => controller!.view;
+
+  // Normal pop spends the first 100 ms fading controls at the release rect.
+  // Predictive back continues to use the gesture's full progress range.
+  double get _returnFlightEnd =>
+      AppMotion.reveal.duration.inMicroseconds /
+      reverseTransitionDuration.inMicroseconds;
+
+  bool get returning => progress.status == AnimationStatus.reverse;
+  bool get followsGesture => _predictiveBack;
+
+  double get flightProgress => returning && _holdReturnForChrome
+      ? returnProgress(progress.value)
+      : progress.value;
+
+  double returnProgress(double value) =>
+      _holdReturnForChrome ? (value / _returnFlightEnd).clamp(0.0, 1.0) : value;
+
+  double get closingChrome {
+    if (progress.isDismissed) return 0;
+    if (!returning && !followsGesture) return 1;
+    if (!_holdReturnForChrome) return progress.value;
+    return ((progress.value - _returnFlightEnd) / (1 - _returnFlightEnd)).clamp(
+      0.0,
+      1.0,
+    );
+  }
+
   @override
-  Simulation? createSimulation({required bool forward}) => !reduced && forward
-      ? SpringSimulation(
-          AppMotion.hero,
-          controller!.value,
-          1,
-          controller!.velocity,
-          snapToEnd: true,
-        )
-      : null;
+  void handleStartBackGesture({double progress = 0.0}) {
+    _predictiveBack = true;
+    super.handleStartBackGesture(progress: progress);
+  }
+
+  @override
+  bool didPop(void result) {
+    _predictiveBack = navigator?.userGestureInProgress ?? false;
+    _holdReturnForChrome = !reduced && !_predictiveBack && progress.isCompleted;
+    return super.didPop(result);
+  }
+}
+
+class _ViewerReturnCurve extends Curve {
+  const _ViewerReturnCurve(this.route);
+
+  final _ImageViewerRoute route;
+
+  @override
+  double transformInternal(double t) =>
+      AppMotion.viewerHeroCurve.flipped.transform(route.returnProgress(t));
 }
 
 class ImageViewerPage extends StatefulWidget {
@@ -293,6 +354,11 @@ class _ImageViewerPageState extends State<ImageViewerPage>
   final _transform = TransformationController();
   final _viewportKey = GlobalKey();
   Animation<double>? _routeAnimation;
+  _ImageViewerRoute? _viewerRoute;
+  late final _enterChrome = AnimationController(
+    vsync: this,
+    duration: AppMotion.viewerChromeIn,
+  );
   late final _zoom = AnimationController(
     vsync: this,
     duration: AppMotion.revealDuration,
@@ -327,11 +393,17 @@ class _ImageViewerPageState extends State<ImageViewerPage>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final animation = ModalRoute.of(context)?.animation;
+    final route = ModalRoute.of(context);
+    _viewerRoute = route is _ImageViewerRoute ? route : null;
+    final animation = _viewerRoute?.progress ?? route?.animation;
+    if (animation == null) {
+      _enterChrome.value = 1;
+    }
     if (animation == _routeAnimation) return;
     _routeAnimation?.removeStatusListener(_routeStatusChanged);
     _routeAnimation = animation;
     animation?.addStatusListener(_routeStatusChanged);
+    if (animation?.isCompleted == true) _enterChrome.value = 1;
   }
 
   void _routeStatusChanged(AnimationStatus status) {
@@ -340,6 +412,7 @@ class _ImageViewerPageState extends State<ImageViewerPage>
       _zoom.stop();
       _dismiss.stop();
       _pageMotion.stop();
+      _enterChrome.stop();
       _closing = true;
       _dragStart = _lastPosition = null;
       _dragging = false;
@@ -349,6 +422,11 @@ class _ImageViewerPageState extends State<ImageViewerPage>
       }
     } else if (status == AnimationStatus.completed) {
       _closing = false;
+      if (MediaQuery.disableAnimationsOf(context)) {
+        _enterChrome.value = 1;
+      } else {
+        _enterChrome.forward();
+      }
     }
   }
 
@@ -496,9 +574,18 @@ class _ImageViewerPageState extends State<ImageViewerPage>
     }
   }
 
-  Widget _chrome(Widget child) => FadeTransition(
-    opacity: _routeAnimation ?? const AlwaysStoppedAnimation<double>(1),
+  Widget _chrome(Widget child) => AnimatedBuilder(
+    animation: Listenable.merge([_enterChrome, _routeAnimation]),
     child: child,
+    builder: (context, child) {
+      final opacity =
+          AppMotion.mediaFadeCurve.transform(_enterChrome.value) *
+          (_viewerRoute?.closingChrome ?? 1);
+      return IgnorePointer(
+        ignoring: opacity == 0 || _closing,
+        child: Opacity(opacity: opacity, child: child),
+      );
+    },
   );
 
   void _close() {
@@ -508,6 +595,7 @@ class _ImageViewerPageState extends State<ImageViewerPage>
   @override
   void dispose() {
     _routeAnimation?.removeStatusListener(_routeStatusChanged);
+    _enterChrome.dispose();
     _pageMotion.dispose();
     _controller.dispose();
     _transform.dispose();
@@ -614,6 +702,10 @@ class _ImageViewerPageState extends State<ImageViewerPage>
                                           ),
                                         ),
                                       ),
+                            color: AppTokens.of(context).isDark
+                                ? ImageTokens.darkTint
+                                : null,
+                            colorBlendMode: BlendMode.modulate,
                             fit: BoxFit.contain,
                             gaplessPlayback: true,
                             errorBuilder: (context, _, _) => FittedBox(
@@ -692,7 +784,7 @@ class _ImageViewerPageState extends State<ImageViewerPage>
               ),
             ),
     );
-    final routeAnimation = ModalRoute.of(context)?.animation;
+    final statusHeight = MediaQuery.viewPaddingOf(context).top;
     return Listener(
       onPointerDown: _pointerDown,
       onPointerMove: _pointerMove,
@@ -702,20 +794,42 @@ class _ImageViewerPageState extends State<ImageViewerPage>
         _cancelDrag();
       },
       child: AnimatedBuilder(
-        animation: Listenable.merge([_dismiss, ?routeAnimation]),
+        animation: Listenable.merge([_dismiss, _routeAnimation]),
         child: RepaintBoundary(child: page),
         builder: (context, child) {
+          final progress =
+              _viewerRoute?.flightProgress ?? _routeAnimation?.value ?? 1;
           final opacity =
-              (routeAnimation?.value ?? 1) *
+              AppMotion.viewerScrimCurve.transform(progress) *
               (1 - _dismiss.value / MediaQuery.sizeOf(context).height).clamp(
                 0.0,
                 1.0,
               );
           return ColoredBox(
-            color: ImageColors.viewerBackground.withValues(
-              alpha: opacity.clamp(0.0, 1.0),
+            key: const ValueKey('image-viewer-scrim'),
+            color: ImageColors.viewerBackground.withValues(alpha: opacity),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                child!,
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  height: statusHeight,
+                  child: AnnotatedRegion<SystemUiOverlayStyle>(
+                    key: const ValueKey('image-viewer-status-style'),
+                    value: opacity >= ImageTokens.viewerStatusThreshold
+                        ? AppSystemUi.lightIcons
+                        : _viewerRoute?.readerStyle() ??
+                              AppSystemUi.forBrightness(
+                                Theme.of(context).brightness,
+                              ),
+                    child: const SizedBox.expand(),
+                  ),
+                ),
+              ],
             ),
-            child: child,
           );
         },
       ),
@@ -746,7 +860,15 @@ class _ImageViewerPageState extends State<ImageViewerPage>
         widget.heroTagForIndex?.call(index) ??
         (index == widget.initialIndex ? widget.heroTag : null);
     return tag != null && !MediaQuery.disableAnimationsOf(context)
-        ? Hero(tag: tag, flightShuttleBuilder: _imageFlight, child: child)
+        ? Hero(
+            tag: tag,
+            curve: _viewerRoute == null
+                ? AppMotion.viewerHeroCurve
+                : AppMotion.viewerHeroTakeoffCurve,
+            reverseCurve: _viewerRoute?.returnCurve,
+            flightShuttleBuilder: _imageFlight,
+            child: child,
+          )
         : child;
   }
 
@@ -758,7 +880,12 @@ class _ImageViewerPageState extends State<ImageViewerPage>
     BuildContext toContext,
   ) {
     final destination = (toContext.widget as Hero).child;
-    if (direction != HeroFlightDirection.pop) return destination;
+    if (direction == HeroFlightDirection.push) {
+      return KeyedSubtree(
+        key: const ValueKey('image-viewer-open-flight'),
+        child: destination,
+      );
+    }
     final photo = fromContext.findRenderObject();
     final viewport = _viewportKey.currentContext?.findRenderObject();
     final target = toContext.findRenderObject();
@@ -790,7 +917,10 @@ class _ImageViewerPageState extends State<ImageViewerPage>
     final reader = toContext.getInheritedWidgetOfExactType<ReadingBarAnchor>();
     if (reader != null) {
       // Reading chrome is painted above the viewport, not a clip ancestor.
-      final bottom = reader.height * (1 - reader.hiddenProgress.value);
+      final hidden = reader.hiddenProgress.value;
+      final bottom = reader.reducedMotion && hidden < 1
+          ? reader.height
+          : reader.height * (1 - hidden);
       targetBounds = targetBounds.intersect(
         Rect.fromLTRB(
           0,

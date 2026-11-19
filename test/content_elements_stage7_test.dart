@@ -1,3 +1,4 @@
+import 'package:chh_app/core/display_time.dart';
 import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/design/tokens.dart';
 import 'package:chh_app/models/models.dart';
@@ -6,6 +7,7 @@ import 'package:chh_app/core/link_target.dart';
 import 'package:chh_app/widgets/post_card.dart';
 import 'package:chh_app/widgets/post_feedback.dart';
 import 'package:chh_app/widgets/reading_list_end.dart';
+import 'package:chh_app/widgets/chhers_loader.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -128,7 +130,10 @@ void main() {
             find.byKey(const ValueKey('suppressed-avatar-1')),
             findsOneWidget,
           );
-          expect(find.textContaining('11-15'), findsOneWidget);
+          expect(
+            find.text(formatDisplayTime(raw: '2026-11-15 12:00')),
+            findsOneWidget,
+          );
           await tester.tap(find.text('回复'));
           await tester.pumpAndSettle();
           expect(replies, 1);
@@ -151,7 +156,11 @@ void main() {
     await mount(tester, PostCard(post: p, isOpening: true));
     expect(find.text('**原样文字**\n第二行'), findsOneWidget);
     expect(
-      tester.getTopLeft(find.text('最后编辑于 2026-11-15 12:10')).dy,
+      tester
+          .getTopLeft(
+            find.text('最后编辑于 ${formatDisplayTime(raw: '2026-11-15 12:10')}'),
+          )
+          .dy,
       greaterThan(tester.getTopLeft(find.text('原文')).dy),
     );
     await mount(
@@ -163,7 +172,10 @@ void main() {
         ],
       ),
     );
-    expect(find.text('最后编辑于 2026-11-15 12:10'), findsOneWidget);
+    expect(
+      find.text('最后编辑于 ${formatDisplayTime(raw: '2026-11-15 12:10')}'),
+      findsOneWidget,
+    );
   });
   testWidgets('rating omits invented reasons and reading end stops ticking', (
     tester,
@@ -190,8 +202,8 @@ void main() {
     expect(find.text('已读到这里'), findsOneWidget);
     expect(tester.binding.transientCallbackCount, 0);
     await mount(tester, const ReadingListEnd(loading: true));
-    expect(find.text('正在加载'), findsOneWidget);
-    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(find.text('正在加载'), findsNothing);
+    expect(find.byType(ChhersLoader), findsOneWidget);
     await mount(tester, const ReadingListEnd());
     await tester.pumpAndSettle();
     expect(tester.binding.transientCallbackCount, 0);

@@ -1,7 +1,11 @@
 /// Source-backed message counters, explicit filters and readable activity rows.
 library;
 
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
+import '../design/display_text.dart';
+import '../core/display_time.dart';
 import '../ui/app_button.dart';
 import '../ui/segmented.dart';
 import '../ui/picker.dart';
@@ -13,9 +17,12 @@ import '../ui/feedback.dart';
 import '../core/chh_urls.dart';
 import '../data/message_repository.dart';
 import '../di.dart';
+import '../design/list_end_tokens.dart';
 import '../design/tokens.dart';
 import '../models/models.dart';
+import '../widgets/chhers_refresh_indicator.dart';
 import '../widgets/avatar_image.dart';
+import '../widgets/expressive_controls.dart' show ContentFade;
 import '../widgets/state_view.dart';
 import '../design/icons.dart';
 import '../widgets/lacquer_tab_scaffold.dart';
@@ -82,12 +89,71 @@ class _MessagesBodyState extends State<MessagesBody> {
   int _pm = 0;
   String? _type;
   final _position = ValueNotifier<double>(0);
+  final _mastOffset = ValueNotifier<double>(0);
+  final _scrolls = <int, ScrollController>{};
+  final _refresh = <int, Future<void> Function()>{};
+  double _collapseExtent = 0;
+  double _mastOffsetBias = 0;
+  ({int section, double offset})? _preview;
   MessageRepository get _repository => widget.repository ?? messageRepo;
+  bool get _sharedChrome => widget.tab || widget.showTitle;
 
   @override
   void dispose() {
+    for (final scroll in _scrolls.values) {
+      scroll.dispose();
+    }
+    _mastOffset.dispose();
     _position.dispose();
     super.dispose();
+  }
+
+  ScrollController _scrollFor(int section) => _scrolls.putIfAbsent(
+    section,
+    () => ScrollController(
+      initialScrollOffset: _sharedChrome ? _mastOffset.value : 0,
+    ),
+  );
+
+  void _previewSection(int section) {
+    final target = _scrolls[section];
+    final mast = _mastOffset.value;
+    if (mast == 0 || _preview != null) return;
+    if (target == null || !target.hasClients) {
+      _preview = (section: section, offset: 0);
+      _scrollFor(section);
+    } else if (target.offset < mast) {
+      _preview = (section: section, offset: target.offset);
+      target.jumpTo(mast);
+    }
+  }
+
+  void _restorePreview() {
+    final preview = _preview;
+    _preview = null;
+    if (preview == null || preview.section == _section) return;
+    final scroll = _scrollFor(preview.section);
+    if (scroll.hasClients) scroll.jumpTo(preview.offset);
+  }
+
+  void _select(int section) {
+    if (section == _section) return;
+    if (_sharedChrome) {
+      final current = _scrollFor(_section);
+      if (current.hasClients) current.jumpTo(current.offset);
+      final target = _scrollFor(section);
+      final mast = _mastOffset.value.clamp(0.0, _collapseExtent);
+      final targetOffset = target.hasClients
+          ? target.offset
+          : target.initialScrollOffset;
+      if (target.hasClients && targetOffset < mast) target.jumpTo(mast);
+      if (_preview?.section == section) _preview = null;
+      // A deeper saved list position can coexist with the current mast position.
+      _mastOffsetBias = mast < _collapseExtent
+          ? math.max(0, targetOffset - mast)
+          : 0;
+    }
+    setState(() => _section = section);
   }
 
   @override
@@ -101,7 +167,7 @@ class _MessagesBodyState extends State<MessagesBody> {
           PickerOption(value: 1, label: '私信'),
         ],
         value: _section,
-        onChanged: (i) => setState(() => _section = i),
+        onChanged: _select,
         compact: compact,
         onLac: onLac,
         position: _position,
@@ -111,11 +177,7 @@ class _MessagesBodyState extends State<MessagesBody> {
       final header = Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          LargeTitleHeader(
-            title: '消息',
-            onLac: onLac,
-            compact: widget.tab && !onLac,
-          ),
+          if (!widget.tab) LargeTitleHeader(title: '消息', onLac: onLac),
           Padding(
             padding: const EdgeInsets.fromLTRB(
               AppSpace.groupInset,
@@ -127,7 +189,7 @@ class _MessagesBodyState extends State<MessagesBody> {
           ),
         ],
       );
-      Widget page(int i) => i == 0
+      Widget page(int i, TabScrollBuilder? buildScroll) => i == 0
           ? _MessageFeed<Notice>(
               key: ValueKey((
                 'notices-feed',
@@ -140,6 +202,11 @@ class _MessagesBodyState extends State<MessagesBody> {
                   : '没有${_type == null ? noticeViewLabels[_view] : noticeTypes(_view).firstWhere((e) => e.value == _type).label}提醒',
               identity: (n) => n.id,
               date: (n) => n.occurredAtText,
+              precedingBottomPadding: (n) =>
+                  NoticeTokens.rowPadding.bottom +
+                  (n.replyText?.trim().isNotEmpty == true
+                      ? NoticeTokens.quotePadding.bottom
+                      : 0),
               load: (page, {bool refresh = false}) => _repository.notices(
                 view: noticeViews[_view],
                 type: _type,
@@ -161,10 +228,10 @@ class _MessagesBodyState extends State<MessagesBody> {
                   _type = t;
                 }),
               ),
-              header: header,
-              compact: segmented(compact: true),
-              chrome: widget.tab || widget.showTitle,
-              showBack: widget.showTitle,
+              scroll: _scrollFor(i),
+              buildScroll: buildScroll,
+              active: i == _section,
+              onRefreshReady: (refresh) => _refresh[i] = refresh,
               compactMisty: widget.tab,
             )
           : _MessageFeed<PmConversation>(
@@ -179,6 +246,8 @@ class _MessagesBodyState extends State<MessagesBody> {
               empty: _pm == 0 ? '还没有私人消息' : '暂时没有公共消息',
               identity: (c) => c.id,
               date: (c) => c.timeRaw,
+              precedingBottomPadding: (_) =>
+                  NoticeTokens.conversationPadding.bottom,
               load: (page, {bool refresh = false}) => _repository.conversations(
                 filter: _pm == 0 ? PmFilter.privatePm : PmFilter.announcePm,
                 page: page,
@@ -191,26 +260,65 @@ class _MessagesBodyState extends State<MessagesBody> {
               ),
               filter: PmFilterLabel(
                 value: _pm,
-                onChanged: (i) => setState(() => _pm = i),
+                onChanged: (value) {
+                  if (value == _pm) return;
+                  final scroll = _scrolls[1]!;
+                  if (scroll.hasClients) scroll.jumpTo(0);
+                  setState(() => _pm = value);
+                },
               ),
-              header: header,
-              compact: segmented(compact: true),
-              chrome: widget.tab || widget.showTitle,
-              showBack: widget.showTitle,
+              scroll: _scrollFor(i),
+              buildScroll: buildScroll,
+              active: i == _section,
+              onRefreshReady: (refresh) => _refresh[i] = refresh,
               compactMisty: widget.tab,
             );
-      final pager = MessagePager(
+      Widget pager([TabScrollBuilder? buildScroll]) => MessagePager(
         value: _section,
         position: _position,
-        onChanged: (i) => setState(() => _section = i),
-        itemBuilder: (context, i) => page(i),
+        onChanged: _select,
+        onPreview: _sharedChrome ? _previewSection : null,
+        onSettled: _sharedChrome ? _restorePreview : null,
+        itemBuilder: (context, i) => page(i, buildScroll),
       );
-      return widget.tab || widget.showTitle
-          ? pager
+      final unread = chhSession.badges.total;
+      return _sharedChrome
+          ? LacquerTabScaffold(
+              mistyCompact: widget.tab,
+              contentOnPaper: true,
+              title: '消息',
+              slivers: const [],
+              eyebrow: widget.tab
+                  ? (unread > 0 ? '$unread 条未读' : '全部已读')
+                  : null,
+              controller: _scrollFor(_section),
+              scrollOffset: _mastOffset,
+              mastOffsetForScroll: (pixels) =>
+                  (pixels - _mastOffsetBias).clamp(0.0, _collapseExtent),
+              header: widget.tab ? null : header,
+              headerBody: widget.tab ? header : null,
+              fadeHeaderBody: widget.tab,
+              compactTitle: Center(child: segmented(compact: true)),
+              actions: widget.showTitle
+                  ? [
+                      ChromeButton(
+                        icon: AppIcons.back,
+                        tooltip: '返回',
+                        onLac: onLac,
+                        onPressed: () => Navigator.of(context).maybePop(),
+                      ),
+                    ]
+                  : const [],
+              onRefresh: () async => _refresh[_section]?.call(),
+              scrollBody: (buildScroll, collapseExtent) {
+                _collapseExtent = collapseExtent;
+                return pager(buildScroll);
+              },
+            )
           : Column(
               children: [
                 Padding(padding: const EdgeInsets.all(16), child: segmented()),
-                Expanded(child: pager),
+                Expanded(child: pager()),
               ],
             );
     },
@@ -236,11 +344,12 @@ class _NoticeRow extends StatelessWidget {
         size: 40,
       ),
       name: notice.actor ?? '系统',
-      time: _clock(notice.occurredAtText),
+      time: formatDisplayTime(raw: notice.occurredAtText),
       text:
           notice.action ??
           notice.summary.replaceFirst(notice.actor ?? '', '').trim(),
       title: notice.title,
+      replyText: notice.replyText,
       scoreText: notice.score,
       category: notice.category,
       system: notice.actor == null,
@@ -262,7 +371,7 @@ class _NoticeRow extends StatelessWidget {
       context,
       builder: (context) => SheetScaffold(
         title: notice.actor ?? '系统提醒',
-        contextLine: notice.occurredAtText,
+        contextLine: formatDisplayTime(raw: notice.occurredAtText),
         body: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(
             AppSpace.screen,
@@ -271,7 +380,7 @@ class _NoticeRow extends StatelessWidget {
             32,
           ),
           child: SelectableText(
-            notice.summary,
+            normalizeDisplayText(notice.summary),
             style: AppType.reading.copyWith(color: AppTokens.of(context).text),
           ),
         ),
@@ -296,7 +405,7 @@ class _ConversationRow extends StatelessWidget {
       size: 48,
     ),
     name: conversation.peer,
-    time: messagePreviewTime(conversation.timeRaw),
+    time: formatDisplayTime(raw: conversation.timeRaw),
     conversation: true,
     isOutgoing: conversation.isOutgoing,
     unread: conversation.unread,
@@ -310,33 +419,6 @@ class _ConversationRow extends StatelessWidget {
   );
 }
 
-String _day(String raw) {
-  if (raw.contains('今天')) return '今天';
-  if (raw.contains('昨天')) return '昨天';
-  final date = ChhUrls.parseTime(raw);
-  if (date == null) return '消息记录';
-  final now = DateUtils.dateOnly(DateTime.now());
-  final day = DateUtils.dateOnly(date);
-  if (day == now) return '今天';
-  if (day == now.subtract(const Duration(days: 1))) return '昨天';
-  return '${date.year == now.year ? '' : '${date.year}年'}${date.month}月${date.day}日';
-}
-
-String messagePreviewTime(String raw, {DateTime? now}) {
-  now ??= DateTime.now();
-  if (raw.contains('昨天')) return '昨天';
-  if (raw.contains('今天')) return _clock(raw);
-  final date = ChhUrls.parseTime(raw);
-  if (date == null) return raw;
-  final day = DateUtils.dateOnly(date), today = DateUtils.dateOnly(now);
-  if (day == today) return _clock(raw);
-  if (day == today.subtract(const Duration(days: 1))) return '昨天';
-  return '${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
-}
-
-String _clock(String raw) =>
-    RegExp(r'\d{1,2}:\d{2}').firstMatch(raw)?.group(0) ?? raw;
-
 /// Serial pagination keeps source next URLs and leaves existing rows on failure.
 class _MessageFeed<T> extends StatefulWidget {
   const _MessageFeed({
@@ -346,13 +428,14 @@ class _MessageFeed<T> extends StatefulWidget {
     required this.itemBuilder,
     required this.identity,
     required this.date,
+    required this.precedingBottomPadding,
     required this.empty,
     required this.filter,
-    required this.header,
-    required this.compact,
+    required this.scroll,
+    required this.active,
+    required this.onRefreshReady,
     required this.revision,
-    required this.chrome,
-    this.showBack = false,
+    this.buildScroll,
     this.compactMisty = false,
     this.groupByDate = true,
     this.updateCount = 0,
@@ -362,10 +445,15 @@ class _MessageFeed<T> extends StatefulWidget {
   final Widget Function(T) itemBuilder;
   final String Function(T) identity;
   final String Function(T) date;
+  final double Function(T) precedingBottomPadding;
   final String empty;
-  final Widget filter, header, compact;
+  final Widget filter;
+  final ScrollController scroll;
+  final bool active;
+  final ValueChanged<Future<void> Function()> onRefreshReady;
+  final TabScrollBuilder? buildScroll;
   final Object revision;
-  final bool chrome, showBack, groupByDate;
+  final bool groupByDate;
   final bool compactMisty;
   final int updateCount;
   @override
@@ -380,7 +468,7 @@ class _MessageFeedState<T> extends State<_MessageFeed<T>>
     value: 1,
   );
   final _items = <T>[];
-  final _scroll = ScrollController();
+  ScrollController get _scroll => widget.scroll;
   final _inserted = <String>{};
   Paged<T>? _last, _pending;
   bool _busy = false, _started = false, _hasNext = false, _failedMore = false;
@@ -396,6 +484,7 @@ class _MessageFeedState<T> extends State<_MessageFeed<T>>
     super.initState();
     _arrival;
     _scroll.addListener(_onScroll);
+    widget.onRefreshReady(() => _fetch(refresh: true));
     _fetch(refresh: true);
   }
 
@@ -412,9 +501,8 @@ class _MessageFeedState<T> extends State<_MessageFeed<T>>
         _last = null;
         _started = false;
         _hasNext = false;
-        if (_scroll.hasClients) _scroll.jumpTo(0);
       }
-      _fetch(refresh: true);
+      _fetch(refresh: true, revealOnArrival: true);
     } else if (widget.updateCount > oldWidget.updateCount) {
       _fetch(refresh: true, deferWhileReading: true);
     }
@@ -422,7 +510,7 @@ class _MessageFeedState<T> extends State<_MessageFeed<T>>
 
   @override
   void dispose() {
-    _scroll.dispose();
+    _scroll.removeListener(_onScroll);
     _arrival.dispose();
     super.dispose();
   }
@@ -433,7 +521,8 @@ class _MessageFeedState<T> extends State<_MessageFeed<T>>
       _pending = null;
       setState(() => _apply(result, false));
     }
-    if (_scroll.hasClients &&
+    if (widget.active &&
+        _scroll.hasClients &&
         _scroll.position.extentAfter < 260 &&
         _hasNext &&
         !_busy &&
@@ -468,9 +557,13 @@ class _MessageFeedState<T> extends State<_MessageFeed<T>>
       final order = {
         for (var i = 0; i < _items.length; i++) widget.identity(_items[i]): i,
       };
+      final now = DateTime.now();
+      final dates = {
+        for (final item in _items)
+          widget.identity(item): ChhUrls.parseTime(widget.date(item), now: now),
+      };
       _items.sort((a, b) {
-        final at = ChhUrls.parseTime(widget.date(a)),
-            bt = ChhUrls.parseTime(widget.date(b));
+        final at = dates[widget.identity(a)], bt = dates[widget.identity(b)];
         if (at == null && bt != null) return 1;
         if (at != null && bt == null) return -1;
         final byTime = at != null && bt != null ? bt.compareTo(at) : 0;
@@ -491,6 +584,7 @@ class _MessageFeedState<T> extends State<_MessageFeed<T>>
     bool more = false,
     bool refresh = false,
     bool deferWhileReading = false,
+    bool revealOnArrival = false,
   }) async {
     if (_busy) {
       if (deferWhileReading) _refreshQueued = true;
@@ -524,7 +618,7 @@ class _MessageFeedState<T> extends State<_MessageFeed<T>>
           _pending = result;
         } else {
           _apply(result, more);
-          if (!more && !deferWhileReading) {
+          if (!more && !deferWhileReading && (!_started || revealOnArrival)) {
             _arrival.duration = MediaQuery.disableAnimationsOf(context)
                 ? AppMotion.reducedFade
                 : AppMotion.fade;
@@ -562,47 +656,38 @@ class _MessageFeedState<T> extends State<_MessageFeed<T>>
 
   @override
   Widget build(BuildContext context) {
-    final slivers = _slivers(context);
-    final body = widget.chrome
-        ? LacquerTabScaffold(
-            mistyCompact: widget.compactMisty,
-            // The label owns the gap so its 44dp filter target can extend into
-            // the whitespace while the visible date stays 20dp below the tabs.
-            mistyContentGap:
-                _items.isEmpty &&
-                    _error is PageMessage &&
-                    (_error as PageMessage).kind ==
-                        PageMessageKind.loginRequired
-                ? TabChromeTokens.mistyContentGap
-                : 0,
-            contentOnPaper: true,
-            title: '消息',
+    final slivers = [
+      ..._slivers(context),
+      SliverToBoxAdapter(
+        child: SizedBox(
+          height:
+              ListEndTokens.navigationGap +
+              MediaQuery.paddingOf(context).bottom,
+        ),
+      ),
+    ];
+    final body =
+        widget.buildScroll?.call(
+          _scroll,
+          slivers,
+          active: widget.active,
+          // The label owns the gap so its 44dp filter target can extend into
+          // the whitespace while the visible date stays 20dp below the tabs.
+          mistyContentGap:
+              _items.isEmpty &&
+                  _error is PageMessage &&
+                  (_error as PageMessage).kind == PageMessageKind.loginRequired
+              ? TabChromeTokens.mistyContentGap
+              : 0,
+        ) ??
+        ChhersRefreshIndicator(
+          onRefresh: () => _fetch(refresh: true),
+          child: CustomScrollView(
             controller: _scroll,
-            header: widget.header,
-            compactTitle: Center(child: widget.compact),
-            actions: widget.showBack
-                ? [
-                    ChromeButton(
-                      icon: AppIcons.back,
-                      tooltip: '返回',
-                      onLac:
-                          AppTokens.of(context).style ==
-                          AppearanceStyle.cinnabar,
-                      onPressed: () => Navigator.of(context).maybePop(),
-                    ),
-                  ]
-                : const [],
-            onRefresh: () => _fetch(refresh: true),
+            physics: const AlwaysScrollableScrollPhysics(),
             slivers: slivers,
-          )
-        : RefreshIndicator(
-            onRefresh: () => _fetch(refresh: true),
-            child: CustomScrollView(
-              controller: _scroll,
-              physics: const AlwaysScrollableScrollPhysics(),
-              slivers: slivers,
-            ),
-          );
+          ),
+        );
     return NotificationListener<ScrollEndNotification>(
       onNotification: (_) {
         if (_pending != null) {
@@ -664,8 +749,15 @@ class _MessageFeedState<T> extends State<_MessageFeed<T>>
       ];
     }
     final groups = <({String? day, List<T> rows})>[];
+    final now = DateTime.now();
     for (final item in _items) {
-      final day = widget.groupByDate ? _day(widget.date(item)) : null;
+      final day = widget.groupByDate
+          ? formatDisplayTime(
+              raw: widget.date(item),
+              style: DisplayTimeStyle.section,
+              now: now,
+            )
+          : null;
       if (groups.isEmpty || groups.last.day != day) {
         groups.add((day: day, rows: <T>[]));
       }
@@ -676,7 +768,7 @@ class _MessageFeedState<T> extends State<_MessageFeed<T>>
         SliverToBoxAdapter(child: _label(group.day, first: index == 0)),
         _card(
           SliverList.builder(
-            itemCount: group.rows.length,
+            itemCount: group.rows.length + (index == groups.length - 1 ? 1 : 0),
             findChildIndexCallback: (key) {
               if (key is! ValueKey<String>) return null;
               final index = group.rows.indexWhere(
@@ -685,66 +777,57 @@ class _MessageFeedState<T> extends State<_MessageFeed<T>>
               return index < 0 ? null : index;
             },
             itemBuilder: (_, i) {
+              if (i == group.rows.length) return _footer(error);
               final item = group.rows[i], id = widget.identity(group.rows[i]);
               return _NewMessageRow(
                 key: ValueKey(id),
                 reveal: _inserted.remove(id),
-                child: Stack(
-                  children: [
-                    widget.itemBuilder(item),
-                    Positioned.fill(
-                      child: IgnorePointer(
-                        child: AnimatedBuilder(
-                          animation: _arrival,
-                          builder: (_, _) => ColoredBox(
-                            color: AppTokens.of(
-                              context,
-                            ).surface.withValues(alpha: 1 - _arrival.value),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
+                child: ContentFade(
+                  opacity: _arrival,
+                  background: AppTokens.of(context).surface,
+                  child: widget.itemBuilder(item),
                 ),
               );
             },
           ),
         ),
       ],
-      SliverToBoxAdapter(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 22),
-          child: Center(
-            child: error != null
-                ? AppButton(
-                    label: _failedMore ? '未能加载更多，轻点重试' : '未能刷新，轻点重试',
-                    variant: AppButtonVariant.plain,
-                    icon: AppIcons.refresh,
-                    onPressed: () =>
-                        _fetch(more: _failedMore, refresh: !_failedMore),
-                  )
-                : _busy
-                ? const SizedBox.square(
-                    dimension: 18,
-                    child: CircularProgressIndicator(strokeWidth: 1.5),
-                  )
-                : _hasNext
-                ? AppButton(
-                    label: '加载更多',
-                    variant: AppButtonVariant.plain,
-                    onPressed: () => _fetch(more: true),
-                  )
-                : Text(
-                    '已显示全部消息',
-                    style: AppType.footnote.copyWith(
-                      color: AppTokens.of(context).text3,
-                    ),
-                  ),
-          ),
-        ),
-      ),
-      const SliverToBoxAdapter(child: SizedBox(height: 120)),
     ];
+  }
+
+  Widget _footer(Object? error) {
+    final preceding = widget.precedingBottomPadding(_items.last);
+    const following = MessageListTokens.cardPadding;
+    if (error == null && (_busy || !_hasNext)) {
+      return ListFooter(
+        loading: _busy,
+        exhausted: !_hasNext,
+        endLabel: '已显示全部消息',
+        precedingBottomPadding: preceding,
+        followingBottomPadding: following,
+      );
+    }
+    return Padding(
+      padding: EdgeInsets.only(
+        top: ListEndTokens.markerPadding(preceding),
+        bottom: ListEndTokens.markerPadding(following),
+      ),
+      child: Center(
+        child: error != null
+            ? AppButton(
+                label: _failedMore ? '未能加载更多，轻点重试' : '未能刷新，轻点重试',
+                variant: AppButtonVariant.plain,
+                icon: AppIcons.refresh,
+                onPressed: () =>
+                    _fetch(more: _failedMore, refresh: !_failedMore),
+              )
+            : AppButton(
+                label: '加载更多',
+                variant: AppButtonVariant.plain,
+                onPressed: () => _fetch(more: true),
+              ),
+      ),
+    );
   }
 
   Widget _card(Widget sliver) => SliverPadding(

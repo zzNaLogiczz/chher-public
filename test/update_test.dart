@@ -533,7 +533,7 @@ void main() {
       // ignore: invalid_use_of_protected_member, invalid_use_of_visible_for_testing_member
       c.notifyListeners();
       await tester.pumpAndSettle();
-      expect(find.text('需要允许 Chher 安装应用'), findsOneWidget);
+      expect(find.text('需要允许 Chhers 安装应用'), findsOneWidget);
       expect(c.available, isTrue);
       await tester.tap(find.text('去开启'));
       await tester.pumpAndSettle();

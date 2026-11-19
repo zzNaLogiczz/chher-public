@@ -10,6 +10,7 @@ import 'package:chh_app/pages/my_threads_page.dart';
 import 'package:chh_app/pages/search_page.dart';
 import 'package:chh_app/pages/thread_detail_page.dart';
 import 'package:chh_app/ui/plain_rows.dart';
+import 'package:chh_app/widgets/chhers_refresh_indicator.dart';
 import 'package:chh_app/widgets/search_workspace.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -198,8 +199,8 @@ void main() {
     }
     expect(calls, [1, 2, 3]);
     expect(marks, 2);
-    final refresh = tester.widget<RefreshIndicator>(
-      find.byType(RefreshIndicator),
+    final refresh = tester.widget<ChhersRefreshIndicator>(
+      find.byType(ChhersRefreshIndicator),
     );
     await refresh.onRefresh();
     await tester.pumpAndSettle();
@@ -279,15 +280,15 @@ void main() {
     final t = tokensOf(tester);
     expect(styleOf(tester, '散热器评测')!.color, t.text);
     expect(find.text('+3'), findsOneWidget);
+    expect(styleOf(tester, '+3')!.color, t.accent);
+    expect(find.text('10'), findsOneWidget);
     expect(
-      DefaultTextStyle.of(tester.element(find.text('+3'))).style.color,
-      t.accent,
+      tester.getTopLeft(find.text('10')).dy,
+      tester.getTopLeft(find.text('+3')).dy,
     );
-    // 仍无分隔符与图标
-    expect(find.textContaining('·'), findsNothing);
     expect(
-      find.descendant(of: find.byType(ThreadRow), matching: find.byType(Icon)),
-      findsNothing,
+      tester.getTopLeft(find.text('10')).dx,
+      lessThan(tester.getTopLeft(find.text('+3')).dx),
     );
   });
 
@@ -342,18 +343,24 @@ void main() {
   testWidgets('搜索行置灰后关键词高亮仍可辨', (tester) async {
     await tester.pumpWidget(
       app(
-        SearchResultRow(
-          title: '风冷散热器评测',
+        const ThreadRow(
+          thread: ThreadSummary(
+            tid: 7,
+            title: '风冷散热器评测',
+            forumName: '版块',
+            author: '',
+            replies: 0,
+            views: 0,
+          ),
           query: '散热',
-          meta: const ['版块'],
-          readState: const ThreadReadSeen(),
+          readState: ThreadReadSeen(),
         ),
       ),
     );
     final t = tokensOf(tester);
     final rich = tester.widget<RichText>(
       find.descendant(
-        of: find.byType(SearchResultRow),
+        of: find.byType(ThreadRow),
         matching: find.byWidgetPredicate(
           (w) => w is RichText && w.text.toPlainText() == '风冷散热器评测',
         ),
@@ -385,7 +392,7 @@ void main() {
     expect(find.textContaining('新回复'), findsNothing);
     threadReadIndex.markRead(7, 1);
     await tester.pump();
-    expect(find.text('+3 新回复'), findsOneWidget);
+    expect(find.text('+3'), findsOneWidget);
   });
 
   testWidgets('我的主题:replies 为 null 只分已看/未看,有数值才追加 +N 新回复', (tester) async {
@@ -403,10 +410,10 @@ void main() {
     // replies 为 null:已看降色,绝不出现 +0 新回复
     expect(tester.widget<Text>(find.text('未知回复数')).style!.color, t.text2);
     // replies 8 对 5:新回复 +3,标题保持强色
-    expect(find.text('+3 新回复'), findsOneWidget);
-    expect(find.textContaining('新回复'), findsOneWidget);
+    expect(find.text('+3'), findsOneWidget);
+    expect(find.text('8'), findsOneWidget);
     expect(tester.widget<Text>(find.text('回复变多的帖')).style!.color, t.text);
-    expect(styleOf(tester, '+3 新回复')!.color, t.accent);
+    expect(styleOf(tester, '+3')!.color, t.accent);
   });
 
   /// 30 行列表,每行记录 builder 调用次数;回复数统一为 10

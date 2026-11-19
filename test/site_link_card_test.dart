@@ -1,7 +1,9 @@
 import 'dart:async';
 
+import 'package:chh_app/core/display_time.dart';
 import 'package:chh_app/core/link_target.dart';
 import 'package:chh_app/data/link_preview_repository.dart';
+import 'package:chh_app/design/motion.dart';
 import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/design/tokens.dart';
 import 'package:chh_app/models/models.dart';
@@ -69,7 +71,7 @@ void main() {
     await tester.pumpWidget(
       _app(card('thread-2907156-1-1.html', label: '拆机帖')),
     );
-    expect(find.text('拆机帖'), findsOneWidget);
+    expect(find.text('拆机帖'), findsNothing);
     expect(find.text('帖子'), findsNothing);
     expect(
       find.byKey(const ValueKey('site-card-date-placeholder')),
@@ -80,7 +82,15 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.getSize(find.byType(SiteLinkCard)).height, lessThan(100));
     expect(find.text('5080 公版拆机：均热板与供电布局细节'), findsOneWidget);
-    expect(find.text(siteLinkDate(DateTime(2026, 10, 19))), findsOneWidget);
+    expect(
+      find.text(
+        formatDisplayTime(
+          at: DateTime(2026, 10, 19),
+          style: DisplayTimeStyle.list,
+        ),
+      ),
+      findsOneWidget,
+    );
     expect(find.text('a'), findsOneWidget);
     expect(find.text('拆机帖'), findsNothing);
   });
@@ -90,7 +100,7 @@ void main() {
       _app(card('https://www.chiphell.com/thread-2907156-1-1.html')),
     );
     expect(find.text('thread-2907156-1-1.html'), findsNothing);
-    expect(find.text('站内帖子'), findsOneWidget);
+    expect(find.text('站内帖子'), findsNothing);
     pending.values.single.complete(_archiver);
     await tester.pumpAndSettle();
   });
@@ -153,7 +163,15 @@ void main() {
     await tester.pumpWidget(_app(card('article-50001-1.html')));
     await tester.pumpAndSettle();
     expect(find.text('文章'), findsNothing);
-    expect(find.text(siteLinkDate(DateTime(2026, 9, 30))), findsOneWidget);
+    expect(
+      find.text(
+        formatDisplayTime(
+          at: DateTime(2026, 9, 30),
+          style: DisplayTimeStyle.list,
+        ),
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets('320dp 宽加 2 倍字号不溢出', (tester) async {
@@ -176,17 +194,6 @@ void main() {
     await tester.pumpAndSettle();
     final title = tester.widget<Text>(find.text('5080 公版拆机：均热板与供电布局细节'));
     expect(title.style!.color, AppTokens.dark.text);
-  });
-
-  test('日期仅往年显示年份', () {
-    expect(
-      siteLinkDate(DateTime(2026, 4, 21), now: DateTime(2026, 11)),
-      '4月21日',
-    );
-    expect(
-      siteLinkDate(DateTime(2025, 4, 21), now: DateTime(2026, 11)),
-      '2025年4月21日',
-    );
   });
 
   test('失败标题不显示网址或网址片段', () {
@@ -277,7 +284,7 @@ void main() {
     });
   }
 
-  testWidgets('整组骨架等待300ms才呼吸，内容到达后停止', (tester) async {
+  testWidgets('整组骨架首帧可见，内容到达后停止呼吸', (tester) async {
     await tester.pumpWidget(
       _app(
         SiteLinkGroupCard(
@@ -290,7 +297,11 @@ void main() {
       ),
     );
     expect(find.byType(SkeletonPulse), findsOneWidget);
-    await tester.pump();
+    expect(find.byType(LoadingPlaceholder), findsNothing);
+    expect(
+      find.byKey(const ValueKey('site-card-title-placeholder-0')),
+      findsNWidgets(2),
+    );
     double opacity() => tester
         .widget<Opacity>(
           find
@@ -301,17 +312,66 @@ void main() {
               .first,
         )
         .opacity;
-    await tester.pump(const Duration(milliseconds: 299));
     expect(opacity(), 1);
-    await tester.pump(const Duration(milliseconds: 2));
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 800));
+    await tester.pump(AppMotion.skeletonCycle ~/ 2);
     expect(opacity(), lessThan(1));
     for (final request in pending.values) {
       request.complete(_archiver);
     }
     await tester.pumpAndSettle();
     expect(tester.binding.transientCallbackCount, 0);
+  });
+
+  testWidgets('双行链接骨架与标题同高，文字到达时交叉淡入', (tester) async {
+    const title = '宽屏显示器横向评测与不同环境的色彩对比测试结果汇总';
+    await tester.pumpWidget(
+      _app(card('thread-2907156-1-1.html', label: title)),
+    );
+    final cardFinder = find.byType(SiteLinkCard);
+    final firstBar = find.byKey(
+      const ValueKey('site-card-title-placeholder-0'),
+    );
+    final secondBar = find.byKey(
+      const ValueKey('site-card-title-placeholder-1'),
+    );
+    final dateBar = find.byKey(const ValueKey('site-card-date-placeholder'));
+    final height = tester.getSize(cardFinder);
+    final firstBarY = tester.getCenter(firstBar).dy;
+    final secondBarY = tester.getCenter(secondBar).dy;
+    final dateY = tester.getCenter(dateBar).dy;
+    expect(find.text(title), findsNothing);
+
+    pending.values.single.complete(
+      _archiver.replaceFirst('5080 公版拆机：均热板与供电布局细节', title),
+    );
+    await tester.pump();
+    await tester.pump();
+    final textFinder = find.text(title);
+    final textFade = find.ancestor(
+      of: textFinder,
+      matching: find.byType(AnimatedOpacity),
+    );
+    final skeletonFade = find.ancestor(
+      of: dateBar,
+      matching: find.byType(AnimatedOpacity),
+    );
+    double opacity(Finder finder) =>
+        tester.renderObject<RenderAnimatedOpacity>(finder.first).opacity.value;
+    expect(tester.getSize(cardFinder), height);
+    expect(opacity(textFade), 0);
+    expect(opacity(skeletonFade), 1);
+    await tester.pump(AppMotion.fade ~/ 2);
+    expect(opacity(textFade), closeTo(.5, .01));
+    expect(opacity(skeletonFade), closeTo(.5, .01));
+    await tester.pumpAndSettle();
+    expect(opacity(textFade), 1);
+    expect(opacity(skeletonFade), 0);
+    expect(tester.getSize(cardFinder), height);
+    expect(tester.getTopLeft(textFinder).dy, lessThan(firstBarY));
+    expect(tester.getBottomLeft(textFinder).dy, greaterThan(secondBarY));
+    expect(tester.getTopLeft(find.text('a')).dy, lessThan(dateY));
+    expect(tester.getBottomLeft(find.text('a')).dy, greaterThan(dateY));
   });
 
   for (final style in AppearanceStyle.values) {
@@ -337,7 +397,15 @@ void main() {
         expect(find.text('合成图片'), findsNothing);
         expect(find.text('5080 公版拆机：均热板与供电布局细节'), findsOneWidget);
         expect(find.text('a'), findsOneWidget);
-        expect(find.text(siteLinkDate(DateTime(2026, 10, 19))), findsOneWidget);
+        expect(
+          find.text(
+            formatDisplayTime(
+              at: DateTime(2026, 10, 19),
+              style: DisplayTimeStyle.list,
+            ),
+          ),
+          findsOneWidget,
+        );
         expect(tester.binding.transientCallbackCount, 0);
 
         await tester.pumpWidget(const SizedBox());

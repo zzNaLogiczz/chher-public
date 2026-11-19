@@ -16,6 +16,7 @@ import '../design/reading.dart';
 import '../design/motion.dart';
 import '../design/tokens.dart';
 import '../design/typography.dart';
+import '../design/image_tokens.dart';
 import 'image_grid.dart';
 import 'net_image.dart';
 import 'image_stack_mode_toggle.dart';
@@ -124,6 +125,8 @@ class ImageStackExpandedImage extends StatelessWidget {
         image:
             imageProviderBuilder?.call(url, decode) ??
             boundedNetworkImageBox(url, decode, 2048),
+        color: t.isDark ? ImageTokens.darkTint : null,
+        colorBlendMode: BlendMode.modulate,
         width: width,
         fit: BoxFit.fitWidth,
         filterQuality: FilterQuality.low,
@@ -153,7 +156,7 @@ Size imageStackFrame(
           )
           .toList()
         ..sort();
-  if (values.isEmpty) values.add(4 / 3);
+  if (values.isEmpty) values.add(ImageStackTokens.fallbackAspectRatio);
   final cap = compact
       ? ImageStackTokens.compactFrameHeight
       : ImageStackTokens.frameHeight;
@@ -193,8 +196,9 @@ int imageStackReleaseTarget(
 
 class _PhotoVM {
   final String url;
-  double ratio = 4 / 3;
+  double ratio = ImageStackTokens.fallbackAspectRatio;
   bool known = false, decoded = false, failed = false, probing = false;
+  bool atmosphereDone = false, revealed = false, revealScheduled = false;
   PhotoAtmosphere? atmosphere;
   _PhotoVM(this.url, double? sourceRatio) {
     if (sourceRatio != null && sourceRatio.isFinite && sourceRatio > 0) {
@@ -217,7 +221,7 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
   List<Rect>? _listCache;
   Size? _frameCache;
   List<double>? _frameRatios;
-  double? _reservedFrameHeight;
+  List<double>? _listRatios;
   bool _ratiosDirty = false;
   final _photoWidgets = <int, Widget>{};
   final _flipFrom = <int, Rect>{};
@@ -246,21 +250,15 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
   bool get _reduced => MediaQuery.disableAnimationsOf(context);
   double get _travel => _frame.width + ImageStackTokens.travelExtra;
   double get _livePosition => _position.value + _hint.value / _travel;
-  double get _frameCap => widget.compact
-      ? ImageStackTokens.compactFrameHeight
-      : ImageStackTokens.frameHeight;
-  double get _reservation =>
-      _expanded ? 0 : math.max(0, (_reservedFrameHeight ?? 0) - _frame.height);
   Size get _frame => _frameCache ??= () {
     _geometryBuilds++;
-    if (_frameRatios == null) return Size(_width, _frameCap);
     return imageStackFrame(_frameRatios!, _width, compact: widget.compact);
   }();
   List<Rect> get _list => _listCache ??= () {
     _geometryBuilds++;
     double y = 0;
-    return _photos.map((p) {
-      final rect = Rect.fromLTWH(0, y, _width, _width / p.ratio);
+    return _listRatios!.map((ratio) {
+      final rect = Rect.fromLTWH(0, y, _width, _width / ratio);
       y += rect.height + ImageStackTokens.gap;
       return rect;
     }).toList();
@@ -308,6 +306,9 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
             listEquals(saved['urls'] as List, widget.urls)) {
           if (saved['ratios'] is List<double>) {
             _frameRatios = saved['ratios'] as List<double>;
+          }
+          if (saved['listRatios'] is List<double>) {
+            _listRatios = saved['listRatios'] as List<double>;
           }
           final ratios = saved['photoRatios'];
           if (ratios is List && ratios.length == _photos.length) {
@@ -381,7 +382,7 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
         for (final photo in _photos) photo.known ? photo.ratio : null,
       ];
       _frameRatios = null;
-      _reservedFrameHeight = null;
+      _listRatios = null;
       _frameCache = null;
       _listCache = null;
       _position.value = _index.toDouble();
@@ -405,6 +406,7 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
     'expanded': _expanded,
     'urls': widget.urls,
     'ratios': _frameRatios,
+    'listRatios': _listRatios,
     // Keep one shared snapshot; each completed probe updates its own slot.
     // No full-gallery copy or extra write is needed on every decode/scroll.
     'photoRatios': _knownRatios,
@@ -437,22 +439,20 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
           PhotoAtmosphere.fromImage(
             '${vm.url}:${provider.hashCode}',
             info.image,
-          ).then((sample) {
-            if (!mounted || !_photos.contains(vm)) return;
-            vm.atmosphere = sample;
-            final i = _photos.indexOf(vm);
-            _photoWidgets.remove(i);
-            if (_window.contains(i)) setState(() {});
-          }, onError: (Object _, StackTrace _) {});
+          ).then(
+            (sample) => _finishAtmosphere(i, vm, sample),
+            onError: (Object _, StackTrace _) => _finishAtmosphere(i, vm),
+          );
           info.dispose();
           _detachProbe(vm);
-          _ratiosChanged();
+          _ratiosChanged(i);
         },
         onError: (_, _) {
           if (_probes[vm]?.$2 != listener) return;
           vm.failed = true;
+          vm.atmosphereDone = true;
           _detachProbe(vm);
-          _ratiosChanged();
+          _ratiosChanged(i);
         },
       );
       _probes[vm] = (stream, listener);
@@ -472,25 +472,39 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
     }
   }
 
-  void _ratiosChanged() {
+  void _finishAtmosphere(int i, _PhotoVM vm, [PhotoAtmosphere? sample]) {
+    if (!mounted || i >= _photos.length || !identical(vm, _photos[i])) return;
+    vm.atmosphere = sample;
+    vm.atmosphereDone = true;
+    _photoWidgets.remove(i);
+    if (_window.contains(i)) setState(() {});
+  }
+
+  void _showPhoto(int i, _PhotoVM vm) {
+    if (vm.revealed || vm.revealScheduled) return;
+    vm.revealScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || i >= _photos.length || !identical(vm, _photos[i])) return;
+      setState(() {
+        vm.revealed = true;
+        _photoWidgets.remove(i);
+      });
+    });
+  }
+
+  void _ratiosChanged(int i) {
     if (!mounted) return;
-    _listCache = null;
-    _photoWidgets.clear();
+    _photoWidgets.remove(i);
     _ratiosDirty = true;
     _scheduleMetrics();
   }
 
   void _lockFrame() {
-    if (_frameRatios != null ||
-        !_photos.skip(_index).take(3).every((p) => p.known || p.failed)) {
-      return;
-    }
-    _frameRatios = _photos
-        .where((p) => p.known)
-        .map((p) => p.ratio)
-        .toList(growable: false);
-    _frameCache = null;
-    _ratiosDirty = true;
+    if (_frameRatios != null && (!_expanded || _listRatios != null)) return;
+    // A decoded ratio can change how a photo fits without moving the reader.
+    final ratios = _photos.map((photo) => photo.ratio).toList(growable: false);
+    _frameRatios ??= ratios;
+    if (_expanded) _listRatios ??= ratios;
     _save();
   }
 
@@ -643,6 +657,10 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
     final scroll0 = _scroll?.pixels ?? 0;
     final origin = _galleryOrigin ?? 0;
     final opening = !_expanded;
+    if (opening) {
+      _listRatios = _photos.map((photo) => photo.ratio).toList(growable: false);
+      _listCache = null;
+    }
     final oldHeight = _height;
     final newHeight = opening
         ? _list.last.bottom
@@ -772,27 +790,6 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
     _galleryOrigin =
         box.localToGlobal(Offset.zero).dy + (widget.compact ? 8 : 14);
     final next = _expanded ? _listWindow() : _deckWindow(_index);
-    _lockFrame();
-    // Release the loading estimate as soon as the final frame is known.
-    // Only compensate scroll when the entire gallery is above the viewport;
-    // a visible deck must not leave its old loading height below the caption.
-    final spare = _reservation;
-    if (spare > 0) {
-      WidgetsBinding.instance.scheduleFrameCallback((_) {
-        if (!mounted || _reservedFrameHeight == null || _expanded) return;
-        final currentBox = context.findRenderObject();
-        if (currentBox is! RenderBox || !currentBox.hasSize) return;
-        final currentTop = currentBox.localToGlobal(Offset.zero).dy;
-        final aboveViewport = currentTop + currentBox.size.height <= 0;
-        // Correct offset and extent together before layout, never after paint.
-        setState(() => _reservedFrameHeight = null);
-        if (aboveViewport && _scroll != null) {
-          _scroll!.jumpTo(
-            math.max(_scroll!.minScrollExtent, _scroll!.pixels - spare),
-          );
-        }
-      });
-    }
     if (!setEquals(next, _window) || _ratiosDirty) {
       setState(() => _window = next);
       _ratiosDirty = false;
@@ -887,7 +884,6 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
               _scheduleMetrics();
             }
             _lockFrame();
-            if (_frameRatios == null) _reservedFrameHeight ??= _frameCap;
             return AnimatedBuilder(
               animation: Listenable.merge([_position, _flip, _pop, _hint]),
               builder: (context, _) {
@@ -908,18 +904,12 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
                       label: '连续图片，第 ${_index + 1} 张，共 ${_photos.length} 张',
                       child: GestureDetector(
                         behavior: HitTestBehavior.opaque,
-                        onHorizontalDragStart: _expanded || _frameRatios == null
-                            ? null
-                            : _dragBegin,
-                        onHorizontalDragUpdate:
-                            _expanded || _frameRatios == null
-                            ? null
-                            : _dragUpdate,
-                        onHorizontalDragEnd: _expanded || _frameRatios == null
+                        onHorizontalDragStart: _expanded ? null : _dragBegin,
+                        onHorizontalDragUpdate: _expanded ? null : _dragUpdate,
+                        onHorizontalDragEnd: _expanded
                             ? null
                             : (d) => _dragEnd(d.velocity.pixelsPerSecond.dx),
-                        onHorizontalDragCancel:
-                            _expanded || _frameRatios == null
+                        onHorizontalDragCancel: _expanded
                             ? null
                             : () => _setIndex(_index),
                         child: SizedBox(
@@ -929,31 +919,9 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
                           child: Stack(
                             clipBehavior: Clip.none,
                             children: [
-                              if (_frameRatios == null)
-                                Positioned.fill(
-                                  child: Semantics(
-                                    label: '图片加载中',
-                                    child: DecoratedBox(
-                                      key: const ValueKey(
-                                        'image-stack-loading',
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: AppTokens.of(context).fill,
-                                        borderRadius: BorderRadius.circular(
-                                          widget.compact
-                                              ? ImageStackTokens
-                                                    .compactPaperRadius
-                                              : ImageStackTokens.paperRadius,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                )
-                              else ...[
-                                if (!_expanded) ..._glows(),
-                                if (!_expanded) ..._paperEdges(),
-                                for (final i in ordered) _card(i),
-                              ],
+                              if (!_expanded) ..._glows(),
+                              if (!_expanded) ..._paperEdges(),
+                              for (final i in ordered) _card(i),
                             ],
                           ),
                         ),
@@ -963,11 +931,10 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
                       SizedBox(
                         width: _frame.width,
                         height: ImageStackTokens.captionHeight,
-                        child: _frameRatios == null ? null : _caption(),
+                        child: _caption(),
                       ),
                     if (_expanded)
                       const SizedBox(height: ImageStackTokens.captionHeight),
-                    if (_reservation > 0) SizedBox(height: _reservation),
                   ],
                 );
               },
@@ -1000,7 +967,9 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
           child: Transform.translate(
             offset: Offset(
               0,
-              (anchor?.height ?? 0) * (anchor?.hiddenProgress.value ?? 0),
+              anchor == null || anchor.reducedMotion
+                  ? 0
+                  : anchor.height * anchor.hiddenProgress.value,
             ),
             child: Center(
               child: SingleMotionBuilder(
@@ -1245,6 +1214,9 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
                   expanded: _expanded,
                   imageKey: ValueKey('image-stack-photo-$i'),
                   atmosphere: vm.atmosphere,
+                  waitForAtmosphere: !vm.atmosphereDone,
+                  revealed: vm.revealed,
+                  onReady: () => _showPhoto(i, vm),
                   heroTag: (this, i),
                 ),
               ),
@@ -1260,19 +1232,25 @@ class _ImageStackGalleryState extends State<ImageStackGallery>
     final a = p.floor(), b = math.min(a + 1, _photos.length - 1);
     final fraction = p - a;
     return [
-      for (final entry in [(a, 1 - fraction), (b, fraction)])
+      for (final entry in [(a, 1 - fraction), if (b != a) (b, fraction)])
         if (_photos[entry.$1].atmosphere case final sample?)
           Positioned.fromRect(
+            key: ValueKey(('image-stack-glow', entry.$1)),
             rect: _deckRect.deflate(ImageStackTokens.glowInset),
             child: IgnorePointer(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(
-                    ImageStackTokens.paperRadius,
-                  ),
-                  boxShadow: ImageStackTokens.glowShadow(
-                    sample.color,
-                    sample.strength * entry.$2,
+              child: AnimatedOpacity(
+                opacity: _photos[entry.$1].revealed ? 1 : 0,
+                duration: AppMotion.mediaFade,
+                curve: AppMotion.mediaFadeCurve,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(
+                      ImageStackTokens.paperRadius,
+                    ),
+                    boxShadow: ImageStackTokens.glowShadow(
+                      sample.color,
+                      sample.strength * entry.$2,
+                    ),
                   ),
                 ),
               ),

@@ -1,5 +1,6 @@
 import 'dart:ui' as ui;
 
+import 'package:chh_app/design/motion.dart';
 import 'package:chh_app/ui/nav_bar.dart';
 import 'package:chh_app/ui/reading_bar.dart';
 import 'package:chh_app/widgets/cached_net_image.dart';
@@ -294,7 +295,9 @@ void main() {
         .resolve(TextDirection.ltr)
         .topLeft;
     expect(radius(), Radius.zero);
-    await tester.pump(const Duration(milliseconds: 230));
+    await tester.pump(
+      AppMotion.viewerChromeOut + const Duration(milliseconds: 230),
+    );
     expect(radius().x, greaterThan(10));
     await tester.pumpAndSettle();
     expect(flight, findsNothing);
@@ -351,7 +354,8 @@ void main() {
       expect(photo.top, lessThan(viewport.top));
       await _close(tester);
       _sameRect(_flightClip(tester), expected);
-      // This is a moving crop, not a frozen overlay followed by a final snap.
+      await tester.pump(AppMotion.viewerChromeOut);
+      _sameRect(_flightClip(tester), expected);
       await tester.pump(const Duration(milliseconds: 80));
       expect(_flightClip(tester), isNot(expected));
       await tester.pumpAndSettle();

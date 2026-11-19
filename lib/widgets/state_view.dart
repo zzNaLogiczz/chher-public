@@ -4,15 +4,46 @@
 library;
 
 import 'package:flutter/material.dart';
+import '../design/list_end_tokens.dart';
 import '../design/motion.dart';
 
 import '../design/tokens.dart';
 import '../design/typography.dart';
 import '../ui/app_button.dart';
-import '../ui/feedback.dart';
 import '../models/models.dart';
 import '../network/chh_fetcher.dart';
+import 'chhers_loader.dart';
+import 'chhers_loading_transition.dart';
 import 'expressive_controls.dart';
+
+/// Space below the text in a fixed-height, vertically centered final control.
+double centeredLabelBottomInset(
+  BuildContext context,
+  String label,
+  TextStyle style,
+  double height,
+) {
+  final defaults = DefaultTextStyle.of(context);
+  final resolved = defaults.style.merge(style);
+  final painter = TextPainter(
+    text: TextSpan(
+      text: label,
+      style: MediaQuery.boldTextOf(context)
+          ? resolved.merge(const TextStyle(fontWeight: FontWeight.bold))
+          : resolved,
+    ),
+    textDirection: Directionality.of(context),
+    textScaler: MediaQuery.textScalerOf(context),
+    textHeightBehavior:
+        defaults.textHeightBehavior ??
+        DefaultTextHeightBehavior.maybeOf(context),
+    locale: Localizations.maybeLocaleOf(context),
+    maxLines: 1,
+  )..layout();
+  final inset = (height - painter.height) / 2;
+  painter.dispose();
+  return inset < 0 ? 0 : inset;
+}
 
 class StateView extends StatelessWidget {
   final IconData icon;
@@ -29,15 +60,7 @@ class StateView extends StatelessWidget {
   });
 
   /// 加载中只给指示器,不配文字
-  static Widget loading() => const LoadingPlaceholder(
-    child: Center(
-      child: SizedBox(
-        width: 20,
-        height: 20,
-        child: CircularProgressIndicator(strokeWidth: 2),
-      ),
-    ),
-  );
+  static Widget loading() => const Center(child: ChhersLoader());
 
   static Widget empty({String message = '这里还没有内容'}) =>
       StateView(icon: AppIcons.inbox, message: message);
@@ -131,77 +154,39 @@ class StateView extends StatelessWidget {
 class ListFooter extends StatelessWidget {
   final bool loading;
   final bool exhausted;
-  final String? loadingLabel;
+  final String endLabel;
+  final double precedingBottomPadding;
+  final double followingBottomPadding;
 
   const ListFooter({
     super.key,
     required this.loading,
     this.exhausted = false,
-    this.loadingLabel,
+    this.endLabel = '没有更多了',
+    this.precedingBottomPadding = 0,
+    this.followingBottomPadding = 0,
   });
 
   @override
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
     final reduced = MediaQuery.disableAnimationsOf(context);
-    if (loadingLabel != null) {
-      return SizedBox(
-        height: 56,
-        child: Center(
-          child: loading
-              ? Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const SizedBox.square(
-                      dimension: 14,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      loadingLabel!,
-                      style: AppType.footnote.copyWith(color: t.text3),
-                    ),
-                  ],
-                )
-              : exhausted
-              ? Text('没有更多了', style: AppType.footnote.copyWith(color: t.text3))
-              : const SizedBox.shrink(),
-        ),
-      );
-    }
-    final content = AnimatedSwitcher(
-      duration: reduced ? Duration.zero : AppMotion.tapDuration,
-      layoutBuilder: (current, previous) => Stack(
-        alignment: Alignment.center,
-        children: [
-          for (final child in previous)
-            Positioned.fill(
-              child: IgnorePointer(child: ExcludeSemantics(child: child)),
-            ),
-          ?current,
-        ],
+    final style = AppType.footnote.copyWith(color: t.text3);
+    Widget marker(Widget child) => Padding(
+      padding: EdgeInsets.only(
+        top: ListEndTokens.markerPadding(precedingBottomPadding),
+        bottom: ListEndTokens.markerPadding(followingBottomPadding),
       ),
-      child: !loading && !exhausted
-          ? const SizedBox(key: ValueKey('idle'), height: 24)
-          : Padding(
-              key: ValueKey(loading),
-              padding: const EdgeInsets.symmetric(vertical: 18),
-              child: Center(
-                child: loading
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : Text(
-                        '没有更多了',
-                        style: TextStyle(
-                          fontSize: AppType.sizeFootnote,
-                          color: t.text3,
-                        ),
-                      ),
-              ),
-            ),
+      child: Center(child: child),
+    );
+    final content = ChhersLoadingTransition(
+      size: ChhersLoaderSize.list,
+      placeholderBuilder: marker,
+      child: loading
+          ? null
+          : exhausted
+          ? marker(Text(endLabel, style: style))
+          : const SizedBox.shrink(),
     );
     if (reduced) return content;
     return AnimatedSize(

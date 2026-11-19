@@ -19,19 +19,18 @@ import 'press.dart';
 class ReadingBarAnchor extends InheritedWidget {
   final ValueListenable<double> hiddenProgress;
   final double bottomPadding;
+  final bool reducedMotion;
   const ReadingBarAnchor({
     super.key,
     required this.hiddenProgress,
     required this.bottomPadding,
+    this.reducedMotion = false,
     required super.child,
   });
 
   double get height =>
-      ThreadPageTokens.readingBarTopPadding +
-      ThreadPageTokens.readingBarSize +
-      ThreadPageTokens.readingBarBottomPadding +
-      bottomPadding;
-  double get surfaceTopInset => height - ThreadPageTokens.readingBarTopPadding;
+      ReadingBar.heightFor(bottomPadding: bottomPadding, threadStyle: true);
+  double get surfaceTopInset => height - ThreadPageTokens.readingBarFadeHeight;
 
   static ReadingBarAnchor? maybeOf(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<ReadingBarAnchor>();
@@ -39,12 +38,26 @@ class ReadingBarAnchor extends InheritedWidget {
   @override
   bool updateShouldNotify(ReadingBarAnchor oldWidget) =>
       hiddenProgress != oldWidget.hiddenProgress ||
-      bottomPadding != oldWidget.bottomPadding;
+      bottomPadding != oldWidget.bottomPadding ||
+      reducedMotion != oldWidget.reducedMotion;
 }
 
 class ReadingBar extends StatelessWidget {
   static const actionKey = ValueKey('reading-bar-action');
   static const favoriteKey = ValueKey('reading-bar-favorite');
+
+  static double heightFor({
+    required double bottomPadding,
+    bool threadStyle = false,
+  }) =>
+      ThreadPageTokens.readingBarFadeHeight +
+      _capsuleSize(threadStyle) +
+      ThreadPageTokens.readingBarBottomPadding +
+      bottomPadding;
+
+  static double _capsuleSize(bool threadStyle) => threadStyle
+      ? ThreadPageTokens.readingBarSize
+      : ThreadPageTokens.articleBarSize;
 
   final String placeholder;
   final bool threadStyle;
@@ -78,8 +91,14 @@ class ReadingBar extends StatelessWidget {
     final t = AppTokens.of(context);
     final reduced = MediaQuery.disableAnimationsOf(context);
     final bottom = MediaQuery.paddingOf(context).bottom;
-    final size = threadStyle ? ThreadPageTokens.readingBarSize : 44.0;
+    final size = _capsuleSize(threadStyle);
+    const top = ThreadPageTokens.readingBarFadeHeight;
+    final bottomInset = bottom + ThreadPageTokens.readingBarBottomPadding;
+    final fadeStop =
+        top / heightFor(bottomPadding: bottom, threadStyle: threadStyle);
     final fill = threadStyle ? t.surface : t.glass;
+    final background = threadStyle ? t.bg : t.grouped;
+    final countLabel = (favoriteCount ?? 0) > 0 ? favoriteCount : null;
     final shadows = threadStyle
         ? t.shadowE2.where((s) => s.blurRadius > 0).toList()
         : t.shadowE1;
@@ -94,17 +113,12 @@ class ReadingBar extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          stops: const [0, .4],
-          colors: [t.grouped.withValues(alpha: 0), t.grouped],
+          stops: [0, fadeStop],
+          colors: [background.withValues(alpha: 0), background],
         ),
       ),
       child: Padding(
-        padding: EdgeInsets.fromLTRB(
-          14,
-          ThreadPageTokens.readingBarTopPadding,
-          14,
-          bottom + ThreadPageTokens.readingBarBottomPadding,
-        ),
+        padding: EdgeInsets.fromLTRB(14, top, 14, bottomInset),
         child: Row(
           children: [
             if (favorited != null) ...[
@@ -115,15 +129,15 @@ class ReadingBar extends StatelessWidget {
                   onTap: favoriteBusy ? null : onToggleFavorite,
                   semanticLabel:
                       '${favorited! ? '取消收藏' : '收藏'}'
-                      '${favoriteCount == null ? '' : '，$favoriteCount 人收藏'}',
+                      '${countLabel == null ? '' : '，$countLabel 人收藏'}',
                   child: DecoratedBox(
                     decoration: surface,
                     child: SizedBox(
-                      width: favoriteCount == null ? size : null,
+                      width: countLabel == null ? size : null,
                       height: size,
                       child: Padding(
                         padding: EdgeInsets.symmetric(
-                          horizontal: favoriteCount == null ? 0 : 14,
+                          horizontal: countLabel == null ? 0 : 14,
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
@@ -164,10 +178,10 @@ class ReadingBar extends StatelessWidget {
                                 );
                               },
                             ),
-                            if (favoriteCount != null) ...[
+                            if (countLabel != null) ...[
                               const SizedBox(width: 6),
                               Text(
-                                '$favoriteCount',
+                                '$countLabel',
                                 style: AppType.footnote.copyWith(color: t.text),
                               ),
                             ],
@@ -252,6 +266,7 @@ class ReadingBar extends StatelessWidget {
                         child: CountBadge(
                           count: inComments ? 0 : (count ?? 0),
                           tone: BadgeTone.neutral,
+                          color: threadStyle ? t.accent : null,
                         ),
                       ),
                     ],

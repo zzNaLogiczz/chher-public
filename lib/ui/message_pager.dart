@@ -26,6 +26,8 @@ class MessagePager extends StatefulWidget {
   final ValueNotifier<double> position;
   final ValueChanged<int> onChanged;
   final ValueChanged<int>? onVisit;
+  final ValueChanged<int>? onPreview;
+  final VoidCallback? onSettled;
   final Widget Function(BuildContext context, int index) itemBuilder;
 
   const MessagePager({
@@ -35,6 +37,8 @@ class MessagePager extends StatefulWidget {
     required this.onChanged,
     required this.itemBuilder,
     this.onVisit,
+    this.onPreview,
+    this.onSettled,
   }) : assert(value == 0 || value == 1);
 
   @override
@@ -42,20 +46,27 @@ class MessagePager extends StatefulWidget {
 }
 
 class _MessagePagerState extends State<MessagePager>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late final _motion = AnimationController.unbounded(
     vsync: this,
     value: widget.value.toDouble(),
   )..addListener(_publish);
+  late final _fade = AnimationController(
+    vsync: this,
+    value: widget.value.toDouble(),
+  );
   late final _visited = <int>{widget.value};
   late int _target;
   bool _moving = false;
+  bool _fading = false;
   bool _dragging = false;
   double _raw = 0;
   double _width = 1;
   int _generation = 0;
   double _interruptedVelocity = 0;
+  bool _heldSelection = false;
   bool _publishPending = false;
+  int? _previewed;
 
   @override
   void initState() {
@@ -63,6 +74,7 @@ class _MessagePagerState extends State<MessagePager>
     _target = widget.value;
     // Force initialization before a reduced-motion dependency update.
     _motion;
+    _fade;
   }
 
   void _publish() {
@@ -86,7 +98,7 @@ class _MessagePagerState extends State<MessagePager>
     if (widget.value != _target) {
       _target = widget.value;
       _visit(_target);
-      _settle(_target);
+      _settle(_target, fade: !_moving || _fading);
     }
   }
 
@@ -95,7 +107,7 @@ class _MessagePagerState extends State<MessagePager>
     super.didChangeDependencies();
     if (MediaQuery.disableAnimationsOf(context) && !_dragging) {
       _motion.value = _target.toDouble();
-      _moving = false;
+      _moving = _fading;
     }
   }
 
@@ -103,19 +115,33 @@ class _MessagePagerState extends State<MessagePager>
     if (_visited.add(index)) widget.onVisit?.call(index);
   }
 
-  void _settle(int target, {double? velocity}) {
+  void _settle(int target, {double? velocity, bool fade = false}) {
     final generation = ++_generation;
     final reduced = MediaQuery.disableAnimationsOf(context);
-    setState(() => _moving = !reduced);
-    AppMotion.settle(
+    setState(() {
+      _fading = fade;
+      _moving = fade || !reduced;
+    });
+    final selection = AppMotion.settle(
       _motion,
       target: target.toDouble(),
       motion: AppMotion.select,
       velocity: velocity,
       reduced: reduced,
-    ).whenCompleteOrCancel(() {
+    );
+    final transition = fade
+        ? _fade.animateTo(
+            target.toDouble(),
+            duration: reduced ? AppMotion.reducedFade : AppMotion.fade,
+            curve: AppMotion.contentFadeCurve,
+          )
+        : selection;
+    transition.whenCompleteOrCancel(() {
       if (!mounted || generation != _generation) return;
-      setState(() => _moving = false);
+      if (!fade) _fade.value = target.toDouble();
+      setState(() => _moving = _fading = false);
+      _previewed = null;
+      widget.onSettled?.call();
     });
   }
 
@@ -128,13 +154,24 @@ class _MessagePagerState extends State<MessagePager>
   }
 
   void _down(DragDownDetails details) {
-    _generation++;
+    _heldSelection = _fading || !_moving;
+    if (!_heldSelection) _generation++;
     _interruptedVelocity = _motion.velocity;
     _motion.stop();
   }
 
   void _start(DragStartDetails details) {
     _dragging = true;
+    if (_fading) {
+      _generation++;
+      _motion.stop();
+      _motion.value = _fade.value;
+      _fade.stop();
+      _fading = false;
+    } else if (_heldSelection) {
+      _motion.value = _target.toDouble();
+    }
+    _heldSelection = false;
     _raw = _motion.value;
     if (_raw < 0 || _raw > 1) {
       final edge = _raw < 0 ? 0.0 : 1.0;
@@ -150,6 +187,10 @@ class _MessagePagerState extends State<MessagePager>
     _raw -= details.delta.dx / _width;
     // Build the next page as soon as it enters the viewport, after direction lock.
     final entering = _raw > widget.value ? 1 : 0;
+    if (entering != widget.value && entering != _previewed) {
+      _previewed = entering;
+      widget.onPreview?.call(entering);
+    }
     if (!_visited.contains(entering)) {
       setState(() => _visit(entering));
     }
@@ -166,16 +207,31 @@ class _MessagePagerState extends State<MessagePager>
     );
     _visit(_target);
     if (_target != widget.value) widget.onChanged(_target);
+    _fade.value = _target.toDouble();
     _settle(_target, velocity: -velocity / _width);
   }
 
   void _cancel() {
+    if (_heldSelection) {
+      _heldSelection = false;
+      AppMotion.settle(
+        _motion,
+        target: _target.toDouble(),
+        motion: AppMotion.select,
+        velocity: _interruptedVelocity,
+        reduced: MediaQuery.disableAnimationsOf(context),
+      );
+      return;
+    }
     _dragging = false;
+    _fade.value = _target.toDouble();
     _settle(_target, velocity: _interruptedVelocity);
   }
 
   @override
   void dispose() {
+    _generation++;
+    _fade.dispose();
     _motion.dispose();
     super.dispose();
   }
@@ -193,49 +249,45 @@ class _MessagePagerState extends State<MessagePager>
         onHorizontalDragEnd: _end,
         onHorizontalDragCancel: _cancel,
         child: ClipRect(
-          child: OverflowBox(
-            alignment: Alignment.topLeft,
-            minWidth: _width * 2,
-            maxWidth: _width * 2,
-            child: AnimatedBuilder(
-              animation: _motion,
-              builder: (context, child) => Transform.translate(
-                offset: Offset(-_motion.value * _width, 0),
-                child: child,
-              ),
-              child: SizedBox(
-                width: _width * 2,
-                height: constraints.maxHeight,
-                child: Stack(
-                  children: [
-                    for (var i = 0; i < 2; i++)
-                      if (_visited.contains(i))
-                        Positioned(
-                          key: ValueKey('message-page-$i'),
-                          left: i * _width,
-                          width: _width,
-                          top: 0,
-                          bottom: 0,
-                          child: Offstage(
-                            offstage: !_moving && i != widget.value,
-                            child: ExcludeFocus(
-                              excluding: i != widget.value,
-                              child: ExcludeSemantics(
-                                excluding: i != widget.value,
-                                child: TickerMode(
-                                  enabled: _moving || i == widget.value,
-                                  child: RepaintBoundary(
-                                    child: widget.itemBuilder(context, i),
-                                  ),
-                                ),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              for (var i = 0; i < 2; i++)
+                if (_visited.contains(i))
+                  AnimatedBuilder(
+                    key: ValueKey('message-page-$i'),
+                    animation: _fading ? _fade : _motion,
+                    builder: (_, child) => Transform.translate(
+                      offset: _fading || !_moving
+                          ? Offset.zero
+                          : Offset((i - _motion.value) * _width, 0),
+                      child: Opacity(
+                        opacity: !_fading
+                            ? 1
+                            : (i == 0 ? 1 - _fade.value : _fade.value),
+                        child: child,
+                      ),
+                    ),
+                    child: Offstage(
+                      offstage: !_moving && i != widget.value,
+                      child: IgnorePointer(
+                        ignoring: i != widget.value,
+                        child: ExcludeFocus(
+                          excluding: i != widget.value,
+                          child: ExcludeSemantics(
+                            excluding: i != widget.value,
+                            child: TickerMode(
+                              enabled: _moving || i == widget.value,
+                              child: RepaintBoundary(
+                                child: widget.itemBuilder(context, i),
                               ),
                             ),
                           ),
                         ),
-                  ],
-                ),
-              ),
-            ),
+                      ),
+                    ),
+                  ),
+            ],
           ),
         ),
       );

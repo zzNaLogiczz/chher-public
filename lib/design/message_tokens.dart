@@ -19,16 +19,14 @@ abstract final class MessageTokens {
   static const swipeVelocity = 500.0;
   static const overscrollLimit = .18;
 
-  // Shared selectors outside messages retain their established palette.
-  static Color standardTrack(AppTokens t, bool onLac) =>
-      onLac ? const Color.fromRGBO(255, 248, 245, .18) : t.fill;
-  static Color standardThumb(AppTokens t, bool onLac) => onLac
-      ? const Color(0xFFFFF8F5)
-      : t.isDark
-      ? const Color(0xFF636366)
-      : t.surface;
+  static Color standardTrack(AppTokens t, bool onLac) => t.isDark
+      ? track(t, onLac)
+      : onLac
+      ? const Color.fromRGBO(255, 248, 245, .18)
+      : t.fill;
+  static Color standardThumb(AppTokens t, bool onLac) => thumb(t, onLac);
   static Color standardSelected(AppTokens t, bool onLac) =>
-      onLac ? const Color(0xFF5A0E10) : t.text;
+      onLac && !t.isDark ? const Color(0xFF5A0E10) : t.text;
   static List<BoxShadow> standardShadow(AppTokens t, bool onLac) => onLac
       ? const [
           BoxShadow(
@@ -46,11 +44,16 @@ abstract final class MessageTokens {
       ? t.isDark
             ? t.scrim.withValues(alpha: .22)
             : t.lacBot.withValues(alpha: .16)
-      : t.fill;
-  static Color thumb(AppTokens t, bool onLac) => onLac
-      ? t.onLac
       : t.isDark
-      ? t.fill3
-      : t.surface;
-  static Color selected(AppTokens t, bool onLac) => onLac ? t.lacBot : t.text;
+      ? t.surface
+      : t.fill;
+  static Color thumb(AppTokens t, bool onLac) {
+    if (!t.isDark) return onLac ? t.onLac : t.surface;
+    return t.style == AppearanceStyle.cinnabar && onLac
+        ? const Color(0xFF3A3230)
+        : t.surface2;
+  }
+
+  static Color selected(AppTokens t, bool onLac) =>
+      onLac && !t.isDark ? t.lacBot : t.text;
 }

@@ -10,12 +10,16 @@ import 'package:chh_app/pages/forum_index_view.dart';
 import 'package:chh_app/pages/forum_threads_page.dart';
 import 'package:chh_app/ui/picker.dart';
 import 'package:chh_app/ui/press.dart';
+import 'package:chh_app/widgets/browse_thread_list.dart';
+import 'package:chh_app/widgets/chhers_refresh_indicator.dart';
+import 'package:chh_app/widgets/expressive_controls.dart';
 import 'package:chh_app/widgets/lacquer_tab_scaffold.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _DelayedForums extends ForumRepository {
-  _DelayedForums() : super(ChhClient(fetchers: []));
+  _DelayedForums({this.includePinned = false}) : super(ChhClient(fetchers: []));
+  final bool includePinned;
   Completer<ThreadListPage>? pending;
   final requests = <({int? type, String? order, bool refresh})>[];
 
@@ -28,6 +32,7 @@ class _DelayedForums extends ForumRepository {
           author: '本地读者',
           replies: i,
           views: i,
+          sticky: includePinned && i == 0,
           lastPostTimeRaw: '今天 10:30',
         ),
     ],
@@ -183,7 +188,7 @@ void main() {
       final before = nested.innerController.offset;
       repo.pending = Completer<ThreadListPage>();
       final refresh = tester
-          .widget<RefreshIndicator>(find.byType(RefreshIndicator))
+          .widget<ChhersRefreshIndicator>(find.byType(ChhersRefreshIndicator))
           .onRefresh();
       await tester.pump();
       expect(find.textContaining('原列表').hitTestable(), findsWidgets);
@@ -196,6 +201,61 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('refresh keeps the pinned group and existing rows opaque', (
+    tester,
+  ) async {
+    final repo = _DelayedForums(includePinned: true);
+    await _mount(tester, repo, fid: 8023);
+    final list = find.byType(BrowseThreadList);
+    final row = find.byKey(const ValueKey('forum-card-2'));
+    final pinned = find.byKey(const ValueKey('browse-pinned'));
+    final reveal = find.descendant(
+      of: list,
+      matching: find.byType(ExpressivePageReveal),
+    );
+    final view = tester.state(reveal);
+    final animation =
+        tester
+                .widget<AnimatedBuilder>(
+                  find
+                      .descendant(
+                        of: reveal,
+                        matching: find.byType(AnimatedBuilder),
+                      )
+                      .first,
+                )
+                .animation
+            as Animation<double>;
+    final rowElement = tester.element(row);
+    final pinnedElement = tester.element(pinned);
+    final rowPosition = tester.getTopLeft(row);
+    final pinnedPosition = tester.getTopLeft(pinned);
+
+    void expectRetained() {
+      expect(tester.state(reveal), same(view));
+      expect(tester.element(row), same(rowElement));
+      expect(tester.element(pinned), same(pinnedElement));
+      expect(tester.getTopLeft(row), rowPosition);
+      expect(tester.getTopLeft(pinned), pinnedPosition);
+      expect(animation.value, 1);
+    }
+
+    repo.pending = Completer<ThreadListPage>();
+    final refresh = tester
+        .widget<ChhersRefreshIndicator>(find.byType(ChhersRefreshIndicator))
+        .onRefresh();
+    await tester.pump();
+    expectRetained();
+    repo.pending!.complete(repo.result('刷新列表'));
+    await refresh;
+    await tester.pump();
+    expect(find.text('刷新列表 1'), findsOneWidget);
+    expectRetained();
+    await tester.pump(const Duration(milliseconds: 90));
+    expectRetained();
+    await tester.pumpAndSettle();
+  });
 
   testWidgets('directory refresh failure keeps the last successful content', (
     tester,

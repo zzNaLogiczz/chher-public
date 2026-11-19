@@ -245,14 +245,14 @@ void main() {
               metrics.avatar,
               metrics.avatarNested,
               metrics.openingAvatar,
-              metrics.paragraphGap,
+              ReadingMetrics.paragraphGap,
               metrics.titleSize,
               metrics.imageGap,
               metrics.sectionBand,
             ],
             layout == ReadingLayout.comfy
-                ? [20, 12, 32, 24, 40, 10, 24, 12, 8]
-                : [16, 8, 28, 22, 40, 6, 22, 8, 6],
+                ? [20, 12, 32, 24, 44, 14, 24, 12, 8]
+                : [16, 8, 28, 22, 44, 14, 22, 8, 6],
           );
           expect(
             metrics.textScaler(const TextScaler.linear(2)).scale(body),

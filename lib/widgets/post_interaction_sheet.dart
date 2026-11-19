@@ -7,6 +7,7 @@ import 'package:smooth_sheets/smooth_sheets.dart';
 
 import '../data/post_interaction_repository.dart';
 import '../data/post_interaction_drafts.dart';
+import '../design/loading_tokens.dart';
 import '../design/motion.dart';
 import '../ui/sheet_scaffold.dart';
 import '../design/tokens.dart';
@@ -16,6 +17,7 @@ import '../models/post_interaction.dart';
 import '../ui/app_button.dart';
 import '../ui/editor_touch.dart';
 import 'expressive_composer.dart';
+import 'chhers_loader.dart';
 
 Future<PostResult?> showPostInteractionSheet(
   BuildContext context, {
@@ -456,7 +458,7 @@ class _PostInteractionSheetState extends State<PostInteractionSheet> {
                       const Center(
                         child: Padding(
                           padding: EdgeInsets.all(32),
-                          child: CircularProgressIndicator(),
+                          child: ChhersSpinner(size: LoadingTokens.standalone),
                         ),
                       )
                     else ...[

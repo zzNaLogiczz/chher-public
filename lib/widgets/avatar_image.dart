@@ -4,13 +4,27 @@ import 'package:flutter/rendering.dart';
 import '../data/image_disk_cache.dart';
 import '../design/brand.dart';
 import '../design/motion.dart';
-import '../design/icons.dart';
 import '../design/tokens.dart';
 import '../ui/feedback.dart';
-import '../ui/press.dart';
 import 'cached_net_image.dart';
 import 'net_image.dart';
 import 'viewport_ticker_mode.dart';
+
+/// 圆形底色始终保留在头像下方，包括透明图片和淡入期间。
+class AvatarFrame extends StatelessWidget {
+  final double size;
+  final Widget child;
+
+  const AvatarFrame({super.key, required this.size, required this.child});
+
+  @override
+  Widget build(BuildContext context) => SizedBox.square(
+    dimension: size,
+    child: ClipOval(
+      child: ColoredBox(color: AppTokens.of(context).surface2, child: child),
+    ),
+  );
+}
 
 /// 头像加载和失败时显示应用标志；个人主页可按地址单独刷新。
 class AvatarImage extends StatefulWidget {
@@ -98,6 +112,28 @@ class _AvatarImageState extends State<AvatarImage> {
     }
   }
 
+  Future<void> _showRefreshMenu() async {
+    final avatar = context.findRenderObject()! as RenderBox;
+    final overlay =
+        Navigator.of(context).overlay!.context.findRenderObject()! as RenderBox;
+    final url = _url;
+    final selected = await showMenu<bool>(
+      context: context,
+      position: RelativeRect.fromSize(
+        avatar.localToGlobal(Offset.zero, ancestor: overlay) & avatar.size,
+        overlay.size,
+      ),
+      popUpAnimationStyle: MediaQuery.disableAnimationsOf(context)
+          ? AnimationStyle.noAnimation
+          : AnimationStyle(
+              duration: AppMotion.revealDuration,
+              curve: AppMotion.revealCurve,
+            ),
+      items: const [PopupMenuItem(value: true, child: Text('刷新头像'))],
+    );
+    if (mounted && selected == true && url == _url) await _refresh();
+  }
+
   void _finish(int revision, {bool failed = false}) {
     if (revision != _revision ||
         _completionScheduled ||
@@ -120,7 +156,6 @@ class _AvatarImageState extends State<AvatarImage> {
 
   @override
   Widget build(BuildContext context) {
-    final t = AppTokens.of(context);
     final url = widget.lazy && !_visible ? null : _url;
     final revision = _revision;
     final size = widget.size;
@@ -143,51 +178,49 @@ class _AvatarImageState extends State<AvatarImage> {
       excludeFromSemantics: true,
     );
     final avatar = ExcludeSemantics(
-      child: ClipOval(
-        child: SizedBox.square(
-          dimension: size,
-          child: url == null || _failed
-              ? fallback
-              : ViewportTickerMode(
-                  // Lazy avatars already passed visibility detection; avoid a
-                  // second inherited-mode change retrying an immediate failure.
-                  initiallyVisible: true,
-                  child: Image(
-                    key: ValueKey((url, revision)),
-                    image: _provider!,
-                    width: size,
-                    height: size,
-                    fit: BoxFit.cover,
-                    gaplessPlayback: true,
-                    excludeFromSemantics: true,
-                    frameBuilder: (_, child, frame, synchronous) {
-                      if (synchronous || frame != null) {
-                        _finish(revision);
-                        if (synchronous) return child;
-                        return TweenAnimationBuilder<double>(
-                          tween: Tween(begin: 0, end: 1),
-                          duration: MediaQuery.disableAnimationsOf(context)
-                              ? AppMotion.reducedFade
-                              : AppMotion.fade,
-                          builder: (_, opacity, image) => Stack(
-                            fit: StackFit.expand,
-                            children: [
-                              if (opacity < 1) fallback,
-                              Opacity(opacity: opacity, child: image),
-                            ],
-                          ),
-                          child: child,
-                        );
-                      }
-                      return fallback;
-                    },
-                    errorBuilder: (_, _, _) {
-                      _finish(revision, failed: true);
-                      return fallback;
-                    },
-                  ),
+      child: AvatarFrame(
+        size: size,
+        child: url == null || _failed
+            ? fallback
+            : ViewportTickerMode(
+                // Lazy avatars already passed visibility detection; avoid a
+                // second inherited-mode change retrying an immediate failure.
+                initiallyVisible: true,
+                child: Image(
+                  key: ValueKey((url, revision)),
+                  image: _provider!,
+                  width: size,
+                  height: size,
+                  fit: BoxFit.cover,
+                  gaplessPlayback: true,
+                  excludeFromSemantics: true,
+                  frameBuilder: (_, child, frame, synchronous) {
+                    if (synchronous || frame != null) {
+                      _finish(revision);
+                      if (synchronous) return child;
+                      return TweenAnimationBuilder<double>(
+                        tween: Tween(begin: 0, end: 1),
+                        duration: AppMotion.mediaFade,
+                        curve: AppMotion.mediaFadeCurve,
+                        builder: (_, opacity, image) => Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            if (opacity < 1)
+                              Opacity(opacity: 1 - opacity, child: fallback),
+                            Opacity(opacity: opacity, child: image),
+                          ],
+                        ),
+                        child: child,
+                      );
+                    }
+                    return fallback;
+                  },
+                  errorBuilder: (_, _, _) {
+                    _finish(revision, failed: true);
+                    return fallback;
+                  },
                 ),
-        ),
+              ),
       ),
     );
     if (widget.lazy && !_visible) {
@@ -201,37 +234,12 @@ class _AvatarImageState extends State<AvatarImage> {
       );
     }
     if (!widget.refreshable || url == null) return avatar;
-    return Tooltip(
-      message: '刷新头像',
-      child: PressScale(
-        onTap: _refreshing ? null : _refresh,
-        semanticLabel: _refreshing ? '头像刷新中' : '刷新头像',
-        child: Stack(
-          children: [
-            avatar,
-            Positioned(
-              right: 0,
-              bottom: 0,
-              child: ExcludeSemantics(
-                child: Container(
-                  width: 28,
-                  height: 28,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: t.surface,
-                    shape: BoxShape.circle,
-                  ),
-                  child: _refreshing
-                      ? const SizedBox.square(
-                          dimension: 14,
-                          child: CircularProgressIndicator(strokeWidth: 1.5),
-                        )
-                      : Icon(AppIcons.refresh, size: 16, color: t.text2),
-                ),
-              ),
-            ),
-          ],
-        ),
+    return Semantics(
+      label: _refreshing ? '头像刷新中' : '头像',
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onLongPress: _refreshing ? null : _showRefreshMenu,
+        child: avatar,
       ),
     );
   }

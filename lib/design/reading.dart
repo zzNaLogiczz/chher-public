@@ -5,11 +5,15 @@ import '../core/reading_prefs.dart';
 /// Only reading content consumes these tokens; navigation keeps its own scale.
 class ReadingMetrics {
   static const double commentMetaGap = 8;
+  static const double commentMetaHeight = 28;
   static const double commentActionHeight = 20;
   static const double moreVisualWidth = 24;
 
-  /// 至少留出回复向上扩展的触区，避免换行后覆盖时间。
-  static const double commentMetaRunGap = 12;
+  static const double paragraphGap = 14;
+  static const double articleBodyInset = 26;
+  static const double articleTextTop = 10;
+  static const double articleTextBottom = 16;
+  static const double articleBlockVerticalSpacing = 16;
 
   /// Android 数字时间（默认 Roboto）旁的中文回复（Noto Sans CJK）光学校正。
   /// 共用基线后，13px 字号在 DPR 4、0.9/1/2 倍下墨迹仍低 4/4/8px；
@@ -25,18 +29,17 @@ class ReadingMetrics {
   double get bodyHeight => const [1.55, 1.7, 1.85][prefs.lineHeight.index];
   double get threadBodyHeight =>
       const [1.55, 1.8, 1.85][prefs.lineHeight.index];
-  double get threadParagraphGap => _compact ? 10 : 14;
   double get commentGutter => 12;
   double get commentSize => bodySize - 1;
   double get commentHeight => bodyHeight - .1;
   bool get _compact => prefs.layout == ReadingLayout.compact;
   double get gutter => _compact ? 16 : 20;
   double get postVPad => _compact ? 8 : 12;
+  double get commentVPad => _compact ? postVPad : 10;
   double get avatar => _compact ? 28 : 32;
   double get avatarNested => _compact ? 22 : 24;
   double get threadAvatarNested => 22;
-  double get openingAvatar => 40;
-  double get paragraphGap => _compact ? 6 : 10;
+  double get openingAvatar => 44;
   double get titleSize => _compact ? 22 : 24;
   double get imageGap => _compact ? 8 : 12;
   double get sectionBand => _compact ? 6 : 8;

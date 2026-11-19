@@ -61,6 +61,18 @@ class _LargeReplies extends ListBase<Post> {
 }
 
 void main() {
+  test('D2/D3 reply excerpts normalize display and mark real truncation', () {
+    final exact = '甲' * 120;
+    expect(threadReplySummary(_post(1, content: [TextBlock(exact)])), exact);
+    expect(
+      threadReplySummary(_post(1, content: [TextBlock('$exact乙')])),
+      '$exact…',
+    );
+    final source = TextBlock('汉,字....');
+    expect(threadReplySummary(_post(1, content: [source])), '汉，字…');
+    expect(source.text, '汉,字....');
+  });
+
   testWidgets(
     'count becomes busy while switching mode even with a source total',
     (tester) async {
@@ -171,6 +183,26 @@ void main() {
     expect(find.textContaining('已加载'), findsNothing);
   });
 
+  testWidgets('zero comment counts are hidden for either count source', (
+    tester,
+  ) async {
+    for (final (loaded, total) in [(0, null), (0, 0)]) {
+      await tester.pumpWidget(
+        _app(
+          ThreadCommentHeading(
+            loadedCount: loaded,
+            totalCount: total,
+            complete: false,
+            mode: ThreadViewMode.threaded,
+            onModeChanged: (_) {},
+          ),
+        ),
+      );
+      expect(find.text('0'), findsNothing);
+      expect(find.text('已加载 0'), findsNothing);
+    }
+  });
+
   testWidgets(
     'ten thousand replies still build exactly two previews and a loaded-count action',
     (tester) async {
@@ -218,7 +250,8 @@ void main() {
         ),
       );
       final text = _summary(tester, 7, 0);
-      expect(text.characters.length, 120);
+      expect(text.characters.length, 121);
+      expect(text, endsWith('…'));
       expect(text, startsWith('🙂中文'));
       expect(text, isNot(contains('引文')));
       expect(find.textContaining('不可信名字'), findsNothing);

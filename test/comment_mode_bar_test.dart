@@ -69,6 +69,7 @@ void main() {
 
       await mount(tester);
       final width = tester.getSize(track).width;
+      const labels = ['评论', '楼层', '楼主'];
       expect(tester.getSize(track).height, 32);
       expect(tester.getSize(segment(0)).height, 44);
       for (var i = 0; i < 3; i++) {
@@ -76,15 +77,26 @@ void main() {
         await tester.pumpAndSettle();
         expect(tester.getSize(track).width, width);
         expect(
-          tester.getSemantics(find.bySemanticsLabel(['评论', '原楼层', '只看楼主'][i])),
+          tester.getSemantics(find.bySemanticsLabel(labels[i])),
           matchesSemantics(
-            label: ['评论', '原楼层', '只看楼主'][i],
+            label: labels[i],
             isButton: true,
             isSelected: true,
             hasSelectedState: true,
             hasTapAction: true,
           ),
         );
+        for (var j = 0; j < labels.length; j++) {
+          final label = find.descendant(
+            of: segment(j),
+            matching: find.text(labels[j]),
+          );
+          expect(tester.widget<Text>(label).style!.color!.a, 1);
+          expect(
+            find.descendant(of: segment(j), matching: find.byType(Icon)),
+            findsOneWidget,
+          );
+        }
         bounded(tester);
       }
       semantics.dispose();
@@ -101,11 +113,11 @@ void main() {
       await mount(tester, width: 150, scale: 2);
       expect(tester.getSize(track).width, 124);
       expect(find.text('评论'), findsNothing);
-      expect(find.bySemanticsLabel('只看楼主'), findsOneWidget);
-      expect(find.byTooltip('只看楼主'), findsOneWidget);
+      expect(find.bySemanticsLabel('楼主'), findsOneWidget);
+      expect(find.byTooltip('楼主'), findsOneWidget);
       await tester.longPress(segment(2));
       await tester.pumpAndSettle();
-      expect(find.text('只看楼主'), findsOneWidget);
+      expect(find.text('楼主'), findsOneWidget);
       semantics.dispose();
       expect(changes, isEmpty);
       expect(tester.takeException(), isNull);
@@ -126,7 +138,7 @@ void main() {
   testWidgets('two segment icon fallback uses 40 per segment', (tester) async {
     await mount(tester, width: 90, showAuthor: false, scale: 2);
     expect(tester.getSize(track).width, 84);
-    expect(find.text('原楼层'), findsNothing);
+    expect(find.text('楼层'), findsNothing);
     await tester.tap(segment(1));
     await tester.pumpAndSettle();
     expect(changes.single, CommentViewMode.floors);
@@ -200,21 +212,22 @@ void main() {
     },
   );
 
-  testWidgets('reduced motion jumps geometry and fades label for 180ms', (
-    tester,
-  ) async {
-    await mount(tester, reduced: true);
-    await tester.tap(segment(2));
-    await tester.pump();
-    final right = tester.getBottomRight(thumb).dx;
-    expect(right, closeTo(tester.getBottomRight(track).dx - 2, .001));
-    final text = tester.widget<Text>(find.text('只看楼主'));
-    expect(text.style!.color!.a, 0);
-    await tester.pump(AppMotion.fade);
-    await tester.pump(const Duration(milliseconds: 1));
-    expect(tester.widget<Text>(find.text('只看楼主')).style!.color!.a, 1);
-    expect(tester.binding.transientCallbackCount, 0);
-  });
+  testWidgets(
+    'reduced motion jumps geometry and briefly fades the selected label',
+    (tester) async {
+      await mount(tester, reduced: true);
+      await tester.tap(segment(2));
+      await tester.pump();
+      final right = tester.getBottomRight(thumb).dx;
+      expect(right, closeTo(tester.getBottomRight(track).dx - 2, .001));
+      final text = tester.widget<Text>(find.text('楼主'));
+      expect(text.style!.color!.a, 0);
+      await tester.pump(AppMotion.reducedFade);
+      await tester.pump(const Duration(milliseconds: 1));
+      expect(tester.widget<Text>(find.text('楼主')).style!.color!.a, 1);
+      expect(tester.binding.transientCallbackCount, 0);
+    },
+  );
 
   testWidgets(
     'parent rollback interrupts selection and settles with no ticker',
@@ -239,13 +252,14 @@ void main() {
   testWidgets(
     'fading labels stay whole inside the track on intermediate frames',
     (tester) async {
-      await mount(tester);
+      await mount(tester, width: 172);
+      expect(tester.widget<Text>(find.text('楼主')).style!.color!.a, 0);
       await tester.tap(segment(2));
       await tester.pump();
       for (var i = 0; i < 45; i++) {
         await tester.pump(const Duration(milliseconds: 8));
         final bounds = tester.getRect(track).deflate(CommentModeTokens.inset);
-        for (final label in ['评论', '原楼层', '只看楼主']) {
+        for (final label in ['评论', '楼层', '楼主']) {
           final finder = find.text(label);
           if (tester.widget<Text>(finder).style!.color!.a == 0) continue;
           final rect = tester.getRect(finder);
@@ -302,6 +316,12 @@ void main() {
         await mount(tester, style: style, brightness: brightness);
         await tester.tap(segment(2));
         await tester.pumpAndSettle();
+        if (brightness == Brightness.dark) {
+          final t = AppTokens.of(tester.element(thumb));
+          final box = tester.widget<DecoratedBox>(thumb);
+          expect((box.decoration as BoxDecoration).color, t.surface2);
+          expect(tester.widget<Text>(find.text('楼主')).style!.color, t.text);
+        }
         bounded(tester);
         expect(tester.takeException(), isNull);
         expect(tester.binding.transientCallbackCount, 0);

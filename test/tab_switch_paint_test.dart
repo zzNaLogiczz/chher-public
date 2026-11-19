@@ -9,21 +9,52 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
 
+import 'package:chh_app/data/forum_repository.dart';
 import 'package:chh_app/data/message_repository.dart';
+import 'package:chh_app/data/portal_repository.dart';
 import 'package:chh_app/design/theme.dart';
+import 'package:chh_app/design/tokens.dart';
 import 'package:chh_app/di.dart';
 import 'package:chh_app/models/models.dart';
 import 'package:chh_app/network/chh_client.dart';
 import 'package:chh_app/parser/header_parser.dart';
+import 'package:chh_app/pages/feed_page.dart';
 import 'package:chh_app/pages/forum_index_view.dart';
 import 'package:chh_app/pages/home_page.dart';
+import 'package:chh_app/pages/me_page.dart';
 import 'package:chh_app/pages/messages_page.dart';
+import 'package:chh_app/ui/chrome_button.dart';
 import 'package:chh_app/ui/nav_bar.dart';
 import 'package:chh_app/widgets/app_shell.dart';
 import 'package:chh_app/widgets/lac_scaffold.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import 'support/space_fixtures.dart';
+
+class _EmptyPortal extends PortalRepository {
+  _EmptyPortal() : super(ChhClient(fetchers: []));
+
+  @override
+  Future<PortalHighlights> highlights({bool refresh = false}) async =>
+      const PortalHighlights(banners: [], reviews: [], news: []);
+}
+
+class _EmptyGuide extends ForumRepository {
+  _EmptyGuide() : super(ChhClient(fetchers: []));
+
+  @override
+  Future<ThreadListPage> guide({
+    String view = 'new',
+    String? type,
+    int page = 1,
+    bool refresh = false,
+  }) async => ThreadListPage(
+    threads: const [],
+    page: PageInfo(current: page, hasNext: false),
+  );
+}
 
 class _FakeMessages extends MessageRepository {
   _FakeMessages() : super(ChhClient(fetchers: []));
@@ -193,6 +224,106 @@ Future<void> _tapTab(WidgetTester tester, String label) async {
 }
 
 void main() {
+  for (final style in AppearanceStyle.values) {
+    for (final brightness in Brightness.values) {
+      testWidgets('B1 tab titles share a baseline in $style $brightness', (
+        tester,
+      ) async {
+        tester.view.physicalSize = const Size(390, 844);
+        tester.view.devicePixelRatio = 1;
+        tester.view.padding = const FakeViewPadding(top: 24);
+        addTearDown(tester.view.reset);
+        final previousBadges = chhSession.badges;
+        final loggedIn = chhSession.loggedIn;
+        addTearDown(() {
+          chhSession.badges = previousBadges;
+          chhSession.loggedIn = loggedIn;
+        });
+        chhSession.loggedIn = false;
+        chhSession.badges = const HeaderBadges(notices: 3, messages: 2);
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: buildAppTheme(brightness, style),
+            home: HomePage(
+              initialiseSession: () async {},
+              screenBuilders: {
+                AppDestination.feed: (_) => FeedPage(
+                  portalRepository: _EmptyPortal(),
+                  forumRepository: _EmptyGuide(),
+                ),
+                AppDestination.forums: (_) => ForumIndexView(
+                  loadForums: (_) async => const [
+                    ForumCategory(
+                      name: '本地分区',
+                      forums: [Forum(fid: 1, name: '本地版块')],
+                    ),
+                  ],
+                ),
+                AppDestination.messages: (_) =>
+                    MessagesTabPage(repository: _FakeMessages()),
+                AppDestination.me: (_) => MePage(repository: FixtureSpace()),
+              },
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final header = find.byType(TabHeader);
+
+        Offset titlePosition(String label) {
+          final title = find.descendant(of: header, matching: find.text(label));
+          final box = tester.renderObject<RenderBox>(title);
+          return box.localToGlobal(
+            Offset(
+              0,
+              box.getDryBaseline(box.constraints, TextBaseline.alphabetic)!,
+            ),
+          );
+        }
+
+        final initial = titlePosition('精选');
+        expect(initial.dx, 20);
+        expect(
+          find.descendant(of: header, matching: find.textContaining('日 星期')),
+          findsOneWidget,
+        );
+        final action = find.byKey(ChromeButton.surfaceKey).hitTestable();
+        expect(tester.getSize(action), const Size.square(44));
+        expect(tester.getTopRight(action).dx, 370);
+        for (final label in ['版块', '消息', '我的', '精选']) {
+          await tester.tap(
+            find.descendant(
+              of: find.byType(AppBottomNavigation),
+              matching: find.text(label),
+            ),
+          );
+          await tester.pump();
+          expect(titlePosition(label), initial, reason: '$label first frame');
+          await tester.pumpAndSettle();
+          expect(titlePosition(label), initial);
+          final mast = find.byKey(const ValueKey('tab-mast-background'));
+          expect(
+            find.descendant(of: mast, matching: find.text('chh')),
+            style == AppearanceStyle.cinnabar ? findsOneWidget : findsNothing,
+            reason: label,
+          );
+          if (label == '版块') {
+            expect(find.text('1 个版块'), findsOneWidget);
+          } else if (label == '消息') {
+            expect(find.text('5 条未读'), findsOneWidget);
+            chhSession.badges = const HeaderBadges(notices: 0, messages: 0);
+            // ignore: invalid_use_of_protected_member
+            chhSession.notifyListeners();
+            await tester.pumpAndSettle();
+            expect(find.text('全部已读'), findsOneWidget);
+          } else if (label == '我的') {
+            expect(tester.widget<TabHeader>(header).eyebrow, isNull);
+          }
+        }
+        expect(tester.takeException(), isNull);
+      });
+    }
+  }
+
   for (final brightness in Brightness.values) {
     testWidgets(
       'red $brightness tabs cover the top on first and intermediate frames',
@@ -250,7 +381,7 @@ void main() {
           ),
         );
         final title = find.descendant(
-          of: find.byType(LargeTitleHeader),
+          of: find.byType(TabHeader),
           matching: find.text('版块'),
         );
         expect(title, findsOneWidget);

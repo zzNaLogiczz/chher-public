@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:chh_app/design/chat_tokens.dart';
+import 'package:chh_app/design/motion.dart';
 import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/design/tokens.dart';
 import 'package:chh_app/models/models.dart';
@@ -11,7 +12,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'messages_ui_test.dart' show FakeMessages, showPm, phone;
+import 'messages_ui_test.dart'
+    show FakeMessages, showPm, phone, pmFixture, pullPmToRefresh;
 
 PmMessage message(String time, {bool mine = false}) => PmMessage(
   author: mine ? '您' : '对方',
@@ -43,6 +45,14 @@ class _ReconcilingMessages extends FakeMessages {
     reads++;
     return server;
   }
+}
+
+class _PendingMessages extends FakeMessages {
+  final result = Completer<List<PmMessage>>();
+
+  @override
+  Future<List<PmMessage>> conversation(String viewUrl, {bool refresh = true}) =>
+      result.future;
 }
 
 void main() {
@@ -92,6 +102,34 @@ void main() {
       expect(tester.binding.transientCallbackCount, 0);
     },
   );
+
+  testWidgets('slow initial conversation still opens at the latest message', (
+    tester,
+  ) async {
+    phone(tester);
+    final repo = _PendingMessages();
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(Brightness.light),
+        home: PmThreadPage(conversation: pmFixture, repository: repo),
+      ),
+    );
+    await tester.pump(AppMotion.loadingDelay);
+    await tester.pump(AppMotion.loadingIn);
+    repo.result.complete([
+      for (var i = 0; i < 24; i++)
+        PmMessage(
+          pmid: '$i',
+          author: '对方',
+          text: '本地私信 $i',
+          timeRaw: '2026-11-15 10:10',
+        ),
+    ]);
+    await tester.pumpAndSettle();
+    expect(find.text('本地私信 23').hitTestable(), findsOneWidget);
+    final list = tester.widget<ListView>(find.byType(ListView));
+    expect(list.controller!.offset, greaterThan(100));
+  });
 
   testWidgets('failed bubble retries once and retains the original draft', (
     tester,
@@ -162,7 +200,7 @@ void main() {
           timeRaw: '2026-11-15 10:30',
         ),
       ];
-      await tester.tap(find.byTooltip('刷新会话'));
+      await pullPmToRefresh(tester);
       await tester.pumpAndSettle();
       expect(tester.widget<TextField>(input).controller!.text, '新草稿');
       expect(find.text('原来的消息'), findsOneWidget);

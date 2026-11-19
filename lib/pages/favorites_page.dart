@@ -6,6 +6,8 @@ library;
 import 'package:flutter/material.dart';
 import '../ui/segmented.dart';
 import '../ui/picker.dart';
+import '../core/display_time.dart';
+import '../design/display_text.dart';
 import '../design/typography.dart';
 import '../ui/plain_rows.dart';
 
@@ -13,6 +15,7 @@ import '../di.dart';
 import '../data/space_repository.dart';
 import '../widgets/large_title_scaffold.dart';
 import '../design/tokens.dart';
+import '../design/thread_row_tokens.dart';
 import '../models/models.dart';
 import '../widgets/paged_list.dart';
 import 'article_page.dart';
@@ -75,7 +78,11 @@ class _FavoritesBodyState extends State<FavoritesBody> {
           child: PagedList<FavoriteItem>(
             key: ValueKey(_seg),
             emptyMessage: '还没有收藏',
-            padding: const EdgeInsets.only(top: 4, bottom: 112),
+            padding: const EdgeInsets.only(top: 4),
+            precedingBottomPadding: (item) =>
+                item.type == FavoriteType.thread && item.targetId != null
+                ? ThreadRowTokens.verticalPadding
+                : AppRowTokens.plainVerticalPadding,
             loader: (page, {bool refresh = false}) async {
               final epoch = favoriteIndex.epoch;
               final result = await (widget.repository ?? spaceRepo).favorites(
@@ -89,10 +96,7 @@ class _FavoritesBodyState extends State<FavoritesBody> {
               }
               return result;
             },
-            itemBuilder: (context, f) => PlainRow(
-              onTap: () => _open(context, f),
-              child: _row(context, f),
-            ),
+            itemBuilder: _row,
           ),
         ),
       ],
@@ -100,39 +104,62 @@ class _FavoritesBodyState extends State<FavoritesBody> {
   }
 
   Widget _row(BuildContext context, FavoriteItem f) {
-    final t = AppTokens.of(context);
-    // 收藏可以是帖子、版块或文章,眉题标出类型,省得点进去才知道
-    final kind = f.tid != null
-        ? '帖子'
-        : f.fid != null
-        ? '版块'
-        : '文章';
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(kind, style: AppType.caption.copyWith(color: t.accent)),
-        const SizedBox(height: 4),
-        Text(
-          f.title,
-          maxLines: 3,
-          overflow: TextOverflow.ellipsis,
-          style: AppType.headline.copyWith(color: t.text),
+    if (f.targetId case final tid? when f.type == FavoriteType.thread) {
+      return ReadStateBuilder(
+        tid: tid,
+        replies: null,
+        builder: (context, state) => ThreadRow.entry(
+          tid: tid,
+          title: f.title,
+          category: '帖子',
+          timeRaw: f.timeRaw,
+          readState: state,
+          onTap: () => _open(context, f),
         ),
-        if (f.timeRaw?.isNotEmpty == true) ...[
-          const SizedBox(height: 6),
-          Text(f.timeRaw!, style: AppType.footnote.copyWith(color: t.text3)),
+      );
+    }
+    final t = AppTokens.of(context);
+    final kind = f.type == FavoriteType.forum ? '版块' : '文章';
+    final time = formatDisplayTime(
+      raw: f.timeRaw,
+      style: DisplayTimeStyle.list,
+    );
+    return PlainRow(
+      onTap: () => _open(context, f),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(kind, style: AppType.caption.copyWith(color: t.accent)),
+          const SizedBox(height: 4),
+          Text(
+            f.type == FavoriteType.forum
+                ? formatForumName(f.title)
+                : normalizeDisplayText(f.title),
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+            style: AppType.headline.copyWith(color: t.text),
+          ),
+          if (time.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              time,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppType.footnote.copyWith(color: t.text3),
+            ),
+          ],
         ],
-      ],
+      ),
     );
   }
 
   /// 按目标类型分流:帖子、版块、门户文章各进各自页面
   void _open(BuildContext context, FavoriteItem f) {
     final nav = Navigator.of(context);
-    if (f.tid != null) {
+    if (f.targetId case final tid? when f.type == FavoriteType.thread) {
       nav.push(
         MaterialPageRoute(
-          builder: (_) => ThreadDetailPage(tid: f.tid!, title: f.title),
+          builder: (_) => ThreadDetailPage(tid: tid, title: f.title),
         ),
       );
       return;

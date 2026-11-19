@@ -13,6 +13,7 @@ class CompactScaffold extends StatelessWidget {
   final String title;
   final Widget? titleWidget;
   final Widget body;
+  final Widget? leading;
   final List<Widget> actions;
   final bool showBack;
   final Widget? bottomNavigationBar;
@@ -26,6 +27,7 @@ class CompactScaffold extends StatelessWidget {
     required this.title,
     this.titleWidget,
     required this.body,
+    this.leading,
     this.actions = const [],
     this.showBack = true,
     this.bottomNavigationBar,
@@ -77,14 +79,16 @@ class CompactScaffold extends StatelessWidget {
                         child: NavigationToolbar(
                           centerMiddle: centerTitle,
                           middleSpacing: 8,
-                          leading: showBack
-                              ? ChromeButton(
-                                  icon: AppIcons.back,
-                                  tooltip: '返回',
-                                  onPressed: () =>
-                                      Navigator.of(context).maybePop(),
-                                )
-                              : null,
+                          leading:
+                              leading ??
+                              (showBack
+                                  ? ChromeButton(
+                                      icon: AppIcons.back,
+                                      tooltip: '返回',
+                                      onPressed: () =>
+                                          Navigator.of(context).maybePop(),
+                                    )
+                                  : null),
                           middle: Semantics(
                             header: true,
                             child:

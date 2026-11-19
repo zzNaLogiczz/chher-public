@@ -1,3 +1,4 @@
+import 'package:chh_app/widgets/chhers_loader.dart';
 import 'dart:async';
 
 import 'package:chh_app/design/theme.dart';
@@ -5,6 +6,7 @@ import 'package:chh_app/models/models.dart';
 import 'package:chh_app/pages/messages_page.dart';
 import 'package:chh_app/pages/thread_detail_page.dart';
 import 'package:chh_app/ui/feedback.dart';
+import 'package:chh_app/widgets/chhers_refresh_indicator.dart';
 import 'package:chh_app/widgets/browse_thread_list.dart';
 import 'package:chh_app/widgets/lacquer_tab_scaffold.dart';
 import 'package:flutter/material.dart';
@@ -107,14 +109,31 @@ Future<void> _mount(WidgetTester tester, Widget page) async {
   await tester.pump();
 }
 
-bool _visible(WidgetTester tester) => tester
-    .widgetList<Visibility>(
-      find.descendant(
-        of: find.byType(LoadingPlaceholder),
-        matching: find.byType(Visibility),
-      ),
-    )
-    .any((widget) => widget.visible);
+Finder get _placeholder => find.byWidgetPredicate(
+  (widget) =>
+      widget is LoadingPlaceholder ||
+      widget is ChhersLoader && widget.size == ChhersLoaderSize.page,
+);
+
+bool _visible(WidgetTester tester) =>
+    find
+        .descendant(
+          of: find.byWidgetPredicate(
+            (widget) =>
+                widget is ChhersLoader && widget.size == ChhersLoaderSize.page,
+          ),
+          matching: find.byType(CustomPaint),
+        )
+        .evaluate()
+        .isNotEmpty ||
+    tester
+        .widgetList<Visibility>(
+          find.descendant(
+            of: find.byType(LoadingPlaceholder),
+            matching: find.byType(Visibility),
+          ),
+        )
+        .any((widget) => widget.visible);
 
 void main() {
   for (final (name, create) in [
@@ -127,7 +146,7 @@ void main() {
       (tester) async {
         final scene = create();
         await _mount(tester, scene.page);
-        expect(find.byType(LoadingPlaceholder), findsOneWidget);
+        expect(_placeholder, findsOneWidget);
         expect(_visible(tester), isFalse);
         await tester.pump(const Duration(milliseconds: 120));
         expect(_visible(tester), isFalse);
@@ -135,7 +154,7 @@ void main() {
         await tester.pump();
         await tester.pump();
         expect(find.textContaining(scene.content), findsWidgets);
-        expect(find.byType(LoadingPlaceholder), findsNothing);
+        expect(_placeholder, findsNothing);
         await tester.pumpAndSettle();
 
         scene.next();
@@ -146,11 +165,13 @@ void main() {
                   )
                   .onRefresh!()
             : tester
-                  .widget<RefreshIndicator>(find.byType(RefreshIndicator).first)
+                  .widget<ChhersRefreshIndicator>(
+                    find.byType(ChhersRefreshIndicator).first,
+                  )
                   .onRefresh();
         await tester.pump(const Duration(milliseconds: 400));
         expect(find.textContaining(scene.content), findsWidgets);
-        expect(find.byType(LoadingPlaceholder), findsNothing);
+        expect(_placeholder, findsNothing);
         scene.complete();
         await refresh;
         await tester.pumpAndSettle();
@@ -170,7 +191,7 @@ void main() {
         scene.complete();
         await tester.pumpAndSettle();
         expect(find.textContaining(scene.content), findsWidgets);
-        expect(find.byType(LoadingPlaceholder), findsNothing);
+        expect(_placeholder, findsNothing);
         expect(tester.takeException(), isNull);
       },
     );
@@ -184,7 +205,7 @@ void main() {
       expect(_visible(tester), isTrue);
       scene.fail();
       await tester.pumpAndSettle();
-      expect(find.byType(LoadingPlaceholder), findsNothing);
+      expect(_placeholder, findsNothing);
       expect(find.text('加载失败'), findsOneWidget);
       expect(find.text('重试'), findsOneWidget);
       scene.next();
@@ -194,7 +215,7 @@ void main() {
       scene.complete();
       await tester.pumpAndSettle();
       expect(find.textContaining(scene.content), findsWidgets);
-      expect(find.byType(LoadingPlaceholder), findsNothing);
+      expect(_placeholder, findsNothing);
       expect(tester.takeException(), isNull);
     });
   }

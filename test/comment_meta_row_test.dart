@@ -17,7 +17,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-Post sample({String time = '今天 12:00', bool feedback = false}) => Post(
+Post sample({String time = '昨天 12:00', bool feedback = false}) => Post(
   pid: 42,
   floor: 2,
   author: '合成作者',
@@ -143,23 +143,14 @@ Rect textSelectionBounds(WidgetTester tester, Finder text) {
       .reduce((bounds, box) => bounds.expandToInclude(box));
 }
 
-// 使用最终段落的行度量，保留实际字体、fallback、缩放和 strut。
-TextPainter paragraphPainter(RenderParagraph paragraph) => TextPainter(
-  text: paragraph.text,
-  textDirection: paragraph.textDirection,
-  textScaler: paragraph.textScaler,
-  locale: paragraph.locale,
-  strutStyle: paragraph.strutStyle,
-  textHeightBehavior: paragraph.textHeightBehavior,
-)..layout(maxWidth: paragraph.size.width);
-
 double textBaseline(WidgetTester tester, Finder text) {
   final paragraph = tester.renderObject<RenderParagraph>(
     find.descendant(of: text, matching: find.byType(RichText)),
   );
-  final painter = paragraphPainter(paragraph);
-  final baseline = painter.computeLineMetrics().last.baseline;
-  painter.dispose();
+  final baseline = paragraph.getDryBaseline(
+    paragraph.constraints,
+    TextBaseline.alphabetic,
+  )!;
   return paragraph.localToGlobal(Offset(0, baseline)).dy;
 }
 
@@ -267,8 +258,8 @@ void main() {
             (tester) async {
               addTearDown(tester.view.reset);
               for (final timestamp in [
-                '10-30 12:03',
-                '${DateTime.now().year - 1}-11-1 12:03',
+                '12:03',
+                '12:03:04',
                 '${DateTime.now().year - 1}-11-01 12:03:04 / 2025-11-02 13:04:05 / 2025-11-03 14:05:06',
               ]) {
                 var replies = 0;
@@ -288,34 +279,25 @@ void main() {
                 final control = find.byKey(const ValueKey('comment-reply-42'));
                 final timeRect = tester.getRect(time);
                 final controlRect = tester.getRect(control);
-                if (controlRect.top < timeRect.bottom) {
-                  expect(
-                    textBaseline(tester, time) - textBaseline(tester, reply),
-                    closeTo(
-                      scale *
-                          AppType.sizeFootnote *
-                          ReadingMetrics.commentReplyOpticalLiftEm,
-                      .01,
-                    ),
-                  );
+                expect(controlRect.top, lessThan(timeRect.bottom));
+                expect(
+                  textBaseline(tester, time) - textBaseline(tester, reply),
+                  closeTo(
+                    scale *
+                        AppType.sizeFootnote *
+                        ReadingMetrics.commentReplyOpticalLiftEm,
+                    .01,
+                  ),
+                );
+                if (!timestamp.contains('/')) {
                   final inkDelta = await measureInkDelta(
                     tester,
                     timestamp,
                     scale,
                   );
-                  expect(
-                    inkDelta.abs(),
-                    lessThanOrEqualTo(1),
-                    reason: '实际字形底边只允许一物理像素抗锯齿误差',
-                  );
-                  expect(controlRect.left - timeRect.right, closeTo(16, .01));
-                } else {
-                  expect(controlRect.top - timeRect.bottom, closeTo(12, .01));
-                  expect(
-                    tester.getTopLeft(reply).dy,
-                    greaterThanOrEqualTo(controlRect.top),
-                  );
+                  expect(inkDelta.abs(), lessThanOrEqualTo(1));
                 }
+                expect(controlRect.left - timeRect.right, closeTo(16, .01));
                 final target = tester.widget<HitSlopTarget>(
                   find.ancestor(
                     of: control,
@@ -358,7 +340,7 @@ void main() {
   for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
     testWidgets('optical adjustment scope on $platform', (tester) async {
       addTearDown(tester.view.reset);
-      for (final timestamp in ['10-30 12:03', '今天 12:03', '']) {
+      for (final timestamp in ['12:03', '昨天 12:03', '']) {
         await mount(
           tester,
           sample(time: timestamp),
@@ -372,7 +354,7 @@ void main() {
           find.ancestor(of: reply, matching: find.byType(Padding)).first,
         );
         final expected =
-            platform == TargetPlatform.android && timestamp == '10-30 12:03'
+            platform == TargetPlatform.android && timestamp == '12:03'
             ? AppType.sizeFootnote * ReadingMetrics.commentReplyOpticalLiftEm
             : 0.0;
         expect(padding.padding, EdgeInsets.only(bottom: expected));
@@ -426,6 +408,7 @@ void main() {
         final replyRect = tester.getRect(reply);
         final body = tester.getRect(find.byType(RichContentText));
         final feedback = tester.getRect(find.byType(CommentFeedback));
+        final rating = find.byKey(const ValueKey('post-rating-strip'));
         expect(timeRect.top, greaterThan(feedback.bottom));
         expect(timeRect.left, closeTo(body.left, .01));
         expect(replyRect.left - timeRect.right, closeTo(16, .01));
@@ -433,7 +416,11 @@ void main() {
           textBaseline(tester, find.text('回复')),
           closeTo(textBaseline(tester, time), .01),
         );
-        expect(replyRect.top - feedback.bottom, closeTo(8, .01));
+        final metadata = tester.getRect(find.byType(CommentMetaRow));
+        final supplement = tester.getRect(find.text('合成补充'));
+        expect(feedback.top - supplement.bottom, closeTo(8, .01));
+        expect(metadata.top, closeTo(feedback.bottom, .01));
+        expect(metadata.height, closeTo(6 + 28, .01));
         final timeStyle = tester.widget<Text>(time).style!;
         final replyStyle = tester.widget<Text>(find.text('回复')).style!;
         expect(timeStyle.color, AppTokens.light.text3);
@@ -448,7 +435,7 @@ void main() {
         );
         await tester.tap(find.text('点评 1'));
         await tester.pumpAndSettle();
-        await tester.tap(find.textContaining('2人'));
+        await tester.tap(rating);
         await tester.pumpAndSettle();
         expect(find.textContaining('合成点评', findRichText: true), findsOneWidget);
         expect(find.text('合成理由'), findsOneWidget);
@@ -491,7 +478,7 @@ void main() {
         final bodyBottom = tester
             .getBottomLeft(find.byType(RichContentText))
             .dy;
-        expect(empty - bodyBottom, closeTo(12, .01));
+        expect(empty - bodyBottom, closeTo(10, .01));
         final replyOnly = await bottom('', true);
         final timeOnly = await bottom('今天', false);
         final both = await bottom('今天', true);
@@ -529,34 +516,15 @@ void main() {
               final paragraph = tester.renderObject<RenderParagraph>(
                 find.descendant(of: time, matching: find.byType(RichText)),
               );
-              expect(paragraph.didExceedMaxLines, isFalse);
-              expect(tester.widget<Text>(time).maxLines, isNull);
+              expect(paragraph.didExceedMaxLines, longTime);
+              expect(tester.widget<Text>(time).maxLines, 1);
               expect(timeRect.right, lessThanOrEqualTo(width));
               expect(replyRect.right, lessThanOrEqualTo(width));
-              if (longTime) {
-                expect(
-                  paragraph
-                      .getBoxesForSelection(
-                        TextSelection(
-                          baseOffset: 0,
-                          extentOffset: post.timeRaw.length,
-                        ),
-                      )
-                      .length,
-                  greaterThan(1),
-                );
-                expect(replyRect.top - timeRect.bottom, closeTo(12, .01));
-                expect(
-                  textSelectionBounds(tester, find.text('回复')).top,
-                  greaterThan(textSelectionBounds(tester, time).bottom),
-                );
-              } else {
-                expect(
-                  textBaseline(tester, find.text('回复')),
-                  closeTo(textBaseline(tester, time), .01),
-                );
-                expect(replyRect.left - timeRect.right, closeTo(16, .01));
-              }
+              expect(
+                textBaseline(tester, find.text('回复')),
+                closeTo(textBaseline(tester, time), .01),
+              );
+              expect(replyRect.left - timeRect.right, closeTo(16, .01));
               final target = tester.widget<HitSlopTarget>(
                 find.ancestor(of: reply, matching: find.byType(HitSlopTarget)),
               );

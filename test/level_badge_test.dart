@@ -124,7 +124,6 @@ void main() {
           if (level.darkTile) {
             expect(decoration.gradient!.colors, palette.tile);
             expect(text.first.style!.foreground!.shader, isNotNull);
-            expect(text.first.style!.fontVariations!.single.value, 650);
           } else {
             final dark = brightness == Brightness.dark;
             final tokens = tokensFor(brightness, style);
@@ -140,6 +139,10 @@ void main() {
             expect(text.first.style!.color, dark ? palette.j : palette.i);
           }
           expect(decoration.boxShadow ?? [], hasLength(level.darkTile ? 1 : 0));
+          expect(plate(tester).constraints!.minHeight, 20);
+          expect(decoration.borderRadius, BorderRadius.circular(6));
+          expect(text.first.style!.fontSize, 12);
+          expect(text.first.style!.fontWeight, FontWeight.w600);
           if (level.darkTile) {
             final shadow = decoration.boxShadow!.single;
             expect(shadow.color, const Color.fromRGBO(0, 0, 0, .45));
@@ -158,6 +161,7 @@ void main() {
           )) {
             if (glyph.painter case final LevelGlyphPainter painter) {
               expect(painter.glow, isFalse);
+              expect(glyph.size, const Size.square(12));
             }
           }
           expect(tester.takeException(), isNull);
@@ -167,6 +171,33 @@ void main() {
       });
     }
   }
+
+  testWidgets('cold levels on cinnabar lacquer use a white backing', (
+    tester,
+  ) async {
+    for (final brightness in Brightness.values) {
+      await mount(
+        tester,
+        const LevelBadge(gid: 41, onLacquer: true),
+        brightness: brightness,
+      );
+      expect((plate(tester).decoration! as BoxDecoration).color, Colors.white);
+      expect(
+        tester.widget<Text>(find.text('能天使')).style!.color,
+        LevelPalette.cinnabar['sapph']!.i,
+      );
+    }
+    await mount(
+      tester,
+      const LevelBadge(gid: 41, onLacquer: true),
+      style: AppearanceStyle.misty,
+    );
+    await tester.pumpAndSettle();
+    expect(
+      (plate(tester).decoration! as BoxDecoration).color,
+      isNot(Colors.white),
+    );
+  });
 
   testWidgets('every static level has no repaint boundaries or shimmer', (
     tester,
@@ -400,12 +431,12 @@ void main() {
       final size = tester.getSize(find.byKey(const ValueKey('level-plate')));
       expect(size.height, 40);
       expect(size.width, closeTo(width * 2, .1));
-      expect(tester.widget<Text>(find.text('能天使')).style!.fontSize, 23);
+      expect(tester.widget<Text>(find.text('能天使')).style!.fontSize, 24);
       final icon = find.byWidgetPredicate(
         (widget) =>
             widget is CustomPaint && widget.painter is LevelGlyphPainter,
       );
-      expect(tester.getSize(icon), const Size(23, 23));
+      expect(tester.getSize(icon), const Size(24, 24));
       expect(tester.takeException(), isNull);
     },
   );
@@ -597,6 +628,43 @@ void main() {
         );
         expect(owner.left, greaterThan(badge.right));
         expect(owner.right, lessThanOrEqualTo(320));
+        final ownerBadge = find.byKey(const ValueKey('post-owner-100'));
+        expect(tester.getSize(ownerBadge).height, 18);
+        final outline =
+            tester
+                    .widget<DecoratedBox>(
+                      find.descendant(
+                        of: ownerBadge,
+                        matching: find.byType(DecoratedBox),
+                      ),
+                    )
+                    .decoration
+                as BoxDecoration;
+        expect(outline.borderRadius, BorderRadius.circular(5));
+        expect(outline.color, isNull);
+        expect(
+          outline.border,
+          Border.all(
+            color: AppTokens.of(
+              tester.element(ownerBadge),
+            ).accent.withValues(alpha: .5),
+          ),
+        );
+        final ownerText = tester.widget<Text>(find.text('楼主'));
+        expect(ownerText.style!.fontSize, 11);
+        expect(ownerText.style!.fontWeight, FontWeight.w600);
+        double baseline(String text) {
+          final finder = find.text(text);
+          final paragraph = tester.renderObject<RenderParagraph>(finder);
+          return tester.getTopLeft(finder).dy +
+              paragraph.getDryBaseline(
+                paragraph.constraints,
+                TextBaseline.alphabetic,
+              )!;
+        }
+
+        expect(baseline('能天使'), closeTo(baseline(name), .01));
+        expect(baseline('楼主'), closeTo(baseline(name), .01));
         expect(tester.takeException(), isNull);
       },
     );
@@ -605,33 +673,36 @@ void main() {
   testWidgets('320dp double text preserves apprentice badge and owner', (
     tester,
   ) async {
-    await mount(
-      tester,
-      const SizedBox(
-        width: 320,
-        child: PostCard.header(
-          post: Post(
-            pid: 100,
-            floor: 2,
-            author: '很长很长的作者名字',
-            authorGroupId: 56,
-            timeRaw: '',
-            content: [],
+    for (final opening in [false, true]) {
+      await mount(
+        tester,
+        SizedBox(
+          width: 320,
+          child: PostCard.header(
+            post: const Post(
+              pid: 100,
+              floor: 2,
+              author: '很长很长的作者名字',
+              authorGroupId: 56,
+              timeRaw: '昨天 12:34',
+              content: [],
+            ),
+            isOpening: opening,
+            isAuthor: true,
+            onMore: () {},
           ),
-          isOpening: false,
-          isAuthor: true,
         ),
-      ),
-      scale: 2,
-    );
-    expect(find.text('见习迪亚波罗'), findsOneWidget);
-    expect(find.text('楼主'), findsOneWidget);
-    expect(tester.takeException(), isNull);
-    expect(
-      tester.getRect(find.byType(LevelBadge)).right,
-      lessThanOrEqualTo(320),
-    );
-    expect(tester.getRect(find.text('楼主')).right, lessThanOrEqualTo(320));
+        scale: 2,
+      );
+      expect(find.text('见习迪亚波罗'), findsOneWidget);
+      expect(find.text('楼主'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      expect(
+        tester.getRect(find.byType(LevelBadge)).right,
+        lessThanOrEqualTo(320),
+      );
+      expect(tester.getRect(find.text('楼主')).right, lessThanOrEqualTo(320));
+    }
   });
 
   testWidgets('suppressed post never exposes a badge', (tester) async {

@@ -11,8 +11,10 @@ import '../ui/app_button.dart';
 import '../design/tokens.dart';
 import '../models/models.dart';
 import 'browse_controls.dart';
-import 'expressive_controls.dart';
+import 'chhers_loading_transition.dart';
+import 'chhers_refresh_indicator.dart';
 import 'state_view.dart';
+import '../design/list_end_tokens.dart';
 import 'password_sheet.dart';
 
 /// 加载一页。实现方负责把各自的响应类型适配成 `Paged<T>`。
@@ -33,6 +35,7 @@ class PagedList<T> extends StatefulWidget {
   final String emptyMessage;
   final Future<bool> Function(int fid)? onPassword;
   final EdgeInsetsGeometry padding;
+  final double Function(T lastItem)? precedingBottomPadding;
 
   const PagedList({
     super.key,
@@ -42,11 +45,12 @@ class PagedList<T> extends StatefulWidget {
     this.header,
     this.emptyMessage = '这里还没有内容',
     this.onPassword,
+    this.precedingBottomPadding,
     this.padding = const EdgeInsets.fromLTRB(
       AppSpace.screen,
       0,
       AppSpace.screen,
-      24,
+      0,
     ),
   });
 
@@ -63,7 +67,6 @@ class PagedListState<T> extends State<PagedList<T>> {
   Object? _error;
   int? _failedPage;
   bool _firstLoadDone = false;
-  int _contentRevision = 0;
   bool _unlocking = false;
 
   Future<void> _unlock(PageMessage message) async {
@@ -122,7 +125,6 @@ class PagedListState<T> extends State<PagedList<T>> {
         }
         if (page == 1) {
           _items.clear();
-          _contentRevision++;
         }
         _items.addAll(result.items);
         // 当前页以响应为准:请求第 5 页可能被站点回落到第 1 页
@@ -154,81 +156,95 @@ class PagedListState<T> extends State<PagedList<T>> {
     final err = _error;
     final headerCount = widget.header == null ? 0 : 1;
     final rowCount = widget.groupBuilder == null ? items.length : 1;
-    return ExpressivePageReveal(
-      active: true,
-      revision: (_firstLoadDone, _contentRevision, items.isEmpty ? err : null),
-      child: RefreshIndicator(
-        onRefresh: refresh,
-        child: BrowsePaginationObserver(
-          enabled: !_loading && _hasNext && _error == null,
-          threshold: 320,
-          onLoadMore: () => _load(_page + 1),
-          child: ListView.builder(
-            primary: true,
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: widget.padding,
-            itemCount: headerCount + (items.isEmpty ? 1 : rowCount + 1),
-            itemBuilder: (context, rawIndex) {
-              if (headerCount == 1 && rawIndex == 0) return widget.header!;
-              final index = rawIndex - headerCount;
-              if (items.isEmpty) {
-                Widget state;
-                if (!_firstLoadDone) {
-                  state = StateView.loading();
-                } else if (err is PageMessage) {
-                  state = StateView.forMessage(
-                    err,
-                    onPassword: () => _unlock(err),
-                    onLogin: () async {
-                      await Navigator.of(context).pushNamed('/login');
-                      if (mounted) await refresh();
-                    },
-                  );
-                } else if (err != null) {
-                  state = StateView.error(err, onRetry: refresh);
-                } else {
-                  state = _items.isNotEmpty
-                      ? Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Text('已隐藏黑名单用户的帖子'),
-                            if (_hasNext)
-                              AppButton(
-                                label: '继续加载',
-                                variant: AppButtonVariant.plain,
-                                onPressed: _loading
-                                    ? null
-                                    : () => _load(_page + 1),
-                              ),
-                          ],
-                        )
-                      : StateView.empty(message: widget.emptyMessage);
-                }
-                return SizedBox(height: 320, child: state);
-              }
-              if (index < rowCount) {
-                final group = widget.groupBuilder;
-                if (group != null) {
-                  return group(
-                    context,
-                    items.map((e) => widget.itemBuilder(context, e)).toList(),
-                  );
-                }
-                return widget.itemBuilder(context, items[index]);
-              }
-              if (err != null) {
-                return Center(
-                  child: AppButton(
-                    label: '加载失败，重试',
-                    variant: AppButtonVariant.plain,
-                    onPressed: () =>
-                        _load(_failedPage ?? _page + 1, refresh: true),
-                  ),
-                );
-              }
-              return ListFooter(loading: _loading, exhausted: !_hasNext);
-            },
-          ),
+    Widget buildList({Widget? indicator}) => ListView.builder(
+      primary: true,
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: widget.padding.add(
+        EdgeInsets.only(bottom: MediaQuery.paddingOf(context).bottom),
+      ),
+      itemCount:
+          headerCount + (indicator != null || items.isEmpty ? 1 : rowCount + 1),
+      itemBuilder: (context, rawIndex) {
+        if (headerCount == 1 && rawIndex == 0) return widget.header!;
+        if (indicator != null) {
+          return SizedBox(height: 320, child: Center(child: indicator));
+        }
+        final index = rawIndex - headerCount;
+        if (items.isEmpty) {
+          Widget state;
+          if (err is PageMessage) {
+            state = StateView.forMessage(
+              err,
+              onPassword: () => _unlock(err),
+              onLogin: () async {
+                await Navigator.of(context).pushNamed('/login');
+                if (mounted) await refresh();
+              },
+            );
+          } else if (err != null) {
+            state = StateView.error(err, onRetry: refresh);
+          } else {
+            state = _items.isNotEmpty
+                ? Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Text('已隐藏黑名单用户的帖子'),
+                      if (_hasNext)
+                        AppButton(
+                          label: '继续加载',
+                          variant: AppButtonVariant.plain,
+                          onPressed: _loading ? null : () => _load(_page + 1),
+                        ),
+                    ],
+                  )
+                : StateView.empty(message: widget.emptyMessage);
+          }
+          return SizedBox(height: 320, child: state);
+        }
+        if (index < rowCount) {
+          final group = widget.groupBuilder;
+          if (group != null) {
+            return group(
+              context,
+              items.map((e) => widget.itemBuilder(context, e)).toList(),
+            );
+          }
+          return widget.itemBuilder(context, items[index]);
+        }
+        if (err != null) {
+          return Padding(
+            padding: EdgeInsets.only(
+              top: ListEndTokens.markerPadding(
+                widget.precedingBottomPadding?.call(items.last) ?? 0,
+              ),
+              bottom: ListEndTokens.markerGap,
+            ),
+            child: Center(
+              child: AppButton(
+                label: '加载失败，重试',
+                variant: AppButtonVariant.plain,
+                onPressed: () => _load(_failedPage ?? _page + 1, refresh: true),
+              ),
+            ),
+          );
+        }
+        return ListFooter(
+          loading: _loading,
+          exhausted: !_hasNext,
+          precedingBottomPadding:
+              widget.precedingBottomPadding?.call(items.last) ?? 0,
+        );
+      },
+    );
+    return ChhersRefreshIndicator(
+      onRefresh: refresh,
+      child: BrowsePaginationObserver(
+        enabled: !_loading && _hasNext && _error == null,
+        threshold: 320,
+        onLoadMore: () => _load(_page + 1),
+        child: ChhersLoadingTransition(
+          placeholderBuilder: (indicator) => buildList(indicator: indicator),
+          child: _firstLoadDone || items.isNotEmpty ? buildList() : null,
         ),
       ),
     );

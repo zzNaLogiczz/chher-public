@@ -70,34 +70,96 @@ void main() {
     expect(tester.binding.transientCallbackCount, 0);
   });
 
-  testWidgets('thread row has aligned title and a fixed reply column', (
+  testWidgets('thread row shows category, avatar and inline reply count', (
     tester,
   ) async {
     await tester.pumpWidget(app(ThreadRow(thread: thread(1), onTap: () {})));
     expect(find.textContaining('·'), findsNothing);
-    expect(
-      find.descendant(of: find.byType(ThreadRow), matching: find.byType(Icon)),
-      findsNothing,
-    );
+    expect(find.byIcon(AppIcons.comments), findsOneWidget);
     expect(find.text('22'), findsOneWidget);
+    expect(find.text('回复'), findsNothing);
+    expect(find.text('电脑讨论'), findsOneWidget);
+    expect(find.text('电脑讨论(新)'), findsNothing);
+    expect(find.text('测试主题作者'), findsOneWidget);
+    expect(tester.widget<PlainRow>(find.byType(PlainRow)).verticalPadding, 12);
     expect(
-      tester.getSize(find.byKey(const ValueKey('thread-count-1'))).width,
-      44,
+      tester.getSize(find.byKey(const ValueKey('thread-avatar-1'))).width,
+      16,
     );
-    expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('thread-count-1')),
-        matching: find.byType(AnimatedContainer),
+  });
+
+  testWidgets('zero replies hide icon and count; account rows omit author', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      app(
+        ThreadRow.entry(
+          tid: 33,
+          title: '我的帖子',
+          category: '电脑讨论（新）',
+          timeRaw: '无法解析的时间',
+          replies: 0,
+        ),
       ),
-      findsNothing,
     );
-    expect(find.textContaining('电脑讨论(新)', findRichText: true), findsOneWidget);
-    final metadata = tester.widget<Text>(find.textContaining('电脑讨论(新)'));
-    final spans = (metadata.textSpan! as TextSpan).children!.cast<TextSpan>();
-    expect(spans.first.text, '电脑讨论(新)  ');
-    expect(spans.first.style, spans.last.style);
-    expect(spans.first.style?.color, AppTokens.light.text3);
-    expect(find.textContaining('测试主题作者', findRichText: true), findsOneWidget);
+    expect(find.byIcon(AppIcons.comments), findsNothing);
+    expect(find.byKey(const ValueKey('thread-count-33')), findsNothing);
+    expect(find.byKey(const ValueKey('thread-avatar-33')), findsNothing);
+    expect(find.text('电脑讨论'), findsOneWidget);
+    expect(find.text('无法解析的时间'), findsOneWidget);
+  });
+
+  testWidgets('forum and community rows differ only in board metadata', (
+    tester,
+  ) async {
+    const summary = ThreadSummary(
+      tid: 9,
+      title: '同一个帖子',
+      author: '同一作者',
+      forumName: '这个版块名字很长这个版块名字很长这个版块名字很长(新)',
+      hasImages: true,
+      replies: 18,
+      views: 1,
+    );
+    const board = '这个版块名字很长这个版块名字很长这个版块名字很长';
+    await tester.binding.setSurfaceSize(const Size(320, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      app(
+        const Column(
+          children: [
+            ThreadRow(
+              key: ValueKey('local-forum'),
+              thread: summary,
+              showCategory: false,
+              forumStyle: true,
+              timeLabel: '昨天 12:34',
+            ),
+            ThreadRow(
+              key: ValueKey('community'),
+              thread: summary,
+              timeLabel: '昨天 12:34',
+            ),
+          ],
+        ),
+      ),
+    );
+
+    Finder inRow(String row, Finder item) =>
+        find.descendant(of: find.byKey(ValueKey(row)), matching: item);
+    expect(inRow('local-forum', find.text(board)), findsNothing);
+    final communityBoard = inRow('community', find.text(board));
+    expect(tester.widget<Text>(communityBoard).maxLines, 1);
+    expect(tester.widget<Text>(communityBoard).overflow, TextOverflow.ellipsis);
+    final time = inRow('community', find.text('昨天 12:34'));
+    expect(tester.widget<Text>(time).maxLines, 1);
+    expect(
+      tester.getCenter(time).dy,
+      closeTo(tester.getCenter(communityBoard).dy, .01),
+    );
+    expect(find.byIcon(AppIcons.image), findsNWidgets(2));
+    expect(find.text('18'), findsNWidgets(2));
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('time follows a short author with a ten dp gap', (tester) async {
@@ -121,58 +183,55 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets(
-    'short titles stay compact and long titles are limited to two lines',
-    (tester) async {
-      await tester.binding.setSurfaceSize(const Size(390, 844));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
-      await tester.pumpWidget(
-        app(
-          Column(
-            children: [
-              ThreadRow(thread: thread(1), timeLabel: '12:34'),
-              const ThreadRow(
-                thread: ThreadSummary(
-                  tid: 2,
-                  title: '非常长的帖子标题反复出现直到占据第二行并以省略号结束非常长的帖子标题',
-                  author: '另一位作者',
-                  replies: 1,
-                  views: 1,
-                  typeName: '讨论',
-                ),
-                timeLabel: '12:35',
-                showCategory: false,
+  testWidgets('short and long titles take exactly one line', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      app(
+        Column(
+          children: [
+            ThreadRow(thread: thread(1), timeLabel: '12:34'),
+            const ThreadRow(
+              thread: ThreadSummary(
+                tid: 2,
+                title: '非常长的帖子标题反复出现直到占据第二行并以省略号结束非常长的帖子标题',
+                author: '另一位作者',
+                replies: 1,
+                views: 1,
+                typeName: '讨论',
               ),
-            ],
-          ),
-        ),
-      );
-      final first = tester.getRect(find.byType(ThreadRow).first);
-      final second = tester.getRect(find.byType(ThreadRow).last);
-      expect(second.height, greaterThan(first.height));
-      final titles = tester
-          .widgetList<Text>(
-            find.descendant(
-              of: find.byType(ThreadRow),
-              matching: find.byType(Text),
+              timeLabel: '12:35',
+              showCategory: false,
             ),
-          )
-          .where(
-            (text) =>
-                text.data == thread(1).title ||
-                text.data?.startsWith('非常长的帖子标题') == true,
-          );
-      expect(titles.every((text) => text.maxLines == 2), isTrue);
-      expect(first.height, lessThan(78));
-      expect(
-        find.textContaining('讨论', findRichText: true),
-        findsOneWidget,
-      ); // first row category only
-      expect(find.text('12:34'), findsOneWidget);
-      expect(find.text('12:35'), findsOneWidget);
-      expect(tester.takeException(), isNull);
-    },
-  );
+          ],
+        ),
+      ),
+    );
+    final first = tester.getRect(find.byType(ThreadRow).first);
+    final second = tester.getRect(find.byType(ThreadRow).last);
+    expect(second.height, closeTo(first.height, .01));
+    final titles = tester
+        .widgetList<Text>(
+          find.descendant(
+            of: find.byType(ThreadRow),
+            matching: find.byType(Text),
+          ),
+        )
+        .where(
+          (text) =>
+              text.data == thread(1).title ||
+              text.data?.startsWith('非常长的帖子标题') == true,
+        );
+    expect(titles.every((text) => text.maxLines == 1), isTrue);
+    expect(first.height, lessThan(78));
+    expect(
+      find.textContaining('讨论', findRichText: true),
+      findsOneWidget,
+    ); // first row category only
+    expect(find.text('12:34'), findsOneWidget);
+    expect(find.text('12:35'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets(
     'narrow large type row preserves image semantics, excerpt and full counts',

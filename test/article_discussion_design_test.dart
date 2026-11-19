@@ -3,9 +3,11 @@ import 'package:chh_app/design/tokens.dart';
 import 'package:chh_app/models/article_discussion.dart';
 import 'package:chh_app/models/models.dart';
 import 'package:chh_app/pages/article_discussion_page.dart';
+import 'package:chh_app/ui/bottom_bar.dart';
 import 'package:chh_app/ui/sheet_scaffold.dart';
 import 'package:chh_app/widgets/article_discussion_widgets.dart';
 import 'package:chh_app/widgets/comment_mode_bar.dart';
+import 'package:chh_app/widgets/reading_list_end.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:smooth_sheets/smooth_sheets.dart';
@@ -278,6 +280,44 @@ void main() {
     await tester.tap(find.text('查看讨论'));
     await tester.pumpAndSettle();
   }
+
+  testWidgets('portal discussion end leaves the dock fade clear', (
+    tester,
+  ) async {
+    await openSheet(tester);
+    await tester.drag(
+      find.byKey(const ValueKey('discussion-sheet-grip')),
+      const Offset(0, -500),
+    );
+    await tester.pumpAndSettle();
+    final viewport = find.byType(CustomScrollView);
+    final position = PrimaryScrollController.of(
+      tester.element(viewport),
+    ).position;
+    for (var n = 0; n < 8; n++) {
+      position.jumpTo(position.maxScrollExtent);
+      await tester.pumpAndSettle();
+      if (position.extentAfter < 1) break;
+    }
+    final last = tester.getRect(
+      find.descendant(
+        of: find.byKey(const ValueKey('comment-30')),
+        matching: find.text('回复'),
+      ),
+    );
+    final marker = tester.getRect(find.byType(ReadingListEnd));
+    final bar = tester.getRect(find.byType(BottomBar));
+    final capsule = tester.getRect(
+      find.byKey(const ValueKey('discussion-write-action')),
+    );
+    expect(marker.top - last.bottom, closeTo(24, .01));
+    expect(capsule.top - marker.bottom, closeTo(24, .01));
+    expect(bar.height, 24 + 44 + 8);
+    expect(
+      bar.bottom - last.bottom,
+      closeTo(24 + marker.height + bar.height, .01),
+    );
+  });
 
   testWidgets(
     'sheet follows spec: header count, one context line, fill capsule',

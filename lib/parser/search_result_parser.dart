@@ -70,13 +70,12 @@ SearchResultPage parseSearchResult(String html) {
         author: author,
         authorUid: authorUid,
         createdAt: ChhUrls.parseTime(timeRaw ?? ''),
+        createdAtRaw: timeRaw,
         replies: replies,
         views: views,
         forumName: (forumName == null || forumName.isEmpty) ? null : forumName,
         forumFid: forumFid,
-        snippet: snippet == null || snippet.length < 300
-            ? snippet
-            : snippet.substring(0, 300),
+        snippet: snippet,
       ),
     );
   }

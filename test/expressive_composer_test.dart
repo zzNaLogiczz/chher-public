@@ -8,6 +8,7 @@ import 'package:chh_app/widgets/composer_sheet.dart';
 import 'package:chh_app/widgets/expressive_composer.dart';
 import 'package:chh_app/design/icons.dart';
 import 'package:chh_app/ui/quote.dart';
+import 'package:chh_app/widgets/chhers_loader.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -456,7 +457,19 @@ void composerRedesignTests() {
     await tester.tap(find.text('发送中'), warnIfMissed: false);
     await tester.pump();
     expect(submissions, 1);
-    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    final spinner = find.byWidgetPredicate(
+      (widget) => widget is ChhersSpinner && widget.active,
+    );
+    expect(spinner, findsOneWidget);
+    expect(
+      find.descendant(of: spinner, matching: find.byType(FadeTransition)),
+      findsNothing,
+    );
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(
+      find.descendant(of: spinner, matching: find.byType(FadeTransition)),
+      findsOneWidget,
+    );
     pending.complete(const PostResult(PostResultKind.success, 'ok'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));

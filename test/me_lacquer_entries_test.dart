@@ -89,6 +89,44 @@ void main() {
     });
   });
 
+  for (final brightness in Brightness.values) {
+    testWidgets(
+      'cinnabar mast paints its watermark below paper and cards $brightness',
+      (tester) async {
+        await tester.pumpWidget(_app(brightness: brightness));
+        await tester.pumpAndSettle();
+        final mast = find.byKey(const ValueKey('tab-mast-background'));
+        final scrollContent = find.byKey(const ValueKey('tab-scroll-content'));
+        final watermark = find.text('chh');
+        final entries = find.byType(LacEntryStrip);
+        final painter = find.ancestor(
+          of: watermark,
+          matching: find.byWidgetPredicate(
+            (widget) =>
+                widget is CustomPaint && widget.foregroundPainter != null,
+          ),
+        );
+
+        expect(find.descendant(of: mast, matching: watermark), findsOneWidget);
+        expect(find.descendant(of: mast, matching: painter), findsOneWidget);
+        expect(
+          find.descendant(of: scrollContent, matching: entries),
+          findsOneWidget,
+        );
+        final layers = tester
+            .widgetList<Stack>(find.byType(Stack))
+            .singleWhere(
+              (stack) => stack.children.contains(tester.widget(mast)),
+            )
+            .children;
+        expect(
+          layers.indexOf(tester.widget(mast)),
+          lessThan(layers.indexOf(tester.widget(scrollContent))),
+        );
+      },
+    );
+  }
+
   for (final style in AppearanceStyle.values) {
     for (final brightness in Brightness.values) {
       for (final scale in [1.3, 2.0]) {
@@ -105,10 +143,7 @@ void main() {
             final scaffold = tester.widget<LacquerTabScaffold>(
               find.byType(LacquerTabScaffold),
             );
-            expect(
-              scaffold.title,
-              style == AppearanceStyle.misty ? '我的' : '测试账号',
-            );
+            expect(scaffold.title, '我的');
             final compactAvatar = scaffold.compactLeading! as AccountAvatar;
             expect(compactAvatar.size, MeTokens.compactAvatar);
             expect(compactAvatar.name, '测试账号');
@@ -153,23 +188,25 @@ void main() {
             );
             expect(
               icons.map((icon) => icon.size),
-              everyElement(MeTokens.entryIcon),
+              everyElement(EntryIconTokens.glyphSize),
             );
             expect(
-              icons.map((icon) => icon.color).toSet().length,
-              style == AppearanceStyle.misty ? 4 : 1,
+              icons.map((icon) => icon.color),
+              everyElement(AppTokens.of(tester.element(strip)).accent),
             );
             expect(fetcher.requests, isEmpty);
             expect(tester.takeException(), isNull);
-            tester
+            await tester.ensureVisible(strip);
+            await tester.pumpAndSettle();
+            final position = tester
                 .state<ScrollableState>(find.byType(Scrollable).first)
-                .position
-                .jumpTo(0);
+                .position;
+            position.jumpTo(position.pixels - 48);
             await tester.pumpAndSettle();
             final initialTop = tester.getTopLeft(strip).dy;
             await tester.drag(
               find.byType(CustomScrollView),
-              const Offset(0, -280),
+              const Offset(0, -64),
             );
             await tester.pumpAndSettle();
             expect(tester.getTopLeft(strip).dy, lessThan(initialTop));
@@ -215,7 +252,14 @@ void main() {
     expect(chhSession.badges.userName, '更新后的账号');
     expect(
       tester.widget<LacquerTabScaffold>(find.byType(LacquerTabScaffold)).title,
-      '更新后的账号',
+      '我的',
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('me-identity-row')),
+        matching: find.text('更新后的账号'),
+      ),
+      findsOneWidget,
     );
     expect(find.text('UID 100001'), findsOneWidget);
     expect(tester.takeException(), isNull);
@@ -297,32 +341,36 @@ void main() {
 
   for (final brightness in Brightness.values) {
     for (final scale in [1.0, 2.0]) {
-      testWidgets(
-        'watermark is a full line behind entries $brightness ${scale}x',
-        (tester) async {
-          await tester.pumpWidget(
-            _app(brightness: brightness, textScale: scale),
-          );
-          await tester.pumpAndSettle();
-          final mark = tester.getRect(find.text('chh'));
-          final entries = tester.getRect(find.byType(LacEntryStrip));
-          final identity = tester.getRect(
-            find.byKey(const ValueKey('tab-large-title')),
-          );
-          expect(mark.height, closeTo(TabChromeTokens.watermarkSize, .01));
-          expect(mark.bottom - entries.top, closeTo(MeTokens.overlap, .01));
-          expect(
-            entries.top - mark.top,
-            greaterThan(TabChromeTokens.watermarkSize / 2),
-          );
-          expect(entries.top - identity.bottom, TabChromeTokens.headerBottom);
-          expect(
-            MeTokens.headerTail + TabChromeTokens.headerBottom,
-            greaterThanOrEqualTo(66),
-          );
-          expect(tester.takeException(), isNull);
-        },
-      );
+      testWidgets('watermark is cropped behind entries $brightness ${scale}x', (
+        tester,
+      ) async {
+        await tester.pumpWidget(_app(brightness: brightness, textScale: scale));
+        await tester.pumpAndSettle();
+        final text = find.text('chh');
+        final mark = tester.getRect(text);
+        final visible = tester.getRect(
+          find.ancestor(of: text, matching: find.byType(ClipRect)).first,
+        );
+        final entries = tester.getRect(find.byType(LacEntryStrip));
+        final identity = tester.getRect(
+          find.byKey(const ValueKey('me-identity-row')),
+        );
+        expect(mark.height, closeTo(TabChromeTokens.watermarkSize, .01));
+        expect(visible.bottom - entries.top, closeTo(MeTokens.overlap, .01));
+        expect(mark.bottom, greaterThan(visible.bottom));
+        expect(
+          entries.top - mark.top,
+          closeTo(
+            TabChromeTokens.watermarkVisibleHeight - MeTokens.overlap,
+            .01,
+          ),
+        );
+        expect(
+          entries.top - identity.bottom,
+          MeTokens.headerTail + TabChromeTokens.headerBottom,
+        );
+        expect(tester.takeException(), isNull);
+      });
     }
   }
 
@@ -399,7 +447,7 @@ void main() {
   });
 
   for (final style in AppearanceStyle.values) {
-    testWidgets('$style tools use plain icons and no theme badge', (
+    testWidgets('$style tools use themed icon tiles and no theme badge', (
       tester,
     ) async {
       await tester.pumpWidget(_app(style: style));
@@ -409,7 +457,13 @@ void main() {
       expect(tester.widget<GroupedRow>(settings).subtitle, isNull);
       expect(find.text('薄暮'), findsNothing);
       expect(find.text('朱砂'), findsNothing);
-      expect(find.byType(AccountToolWell), findsNWidgets(2));
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('me-tools')),
+          matching: find.byType(IconTile),
+        ),
+        findsNWidgets(2),
+      );
       expect(find.byType(Divider), findsNothing);
       final dot = find.descendant(
         of: settings,
@@ -420,7 +474,7 @@ void main() {
         matching: find.byIcon(AppIcons.forward),
       );
       expect(tester.getCenter(dot).dx, lessThan(tester.getCenter(arrow).dx));
-      expect(find.text('CHHER'), findsOneWidget);
+      expect(find.text('Chhers'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
   }

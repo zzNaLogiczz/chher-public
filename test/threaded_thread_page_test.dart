@@ -1,14 +1,19 @@
+import 'package:chh_app/design/motion.dart';
 import 'dart:async';
 import 'dart:io';
 import 'package:chh_app/parser/thread_parser.dart';
 import 'package:chh_app/design/theme.dart';
+import 'package:chh_app/design/tokens.dart';
 import 'package:chh_app/di.dart';
 import 'package:chh_app/parser/header_parser.dart';
 import 'package:chh_app/models/models.dart';
 import 'package:chh_app/pages/thread_detail_page.dart';
+import 'package:chh_app/ui/nav_bar.dart';
+import 'package:chh_app/ui/reading_bar.dart';
 import 'package:chh_app/widgets/composer_sheet.dart';
 import 'package:chh_app/widgets/expressive_controls.dart';
 import 'package:chh_app/widgets/post_card.dart';
+import 'package:chh_app/widgets/reading_list_end.dart';
 import 'package:chh_app/widgets/thread_comment_widgets.dart';
 import 'package:chh_app/widgets/comment_mode_bar.dart';
 import 'package:flutter/material.dart';
@@ -99,6 +104,55 @@ Future<ThreadViewMode> currentViewMode(WidgetTester tester) async {
 }
 
 void main() {
+  for (final (style, brightness, paper) in [
+    (AppearanceStyle.misty, Brightness.light, const Color(0xFFFFFFFF)),
+    (AppearanceStyle.cinnabar, Brightness.light, const Color(0xFFFFFDFC)),
+    (AppearanceStyle.misty, Brightness.dark, const Color(0xFF0B0B0C)),
+    (AppearanceStyle.cinnabar, Brightness.dark, const Color(0xFF0D0B0A)),
+  ]) {
+    testWidgets('B6 reading surfaces use paper in $style $brightness', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildAppTheme(brightness, style),
+          home: ThreadDetailPage(
+            tid: 123,
+            title: '纸面示例',
+            preloadPages: 1,
+            loadPage: (_, _, _) async => page([post(1), post(2)]),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('正文1', findRichText: true), findsOneWidget);
+      expect(find.text('正文2', findRichText: true), findsOneWidget);
+      expect(
+        tester.widget<Scaffold>(find.byType(Scaffold)).backgroundColor,
+        paper,
+      );
+      expect(
+        tester.widget<NavOverlay>(find.byType(NavOverlay)).background,
+        paper,
+      );
+      final fades = tester.widgetList<ContentFade>(find.byType(ContentFade));
+      expect(fades, isNotEmpty);
+      expect(fades.map((fade) => fade.background), everyElement(paper));
+      final readingBarBackground = tester.widget<DecoratedBox>(
+        find
+            .descendant(
+              of: find.byType(ReadingBar),
+              matching: find.byType(DecoratedBox),
+            )
+            .first,
+      );
+      final gradient =
+          (readingBarBackground.decoration as BoxDecoration).gradient!;
+      expect(gradient.colors.last, paper);
+    });
+  }
+
   testWidgets(
     'unlinked 4 and 9 join explicit 34 on initial load and jump in floor mode',
     (tester) async {
@@ -341,22 +395,34 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('notification of a grouped child opens and locates that child', (
+  testWidgets('slow notification load opens and locates a grouped child', (
     tester,
   ) async {
-    await pump(
-      tester,
-      ThreadDetailPage(
-        preloadPages: 1,
-        tid: 123,
-        title: '通知',
-        focusPid: 4,
-        gotoUrl: 'fake://goto',
-        loadGoto: (_) async =>
-            page([post(1), post(2), post(3, target: 2), post(4, target: 3)]),
-        loadPage: (_, _, _) async => throw StateError('Must use supplied goto'),
+    final response = Completer<ThreadDetail>();
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(Brightness.light),
+        home: ThreadDetailPage(
+          preloadPages: 1,
+          tid: 123,
+          title: '通知',
+          focusPid: 4,
+          gotoUrl: 'fake://goto',
+          loadGoto: (_) => response.future,
+          loadPage: (_, _, _) async =>
+              throw StateError('Must use supplied goto'),
+        ),
       ),
     );
+    await tester.pump(AppMotion.loadingDelay);
+    await tester.pump(AppMotion.loadingIn);
+    response.complete(
+      page([post(1), post(2), post(3, target: 2), post(4, target: 3)]),
+    );
+    await tester.pumpAndSettle();
     expect(find.text('回复 用户3：正文4').hitTestable(), findsOneWidget);
     expect(find.text('回复 用户3：正文4'), findsOneWidget);
     expect(tester.takeException(), isNull);
@@ -597,6 +663,13 @@ void main() {
     await switchTo('只看楼主', ThreadViewMode.author);
     expect(card(2), findsNothing);
     expect(card(4), findsWidgets);
+    double markerClearance() =>
+        tester.getTopLeft(find.byType(ComposeCapsule)).dy -
+        tester.getBottomLeft(find.byType(ReadingListEnd)).dy;
+    expect(markerClearance(), greaterThan(24));
+    await tester.drag(scrollable, const Offset(0, -120));
+    await tester.pumpAndSettle();
+    expect(markerClearance(), closeTo(24, .01));
     // 退出只看楼主还原已读楼层,不重新读取
     await switchTo('评论', ThreadViewMode.threaded);
     expect(reads, [null, 'owner']);

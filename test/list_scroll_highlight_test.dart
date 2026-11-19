@@ -35,45 +35,91 @@ Widget _threadList(ScrollController controller, VoidCallback onTap) =>
       ),
     );
 
-Iterable<Color> _rowTints(WidgetTester tester) => tester
-    .widgetList<ColoredBox>(
-      find.descendant(
-        of: find.byType(PressHighlight),
-        matching: find.byType(ColoredBox),
-      ),
-    )
-    .map((box) => box.color);
+Iterable<Color> _rowTints(WidgetTester tester) sync* {
+  for (final row in tester.widgetList(find.byType(PressHighlight))) {
+    final tint = find
+        .descendant(of: find.byWidget(row), matching: find.byType(ColoredBox))
+        .first;
+    yield tester.widget<ColoredBox>(tint).color;
+  }
+}
 
 void _expectNoRowHighlight(WidgetTester tester) =>
     expect(_rowTints(tester).where((color) => color.a > 0), isEmpty);
 
 void main() {
-  testWidgets(
-    'a confirmed thread tap opens once and its highlight fades back',
-    (tester) async {
-      final controller = ScrollController(initialScrollOffset: 500);
-      addTearDown(controller.dispose);
-      var taps = 0;
-      await tester.pumpWidget(_threadList(controller, () => taps++));
-      await tester.pumpAndSettle();
+  testWidgets('a held row highlights at 70ms without changing its size', (
+    tester,
+  ) async {
+    final controller = ScrollController(initialScrollOffset: 500);
+    addTearDown(controller.dispose);
+    var taps = 0;
+    await tester.pumpWidget(_threadList(controller, () => taps++));
+    await tester.pumpAndSettle();
+    final row = find.byType(PressHighlight).hitTestable().first;
+    final position = tester.getCenter(row);
+    final size = tester.getSize(row);
+    final gesture = await tester.startGesture(position);
+    await tester.pump(const Duration(milliseconds: 69));
+    expect(taps, 0);
+    _expectNoRowHighlight(tester);
+    expect(tester.getSize(row), size);
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(_rowTints(tester).where((color) => color.a > 0), hasLength(1));
+    expect(tester.getSize(row), size);
+    await gesture.up();
+    expect(taps, 1);
+    await tester.pump();
+    expect(_rowTints(tester).where((color) => color.a > 0), hasLength(1));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(
+      _rowTints(tester).where((color) => color.a > 0).single.a,
+      inExclusiveRange(0, 1),
+    );
+    await tester.pumpAndSettle();
+    _expectNoRowHighlight(tester);
+    expect(taps, 1);
+  });
+
+  testWidgets('movement past 8dp cancels before and after the delay', (
+    tester,
+  ) async {
+    final controller = ScrollController(initialScrollOffset: 500);
+    addTearDown(controller.dispose);
+    var taps = 0;
+    await tester.pumpWidget(_threadList(controller, () => taps++));
+    await tester.pumpAndSettle();
+
+    for (final delay in [20, 70]) {
       final gesture = await tester.startGesture(const Offset(400, 300));
-      await tester.pump(const Duration(milliseconds: 150));
-      expect(taps, 0);
+      await tester.pump(Duration(milliseconds: delay));
+      expect(_rowTints(tester).any((color) => color.a > 0), delay == 70);
+      await gesture.moveBy(const Offset(0, 9));
+      await tester.pump(const Duration(milliseconds: 70));
       _expectNoRowHighlight(tester);
       await gesture.up();
-      expect(taps, 1);
-      await tester.pump();
-      expect(_rowTints(tester).where((color) => color.a > 0), hasLength(1));
-      await tester.pump(const Duration(milliseconds: 100));
-      expect(
-        _rowTints(tester).where((color) => color.a > 0).single.a,
-        inExclusiveRange(0, 1),
-      );
-      await tester.pumpAndSettle();
-      _expectNoRowHighlight(tester);
-      expect(taps, 1);
-    },
-  );
+      expect(taps, 0);
+    }
+  });
+
+  testWidgets('a quick row tap fires on release before the highlight delay', (
+    tester,
+  ) async {
+    final controller = ScrollController(initialScrollOffset: 500);
+    addTearDown(controller.dispose);
+    var taps = 0;
+    await tester.pumpWidget(_threadList(controller, () => taps++));
+    await tester.pumpAndSettle();
+    final gesture = await tester.startGesture(const Offset(400, 300));
+    await tester.pump(const Duration(milliseconds: 20));
+    _expectNoRowHighlight(tester);
+    await gesture.up();
+    expect(taps, 1);
+    await tester.pump();
+    expect(_rowTints(tester).where((color) => color.a > 0), hasLength(1));
+    await tester.pumpAndSettle();
+    _expectNoRowHighlight(tester);
+  });
 
   testWidgets('thread rows still activate from Enter and Space', (
     tester,

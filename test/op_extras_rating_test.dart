@@ -41,6 +41,7 @@ Future<void> mount(
       theme: buildAppTheme(brightness, style),
       home: MediaQuery(
         data: MediaQueryData(
+          size: tester.view.physicalSize / tester.view.devicePixelRatio,
           disableAnimations: reduced,
           boldText: bold,
           letterSpacingOverride: letterSpacing,
@@ -66,10 +67,29 @@ Future<void> mount(
     ),
   );
   await tester.pumpAndSettle();
+  final strip = find.byKey(const ValueKey('post-rating-strip'));
+  final disclosure = tester.widget<Semantics>(
+    find
+        .ancestor(
+          of: strip,
+          matching: find.byWidgetPredicate(
+            (w) => w is Semantics && w.properties.expanded != null,
+          ),
+        )
+        .first,
+  );
+  if (disclosure.properties.expanded != true) {
+    await tester.tap(strip);
+    await tester.pumpAndSettle();
+  }
 }
 
 Finder row(String name) =>
-    find.ancestor(of: find.text(name), matching: find.byType(PressHighlight));
+    find.ancestor(of: detailName(name), matching: find.byType(PressHighlight));
+Finder detailName(String name) => find.descendant(
+  of: find.byKey(const PageStorageKey('rating-card')),
+  matching: find.text(name),
+);
 Finder fullReason() => find.byWidgetPredicate(
   (w) => w is Text && w.data == longReason && w.maxLines == null,
 );
@@ -146,7 +166,7 @@ void main() {
           ),
           findsOneWidget,
         );
-        await tester.tap(find.text('用户0'));
+        await tester.tap(detailName('用户0'));
         await tester.pumpAndSettle();
         await mount(tester, reason: reason);
         expect(row('用户0'), findsNothing);
@@ -158,7 +178,7 @@ void main() {
     'rating reason reveals below name and reverses without moving header',
     (tester) async {
       await mount(tester);
-      final origin = tester.getTopLeft(find.text('用户0'));
+      final origin = tester.getTopLeft(detailName('用户0'));
       await tester.tap(row('用户0'));
       await tester.pump();
       final panel = find
@@ -167,12 +187,12 @@ void main() {
       expect(tester.widget<Align>(panel).heightFactor, 0);
       await tester.pump(const Duration(milliseconds: 60));
       expect(tester.widget<Align>(panel).heightFactor, inExclusiveRange(0, 1));
-      expect(tester.getTopLeft(find.text('用户0')), origin);
+      expect(tester.getTopLeft(detailName('用户0')), origin);
       await tester.pumpAndSettle();
       expect(tester.getTopLeft(fullReason()).dx, origin.dx);
       expect(
         tester.getTopLeft(fullReason()).dy,
-        greaterThan(tester.getBottomLeft(find.text('用户0')).dy),
+        greaterThan(tester.getBottomLeft(detailName('用户0')).dy),
       );
       expect(tester.widget<Text>(summaryReason().first).style!.color!.a, 0);
       expect(
@@ -183,10 +203,10 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 40));
       expect(tester.widget<Align>(panel).heightFactor, inExclusiveRange(0, 1));
-      await tester.tap(find.text('用户0'));
+      await tester.tap(detailName('用户0'));
       await tester.pumpAndSettle();
       expect(tester.widget<Align>(panel).heightFactor, 1);
-      await tester.tap(find.text('用户0'));
+      await tester.tap(detailName('用户0'));
       await tester.pumpAndSettle();
       expect(fullReason(), findsNothing);
       expect(tester.widget<Text>(summaryReason().first).style!.color!.a, 1);
@@ -248,6 +268,8 @@ void main() {
           ),
         ),
       );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('post-rating-strip')));
       await tester.pumpAndSettle();
       await tester.tap(find.text('其余 1 人'));
       await tester.pumpAndSettle();
@@ -343,7 +365,7 @@ void main() {
     expect(tester.widget<Align>(panel).heightFactor, 1);
     await tester.pumpAndSettle();
     expect(tester.binding.transientCallbackCount, 0);
-    await tester.tap(find.text('用户0'));
+    await tester.tap(detailName('用户0'));
     await tester.pump();
     expect(fullReason(), findsNothing);
     await tester.pumpAndSettle();

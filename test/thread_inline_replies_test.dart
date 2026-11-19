@@ -2,7 +2,9 @@ import 'dart:async';
 import 'dart:collection';
 
 import 'package:chh_app/models/models.dart';
+import 'package:chh_app/widgets/chhers_refresh_indicator.dart';
 import 'package:chh_app/widgets/post_card.dart';
+import 'package:chh_app/widgets/reading_list_end.dart';
 import 'package:chh_app/widgets/rich_content_text.dart';
 import 'package:chh_app/pages/thread_detail_page.dart';
 import 'package:chh_app/widgets/comment_mode_bar.dart';
@@ -51,6 +53,54 @@ Future<ThreadViewMode> currentViewMode(WidgetTester tester) async {
 }
 
 void main() {
+  for (final bottom in [0.0, 34.0]) {
+    testWidgets(
+      'thread end fits the marker and the real reading bar ($bottom)',
+      (tester) async {
+        tester.view.padding = FakeViewPadding(bottom: bottom);
+        addTearDown(tester.view.resetPadding);
+        await fixture.pump(
+          tester,
+          ThreadDetailPage(
+            preloadPages: 1,
+            tid: 123,
+            title: '末尾留白',
+            loadPage: (_, _, _) async => fixture.page([
+              fixture.post(1, long: true),
+              fixture.post(2),
+              fixture.post(3, target: 2),
+            ]),
+          ),
+        );
+
+        final position = tester
+            .state<ScrollableState>(find.byType(Scrollable).first)
+            .position;
+        final anchor = tester.widget<ReadingBarAnchor>(
+          find.byType(ReadingBarAnchor),
+        );
+        position.jumpTo(300);
+        await tester.pumpAndSettle();
+        expect(anchor.hiddenProgress.value, 1);
+        await fixture.bottom(tester);
+        expect(anchor.hiddenProgress.value, 0);
+
+        final last = tester.getRect(find.text('展开 1 条回复'));
+        final marker = tester.getRect(find.byType(ReadingListEnd));
+        final bar = tester.getRect(find.byType(ReadingBar));
+        final capsule = tester.getRect(find.byType(ComposeCapsule));
+        final viewport = tester.getRect(find.byType(CustomScrollView));
+        expect(marker.top - last.bottom, closeTo(24, .01));
+        expect(capsule.top - marker.bottom, closeTo(24, .01));
+        expect(bar.height, 24 + 48 + 10 + bottom);
+        expect(
+          viewport.bottom - last.bottom,
+          closeTo(24 + marker.height + bar.height, .01),
+        );
+      },
+    );
+  }
+
   testWidgets(
     'expansion names the exact remainder after the first ten replies',
     (tester) async {
@@ -115,7 +165,7 @@ void main() {
         expect(loads, 1);
       }
       final refresh = tester
-          .state<RefreshIndicatorState>(find.byType(RefreshIndicator))
+          .state<ChhersRefreshIndicatorState>(find.byType(ChhersRefreshIndicator))
           .show();
       await tester.pumpAndSettle();
       await refresh;

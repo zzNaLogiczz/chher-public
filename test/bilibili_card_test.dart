@@ -7,6 +7,7 @@ import 'package:chh_app/models/models.dart';
 import 'package:chh_app/ui/press.dart';
 import 'package:chh_app/widgets/bilibili_card.dart';
 import 'package:chh_app/widgets/link_opener.dart';
+import 'package:chh_app/widgets/chhers_loader.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -85,16 +86,29 @@ void main() {
     semantics.dispose();
   });
 
-  testWidgets('点击后在原位置加载播放器，就绪后去掉转圈', (tester) async {
+  testWidgets('点击后在原位置加载播放器，快速就绪不显示加载标记', (tester) async {
     await tester.pumpWidget(_app([card('1Tvpb6HEJe')]));
     await tester.tap(_playButton);
     await tester.pump();
     expect(players.urls.single.queryParameters['bvid'], 'BV1Tvpb6HEJe');
-    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(find.byType(ChhersSpinner), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(ChhersSpinner),
+        matching: find.byType(FadeTransition),
+      ),
+      findsNothing,
+    );
 
     players.ready.single();
     await tester.pumpAndSettle();
-    expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(
+      find.descendant(
+        of: find.byType(ChhersSpinner),
+        matching: find.byType(FadeTransition),
+      ),
+      findsNothing,
+    );
     expect(
       find.byKey(ValueKey('fake-player-${players.urls.single}')),
       findsOneWidget,
@@ -158,7 +172,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('播放三角在同一个圆里缩小，转圈180ms淡入且卡片不跳高', (tester) async {
+  testWidgets('播放三角在同一个圆里缩小，C 字标记延迟后淡入且卡片不跳高', (tester) async {
     await tester.pumpWidget(_app([card('1Tvpb6HEJe')]));
     final circle = find.byKey(const ValueKey('bilibili-play-circle'));
     final circleElement = tester.element(circle);
@@ -169,23 +183,34 @@ void main() {
     await tester.tap(_playButton);
     await tester.pump();
     expect(tester.element(circle), same(circleElement));
-    final fade = find.ancestor(
-      of: find.byType(CircularProgressIndicator),
+    final fade = find.descendant(
+      of: find.byType(ChhersSpinner),
       matching: find.byType(FadeTransition),
     );
-    expect(tester.widget<FadeTransition>(fade).opacity.value, 0);
+    expect(fade, findsNothing);
     await tester.pump(const Duration(milliseconds: 90));
     final triangle = tester.widget<Transform>(
       find.byKey(const ValueKey('bilibili-play-triangle')),
     );
     expect(triangle.transform.storage[0], greaterThan(0));
     expect(triangle.transform.storage[0], lessThan(1));
-    expect(tester.widget<FadeTransition>(fade).opacity.value, closeTo(.5, .01));
     expect(tester.getRect(find.byType(BilibiliCard)), bounds);
-    await tester.pump(const Duration(milliseconds: 90));
+    await tester.pump(const Duration(milliseconds: 209));
+    expect(fade, findsNothing);
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(tester.widget<FadeTransition>(fade).opacity.value, 0);
+    await tester.pump(const Duration(milliseconds: 75));
+    expect(tester.widget<FadeTransition>(fade).opacity.value, greaterThan(0));
+    expect(tester.widget<FadeTransition>(fade).opacity.value, lessThan(1));
+    await tester.pump(const Duration(milliseconds: 75));
     expect(tester.widget<FadeTransition>(fade).opacity.value, 1);
     players.ready.single();
-    await tester.pumpAndSettle();
+    await tester.pump();
+    expect(tester.widget<FadeTransition>(fade).opacity.value, 1);
+    await tester.pump(const Duration(milliseconds: 60));
+    expect(tester.widget<FadeTransition>(fade).opacity.value, closeTo(.5, .01));
+    await tester.pump(const Duration(milliseconds: 61));
+    expect(fade, findsNothing);
     expect(tester.getRect(find.byType(BilibiliCard)), bounds);
     expect(tester.binding.transientCallbackCount, 0);
   });
@@ -211,7 +236,13 @@ void main() {
     players.ready.single();
     await tester.pump();
     expect(find.text('暂时无法播放'), findsOneWidget);
-    expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(
+      find.descendant(
+        of: find.byType(ChhersSpinner),
+        matching: find.byType(FadeTransition),
+      ),
+      findsNothing,
+    );
   });
 
   testWidgets('同卡再次播放忽略上次播放器迟到回调', (tester) async {
@@ -228,10 +259,16 @@ void main() {
     oldError();
     await tester.pump();
     expect(find.text('暂时无法播放'), findsNothing);
-    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(find.byType(ChhersSpinner), findsOneWidget);
     players.ready.first();
     await tester.pumpAndSettle();
-    expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(
+      find.descendant(
+        of: find.byType(ChhersSpinner),
+        matching: find.byType(FadeTransition),
+      ),
+      findsNothing,
+    );
   });
 
   for (final style in AppearanceStyle.values) {
@@ -275,23 +312,22 @@ void main() {
         expect(find.byType(BackdropFilter), findsNothing);
         await tester.tap(_playButton);
         await tester.pump();
-        expect(
-          tester
-              .widget<CircularProgressIndicator>(
-                find.byType(CircularProgressIndicator),
-              )
-              .value,
-          .65,
-        );
-        final spinnerFade = find.ancestor(
-          of: find.byType(CircularProgressIndicator),
+        final spinner = find.byType(ChhersSpinner);
+        final spinnerFade = find.descendant(
+          of: spinner,
           matching: find.byType(FadeTransition),
         );
+        await tester.pump(const Duration(milliseconds: 300));
         expect(tester.widget<FadeTransition>(spinnerFade).opacity.value, 0);
-        await tester.pump(const Duration(milliseconds: 75));
-        expect(tester.widget<FadeTransition>(spinnerFade).opacity.value, .5);
-        await tester.pump(const Duration(milliseconds: 75));
-        expect(tester.widget<FadeTransition>(spinnerFade).opacity.value, 1);
+        await tester.pump(const Duration(milliseconds: 150));
+        expect(tester.widget<FadeTransition>(spinnerFade).opacity.value, .75);
+        expect(
+          find.descendant(
+            of: spinner,
+            matching: find.byType(RotationTransition),
+          ),
+          findsNothing,
+        );
         await tester.pump(const Duration(milliseconds: 1));
         expect(tester.binding.transientCallbackCount, 0);
         players.error.single();

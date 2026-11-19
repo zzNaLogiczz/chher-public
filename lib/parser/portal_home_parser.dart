@@ -66,7 +66,8 @@ List<NewsItem> _news(dom.Document doc) {
   for (final a in doc.querySelectorAll('#portal_block_673_content a[href]')) {
     final href = a.attributes['href'] ?? '';
     final tid = ChhUrls.tidFromUrl(href);
-    final title = cleanText(a.text);
+    final fullTitle = cleanText(a.attributes['title']);
+    final title = fullTitle.isEmpty ? cleanText(a.text) : fullTitle;
     // 区块标题那一条指向版块而不是帖子,自然被过滤掉
     if (tid == null || title.isEmpty || !seen.add(tid)) continue;
     out.add(NewsItem(tid: tid, title: title));

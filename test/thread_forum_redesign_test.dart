@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:chh_app/core/chh_urls.dart';
 import 'package:chh_app/data/image_disk_cache.dart';
 import 'package:chh_app/data/thread_read_index.dart';
-import 'package:chh_app/design/forum_tokens.dart';
+import 'package:chh_app/design/thread_row_tokens.dart';
 import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/design/tokens.dart';
 import 'package:chh_app/models/models.dart';
@@ -73,12 +73,12 @@ void main() {
         await tester.pumpAndSettle();
         final t = AppTokens.of(tester.element(find.byType(ThreadRow)));
         final title = tester.widget<Text>(find.text('帖子标题 1'));
-        expect(title.style!.fontSize, ForumTokens.title.fontSize);
+        expect(title.style!.fontSize, ThreadRowTokens.title.fontSize);
         expect(title.style!.height, 1.42);
-        expect(title.maxLines, 2);
+        expect(title.maxLines, 1);
         expect(title.style!.color, t.text);
         expect(find.text('+3'), findsOneWidget);
-        expect(tester.widget<AvatarImage>(find.byType(AvatarImage)).size, 18);
+        expect(tester.widget<AvatarImage>(find.byType(AvatarImage)).size, 16);
         expect(client.requested, isEmpty);
         expect(find.textContaining('·', findRichText: true), findsNothing);
         await tester.pumpWidget(row(const ThreadReadSeen()));
@@ -87,11 +87,11 @@ void main() {
           tester.widget<Text>(find.text('帖子标题 1')).style!.color,
           isNot(t.text2),
         );
-        expect(find.text('+3'), findsOneWidget);
+        expect(find.text('+3'), findsNothing);
         await tester.pumpAndSettle();
         expect(tester.widget<Text>(find.text('帖子标题 1')).style!.color, t.text2);
         expect(find.text('+3'), findsNothing);
-        expect(find.text('回复'), findsOneWidget);
+        expect(find.text('回复'), findsNothing);
         expect(find.text('17'), findsOneWidget);
         final faded = tester.widget<AnimatedOpacity>(
           find.ancestor(
@@ -99,7 +99,7 @@ void main() {
             matching: find.byType(AnimatedOpacity),
           ),
         );
-        expect(faded.opacity, ForumTokens.seenAvatarOpacity);
+        expect(faded.opacity, ThreadRowTokens.seenAvatarOpacity);
         expect(tester.binding.transientCallbackCount, 0);
         expect(tester.takeException(), isNull);
       });

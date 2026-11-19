@@ -3,6 +3,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import '../design/display_text.dart';
 import '../ui/press.dart';
 import '../ui/sheet_scaffold.dart' show HeaderTrailingRow;
 import 'package:solar_icons/solar_icons.dart';
@@ -45,6 +46,7 @@ class ThreadCommentHeading extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
+    final count = totalCount ?? loadedCount;
     return HeaderTrailingRow(
       trailingMinWidth:
           CommentModeTokens.inset * 2 +
@@ -66,25 +68,23 @@ class ThreadCommentHeading extends StatelessWidget {
               color: t.text,
             ),
           ),
-          const SizedBox(width: 6),
-          Flexible(
-            child: busy
-                ? const CommentModeBusy()
-                // Only a continuous, complete loaded range has a complete count.
-                : Text(
-                    totalCount != null
-                        ? '$totalCount'
-                        : complete
-                        ? '$loadedCount'
-                        : '已加载 $loadedCount',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppType.footnote.copyWith(
-                      fontSize: ThreadMetrics.metaSize,
-                      color: t.text3,
+          if (busy || count > 0) ...[
+            const SizedBox(width: 6),
+            Flexible(
+              child: busy
+                  ? const CommentModeBusy()
+                  // Only a continuous, complete loaded range has a complete count.
+                  : Text(
+                      totalCount != null || complete ? '$count' : '已加载 $count',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppType.footnote.copyWith(
+                        fontSize: ThreadMetrics.metaSize,
+                        color: t.text3,
+                      ),
                     ),
-                  ),
-          ),
+            ),
+          ],
         ],
       ),
     );
@@ -303,7 +303,7 @@ String threadReplySummary(Post post) {
   var length = 0;
   var space = false;
   var hasImage = false;
-  blocks:
+  const limit = 120;
   for (final block in post.content) {
     if (block is ImageBlock) hasImage = true;
     if (block is! TextBlock) continue;
@@ -313,17 +313,19 @@ String threadReplySummary(Post post) {
         if (length > 0) space = true;
         continue;
       }
+      if (length + (space ? 1 : 0) >= limit) {
+        final excerpt = normalizeDisplayText(text.toString());
+        return excerpt.endsWith('…') ? excerpt : '$excerpt…';
+      }
       if (space) {
-        if (length + 1 >= 120) break blocks;
         text.write(' ');
         length++;
         space = false;
       }
       text.write(char);
       length++;
-      if (length == 120) break blocks;
     }
   }
-  if (length > 0) return text.toString();
+  if (length > 0) return normalizeDisplayText(text.toString());
   return hasImage ? '图片回复' : '查看回复';
 }

@@ -1,6 +1,8 @@
 /// CHH 站点 URL 构造与链接解析工具
 library;
 
+import 'display_time.dart';
+
 class ChhUrls {
   static const String base = 'https://www.chiphell.com';
 
@@ -241,18 +243,10 @@ class ChhUrls {
     return wan ? n * 10000 : n;
   }
 
-  /// Discuz 时间文本:发表于 2026-10-19 14:41 / 2026-9-25 14:55 / 最后发表: ...
-  static DateTime? parseTime(String raw) {
-    final m = RegExp(
-      r'(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{2})',
-    ).firstMatch(raw);
-    if (m == null) return null;
-    return DateTime(
-      int.parse(m.group(1)!),
-      int.parse(m.group(2)!),
-      int.parse(m.group(3)!),
-      int.parse(m.group(4)!),
-      int.parse(m.group(5)!),
-    );
-  }
+  /// Discuz 时间文本。已确认的混合元信息可以显式提取日期。
+  static DateTime? parseTime(
+    String raw, {
+    DateTime? now,
+    bool embedded = false,
+  }) => parseSiteTime(raw, now: now, embedded: embedded);
 }

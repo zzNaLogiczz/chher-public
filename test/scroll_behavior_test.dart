@@ -4,6 +4,7 @@ import 'package:chh_app/design/scroll_behavior.dart';
 import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/design/tokens.dart';
 import 'package:chh_app/models/models.dart';
+import 'package:chh_app/widgets/chhers_loader.dart';
 import 'package:chh_app/widgets/lac_scaffold.dart';
 import 'package:chh_app/widgets/lacquer_tab_scaffold.dart';
 import 'package:chh_app/widgets/large_title_scaffold.dart';
@@ -159,7 +160,7 @@ void main() {
   for (final shell in ['plain', 'large-title', 'lac']) {
     for (final count in [1, 40]) {
       testWidgets(
-        'fake refresh keeps its spinner and content $shell rows=$count',
+        'fake refresh keeps its wordmark and content $shell rows=$count',
         (tester) async {
           final done = Completer<Paged<int>>();
           final calls = <(int, bool)>[];
@@ -206,15 +207,21 @@ void main() {
           _expectNoIndicator();
           _expectNoScale(tester, first);
           expect(calls, [(1, false)]);
+          final mark = find.byWidgetPredicate(
+            (widget) =>
+                widget is ChhersLoader &&
+                widget.size == ChhersLoaderSize.refresh,
+          );
+          expect(tester.widget<ChhersLoader>(mark).progress, 1);
           await gesture.up();
           await tester.pump();
           await tester.pump(const Duration(seconds: 1));
           expect(calls, [(1, false), (1, true)]);
-          expect(find.byType(RefreshProgressIndicator), findsOneWidget);
+          expect(mark, findsOneWidget);
           expect(first, findsOneWidget);
           done.complete(result);
           await tester.pumpAndSettle();
-          expect(find.byType(RefreshProgressIndicator), findsNothing);
+          expect(mark, findsNothing);
           expect(first, findsOneWidget);
           expect(tester.binding.transientCallbackCount, 0);
           expect(tester.takeException(), isNull);

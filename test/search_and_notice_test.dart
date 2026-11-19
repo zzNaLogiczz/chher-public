@@ -1,3 +1,4 @@
+import 'package:chh_app/models/models.dart';
 import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/design/tokens.dart';
 import 'package:chh_app/ui/plain_rows.dart';
@@ -70,11 +71,18 @@ void main() {
   testWidgets('result titles highlight the query in accent', (tester) async {
     await tester.pumpWidget(
       app(
-        SearchResultRow(
-          title: '小机箱装机的散热与走线',
+        ThreadRow(
+          thread: const ThreadSummary(
+            tid: 40,
+            title: '小机箱装机的散热与走线',
+            snippet: '这次装机重点在进风路径',
+            forumName: '电脑讨论(新)',
+            author: '示例用户',
+            createdAtRaw: '2020-1-1 12:00',
+            replies: 6,
+            views: 0,
+          ),
           query: '装机',
-          snippet: '这次装机重点在进风路径',
-          meta: const ['电脑讨论(新)', '示例用户', '6 回复'],
           onTap: () {},
         ),
       ),
@@ -82,7 +90,7 @@ void main() {
     final title = tester.widget<RichText>(
       find
           .descendant(
-            of: find.byType(SearchResultRow),
+            of: find.byType(ThreadRow),
             matching: find.byType(RichText),
           )
           .first,
@@ -94,6 +102,18 @@ void main() {
     });
     final hit = spans.firstWhere((s) => s.text == '装机');
     expect(hit.style?.color, AppTokens.light.accent);
+    Text resultText(String text) => tester.widget<Text>(
+      find.byWidgetPredicate(
+        (w) => w is Text && w.textSpan?.toPlainText() == text,
+      ),
+    );
+    expect(resultText('小机箱装机的散热与走线').maxLines, 1);
+    expect(resultText('这次装机重点在进风路径').maxLines, 2);
+    expect(find.text('电脑讨论'), findsOneWidget);
+    expect(find.text('示例用户'), findsOneWidget);
+    expect(find.text('2020年1月1日'), findsOneWidget);
+    expect(find.text('6'), findsOneWidget);
+    expect(find.byKey(const ValueKey('thread-avatar-40')), findsNothing);
     expect(find.textContaining('·'), findsNothing);
   });
 }

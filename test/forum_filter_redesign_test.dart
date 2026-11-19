@@ -419,10 +419,11 @@ void main() {
           expect(find.text('原列表 1'), findsOneWidget);
           expect(find.text('筛选列表 1'), findsNothing);
           expect(
-            tester
-                .widgetList<ThreadRow>(find.byType(ThreadRow))
-                .every((r) => r.showCategory),
-            isTrue,
+            find.descendant(
+              of: find.byType(ThreadRow),
+              matching: find.text('CPU'),
+            ),
+            findsNothing,
           );
           expect(
             tester
@@ -503,7 +504,7 @@ void main() {
     expect((_card(tester, 3).first, _card(tester, 3).last), (true, true));
     expect((_card(tester, 4).first, _card(tester, 4).last), (true, true));
     // An unknown date does not acquire the preceding card's date label.
-    expect((_card(tester, 5).first, _card(tester, 5).last), (true, true));
+    expect((_card(tester, 5).first, _card(tester, 5).last), (true, false));
     await _pick(tester, '排序', '回复最多');
     expect(find.text('今天'), findsOneWidget);
     expect(find.text('原列表 1'), findsOneWidget);
@@ -522,7 +523,7 @@ void main() {
     expect(find.text('更早'), findsNothing);
     expect((_card(tester, 1).first, _card(tester, 1).last), (true, false));
     expect((_card(tester, 3).first, _card(tester, 3).last), (false, false));
-    expect((_card(tester, 5).first, _card(tester, 5).last), (false, true));
+    expect((_card(tester, 5).first, _card(tester, 5).last), (false, false));
     expect(find.text('按回复排序 1'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
@@ -557,8 +558,15 @@ void main() {
       expect(progress.value, 0);
       expect(tester.hasRunningAnimations, isFalse);
       progress.drag(20, reduced: true);
+      expect(progress.value, 0);
+      await tester.pumpAndSettle();
       expect(progress.value, 1);
       progress.drag(-1, reduced: true);
+      expect(progress.value, 1);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(progress.value, inExclusiveRange(0, 1));
+      await tester.pumpAndSettle();
       expect(progress.value, 0);
     },
   );

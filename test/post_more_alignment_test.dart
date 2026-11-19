@@ -74,7 +74,15 @@ void main() {
         expect(opening.center.dy, closeTo(author.center.dy, .01));
         expect(tester.getSize(icons.first), const Size(18, 18));
         final compact = tester.getRect(find.byKey(const ValueKey('more')));
+        final target = tester.widget<HitSlopTarget>(
+          find.ancestor(
+            of: find.byKey(const ValueKey('more')),
+            matching: find.byType(HitSlopTarget),
+          ),
+        );
         expect(compact.size, const Size(34, 28));
+        expect(compact.width + target.slop.horizontal, 44);
+        expect(compact.height + target.slop.vertical, 44);
         expect(compact.right, closeTo(306, .01));
         final dots = find.descendant(
           of: find.byType(CommentMoreButton),
@@ -120,7 +128,7 @@ void main() {
         addTearDown(tester.view.resetDevicePixelRatio);
         var more = 0;
         var replies = 0;
-        const timestamp = '11-16 12:34';
+        const timestamp = '昨天 12:34';
         final post = Post(
           pid: 8,
           floor: 12,
@@ -213,20 +221,12 @@ void main() {
               expect(menu.size, const Size(34, 28));
               expect(menu.center.dy, closeTo(reply.center.dy, .01));
               expect(menu.left, greaterThan(reply.right));
-              if (scale == 2) {
-                expect(time.bottom, lessThan(reply.top));
-                expect(reply.left, closeTo(meta.left, .01));
-              } else {
-                expect(reply.left - time.right, closeTo(16, .01));
-              }
+              expect(reply.left - time.right, closeTo(16, .01));
+              expect(time.center.dy, closeTo(reply.center.dy, 1));
               if (mode == 'floors') {
                 final floor = tester.getRect(find.text('#12'));
-                if (scale == 1) {
-                  expect(floor.right + 16, closeTo(time.left, .01));
-                  expect(floor.center.dy, closeTo(time.center.dy, .01));
-                } else {
-                  expect(floor.top, lessThanOrEqualTo(time.top));
-                }
+                expect(floor.right + 16, closeTo(time.left, .01));
+                expect(floor.center.dy, closeTo(time.center.dy, .01));
               } else {
                 expect(find.text('#12'), findsNothing);
               }

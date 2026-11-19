@@ -6,11 +6,13 @@ library;
 
 import 'package:flutter/material.dart';
 import '../data/user_block_index.dart';
+import '../design/list_end_tokens.dart';
 import '../ui/app_button.dart';
 
 import '../design/tokens.dart';
 import '../models/models.dart';
 import 'state_view.dart';
+import 'chhers_loading_transition.dart';
 import 'expressive_controls.dart';
 
 typedef SliverPageLoader<T> =
@@ -24,10 +26,11 @@ class SliverPagedList<T> extends StatefulWidget {
   final Widget Function(BuildContext context, List<Widget> rows)? groupBuilder;
   final ScrollController controller;
   final String emptyMessage;
-  final Object Function(T item)? itemKey;
 
-  /// With stable item keys, refresh only fades rows whose visible data changed.
-  final Object Function(T item)? itemRevision;
+  /// Gives rows stable identity and lets only newly added rows fade in.
+  final Object Function(T item)? itemKey;
+  final double precedingBottomPadding;
+  final double followingBottomPadding;
 
   const SliverPagedList({
     super.key,
@@ -36,9 +39,10 @@ class SliverPagedList<T> extends StatefulWidget {
     required this.controller,
     this.groupBuilder,
     this.itemKey,
-    this.itemRevision,
     this.emptyMessage = '这里还没有内容',
-  }) : assert(itemRevision == null || itemKey != null);
+    this.precedingBottomPadding = 0,
+    this.followingBottomPadding = 0,
+  });
 
   @override
   State<SliverPagedList<T>> createState() => SliverPagedListState<T>();
@@ -54,7 +58,6 @@ class SliverPagedListState<T> extends State<SliverPagedList<T>> {
   bool _first = true;
   int _revision = 0;
   bool _checkScheduled = false;
-  int _contentRevision = 0;
   final _arrivals = <Object>{};
 
   void _blocksChanged() {
@@ -125,24 +128,15 @@ class SliverPagedListState<T> extends State<SliverPagedList<T>> {
           _hasNext = false;
           return;
         }
-        final revision = widget.itemRevision;
-        final keyOf = widget.itemKey;
-        if (revision != null && keyOf != null) {
-          final previous = {
-            for (final item in _items) keyOf(item): revision(item),
-          };
+        final key = widget.itemKey;
+        if (key != null) {
+          final previous = _items.map(key).toSet();
           if (page == 1) _arrivals.clear();
           _arrivals.addAll(
-            r.items
-                .where((item) => previous[keyOf(item)] != revision(item))
-                .map(keyOf),
+            r.items.map(key).where((id) => !previous.contains(id)),
           );
         }
-        if (page == 1) {
-          _items.clear();
-          _contentRevision++;
-        }
-        final key = widget.itemKey;
+        if (page == 1) _items.clear();
         final seen = key == null ? <Object>{} : _items.map(key).toSet();
         _items.addAll(
           key == null ? r.items : r.items.where((item) => seen.add(key(item))),
@@ -173,36 +167,27 @@ class SliverPagedListState<T> extends State<SliverPagedList<T>> {
       load(1, refresh: true, clear: clear);
 
   @override
-  Widget build(BuildContext context) => ExpressivePageReveal(
-    active: true,
-    sliver: true,
-    fade: widget.itemRevision == null,
-    revision: (_first, _contentRevision, _items.isEmpty ? _error : null),
-    child: _buildSliver(context),
+  Widget build(BuildContext context) => ChhersLoadingTransition.sliver(
+    placeholderBuilder: (indicator) => SliverToBoxAdapter(
+      child: SizedBox(height: 240, child: Center(child: indicator)),
+    ),
+    child: _first && _visibleItems.isEmpty ? null : _buildSliver(context),
   );
 
   Widget _item(BuildContext context, T item) {
     final child = widget.itemBuilder(context, item);
-    final revision = widget.itemRevision;
     final key = widget.itemKey?.call(item);
-    if (revision == null || key == null) return child;
+    if (key == null) return child;
     return ExpressivePageReveal(
       key: ValueKey(key),
       active: true,
       animateOnMount: _arrivals.remove(key),
-      revision: revision(item),
       child: child,
     );
   }
 
   Widget _buildSliver(BuildContext context) {
     final items = _visibleItems;
-    if (_first && items.isEmpty) {
-      return SliverToBoxAdapter(
-        child: SizedBox(height: 240, child: StateView.loading()),
-      );
-    }
-
     final err = _error;
     if (err != null && items.isEmpty) {
       return SliverToBoxAdapter(
@@ -244,21 +229,34 @@ class SliverPagedListState<T> extends State<SliverPagedList<T>> {
     }
 
     final footer = _error != null
-        ? Center(
-            child: AppButton(
-              label: '加载失败，重试',
-              variant: AppButtonVariant.plain,
-              onPressed: () => load(_failedPage ?? _page + 1, refresh: true),
+        ? Padding(
+            padding: EdgeInsets.only(
+              top: ListEndTokens.markerPadding(widget.precedingBottomPadding),
+              bottom: ListEndTokens.markerPadding(
+                widget.followingBottomPadding,
+              ),
+            ),
+            child: Center(
+              child: AppButton(
+                label: '加载失败，重试',
+                variant: AppButtonVariant.plain,
+                onPressed: () => load(_failedPage ?? _page + 1, refresh: true),
+              ),
             ),
           )
-        : ListFooter(loading: _loading, exhausted: !_hasNext);
+        : ListFooter(
+            loading: _loading,
+            exhausted: !_hasNext,
+            precedingBottomPadding: widget.precedingBottomPadding,
+            followingBottomPadding: widget.followingBottomPadding,
+          );
     if (widget.groupBuilder == null) {
       // 平铺行自带屏幕边距与分隔线,列表不再加边距和分隔
       return SliverMainAxisGroup(
         slivers: [
           SliverList.builder(
             itemCount: items.length,
-            findChildIndexCallback: widget.itemRevision == null
+            findChildIndexCallback: widget.itemKey == null
                 ? null
                 : (key) {
                     if (key is! ValueKey) return null;

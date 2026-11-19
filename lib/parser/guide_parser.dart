@@ -36,6 +36,7 @@ ThreadListPage parseGuide(String html) {
     String author = '';
     String? authorUid;
     DateTime? createdAt;
+    String? createdAtRaw;
     if (byCells.isNotEmpty) {
       final fa = byCells[0].querySelector('a[href*="forum-"], a[href*="fid="]');
       forumName = fa?.text.trim();
@@ -47,7 +48,8 @@ ThreadListPage parseGuide(String html) {
       final authorLink = byCells[1].querySelector('cite a');
       author = authorLink?.text.trim() ?? '';
       authorUid = ChhUrls.uidFromUrl(authorLink?.attributes['href'] ?? '');
-      createdAt = ChhUrls.parseTime(byCells[1].querySelector('em')?.text ?? '');
+      createdAtRaw = byCells[1].querySelector('em')?.text.trim();
+      createdAt = ChhUrls.parseTime(createdAtRaw ?? '');
     }
 
     final numCell = tbody.querySelector('td.num');
@@ -63,6 +65,7 @@ ThreadListPage parseGuide(String html) {
         author: author,
         authorUid: authorUid,
         createdAt: createdAt,
+        createdAtRaw: createdAtRaw,
         replies: replies,
         views: views,
         forumName: (forumName == null || forumName.isEmpty) ? null : forumName,

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../data/post_interaction_repository.dart';
+import '../design/loading_tokens.dart';
 import '../design/icons.dart';
 import '../design/motion.dart';
 import '../design/tokens.dart';
@@ -14,6 +15,7 @@ import '../models/post_interaction.dart';
 import '../ui/press.dart';
 import '../ui/feedback.dart';
 import '../ui/sheet_scaffold.dart';
+import 'chhers_loader.dart';
 
 enum PostMenuAction { reply, comment, rating, supplement, login, blockUser }
 
@@ -211,17 +213,7 @@ class _PostActionMenuState extends State<_PostActionMenu> {
                   : PostMenuAction.rating,
               subtitle: ratingHint,
               trailing: _rating == _RatingState.checking
-                  ? SizedBox.square(
-                      dimension: 16,
-                      child: CircularProgressIndicator(
-                        value: MediaQuery.disableAnimationsOf(context)
-                            ? .75
-                            : null,
-                        strokeWidth: 2,
-                        color: t.accent,
-                        semanticsLabel: '正在检查评分权限',
-                      ),
-                    )
+                  ? ChhersSpinner(size: LoadingTokens.input, color: t.accent)
                   : _rating == _RatingState.login
                   ? Row(
                       mainAxisSize: MainAxisSize.min,

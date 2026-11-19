@@ -4,6 +4,7 @@ import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/design/tokens.dart';
 import 'package:chh_app/ui/plain_rows.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 Widget app(
@@ -50,25 +51,19 @@ void main() {
       await tester.pumpWidget(app(row()));
       await tester.pumpAndSettle();
       final text = sentence(tester);
-      expect(text.toPlainText(), '测试坛友 给你的帖子评分 +5');
-      final spans = text.children!.cast<TextSpan>();
-      expect(
-        spans.singleWhere((s) => s.text == '+5').style!.color,
-        AppTokens.light.accent,
-      );
-      expect(find.text('本地测试帖子标题'), findsOneWidget);
+      expect(text.toPlainText(), '测试坛友 给你的帖子评分');
+      final score = tester.widget<Text>(find.text('+5'));
+      expect(score.style!.color, AppTokens.light.accent);
+      expect(score.style!.fontWeight, FontWeight.w600);
+      final title = tester.widget<Text>(find.text('《本地测试帖子标题》'));
+      expect(title.maxLines, 1);
+      expect(title.style!.color, AppTokens.light.text2);
       expect(
         tester.getSize(find.byKey(const ValueKey('notice-avatar'))).width,
         NoticeTokens.avatar,
       );
       expect(find.byKey(const ValueKey('notice-kind')), findsOneWidget);
-      final quote = tester.widget<Container>(
-        find.byKey(const ValueKey('notice-quote')),
-      );
-      expect(
-        (quote.decoration! as BoxDecoration).borderRadius,
-        BorderRadius.circular(12),
-      );
+      expect(find.byKey(const ValueKey('notice-quote')), findsNothing);
       final decorations = tester.widgetList<DecoratedBox>(
         find.byType(DecoratedBox),
       );
@@ -84,7 +79,50 @@ void main() {
   );
 
   testWidgets(
-    'opening shrinks the dot before changing the name weight and retains action',
+    'large rating keeps the complete score and ellipsizes the title',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(320, 640));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        app(
+          const NoticeRow(
+            avatar: SizedBox(),
+            name: 'muyu_42',
+            time: '17:40',
+            text: '评分了您的帖子　邪恶指数 +5',
+            scoreText: '邪恶指数 +5',
+            title: '用于测试完整分值和帖子标题省略效果的长标题',
+            category: 'rate',
+          ),
+          scale: 2,
+        ),
+      );
+      final action = find.byKey(const ValueKey('notice-sentence'));
+      final score = find.byKey(const ValueKey('notice-score'));
+      final title = find.byKey(const ValueKey('notice-title'));
+      final scoreParagraph = tester.renderObject<RenderParagraph>(score);
+      final titleParagraph = tester.renderObject<RenderParagraph>(title);
+      expect(tester.widget<Text>(action).maxLines, 1);
+      expect(sentence(tester).toPlainText(), 'muyu_42 评分了您的帖子');
+      expect(scoreParagraph.text.toPlainText(), '邪恶指数 +5');
+      expect(scoreParagraph.maxLines, 1);
+      expect(scoreParagraph.didExceedMaxLines, isFalse);
+      expect(titleParagraph.didExceedMaxLines, isTrue);
+      expect(tester.widget<Text>(title).overflow, TextOverflow.ellipsis);
+      expect(
+        tester.getRect(score).top,
+        greaterThan(tester.getRect(action).top),
+      );
+      expect(
+        tester.getRect(title).left,
+        greaterThan(tester.getRect(score).right),
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'opening shrinks the dot while retaining the name weight and action',
     (tester) async {
       var opened = 0;
       await tester.pumpWidget(app(row(onTap: () => opened++)));
@@ -105,7 +143,7 @@ void main() {
       expect(find.byKey(NoticeRow.unreadDotKey), findsNothing);
       expect(
         (sentence(tester).children!.first as TextSpan).style!.fontWeight,
-        FontWeight.w500,
+        FontWeight.w600,
       );
       await tester.tap(find.byType(NoticeRow));
       await tester.pumpAndSettle();
@@ -123,7 +161,7 @@ void main() {
     expect(find.byKey(NoticeRow.unreadDotKey), findsNothing);
     expect(
       (sentence(tester).children!.first as TextSpan).style!.fontWeight,
-      FontWeight.w500,
+      FontWeight.w600,
     );
     expect(tester.binding.transientCallbackCount, 0);
   });
@@ -194,7 +232,14 @@ void main() {
         addTearDown(tester.view.resetDevicePixelRatio);
         await tester.pumpWidget(
           app(
-            row(category: 'at'),
+            const NoticeRow(
+              avatar: SizedBox(),
+              name: '测试坛友',
+              time: '17:40',
+              text: '在帖子中提到了您',
+              title: '本地测试帖子标题',
+              category: 'at',
+            ),
             style: style,
             brightness: brightness,
             scale: 2,
@@ -202,8 +247,14 @@ void main() {
         );
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
-        expect(find.text('本地测试帖子标题'), findsOneWidget);
+        expect(find.text('《本地测试帖子标题》'), findsOneWidget);
         expect(find.text('17:40'), findsOneWidget);
+        expect(
+          tester
+              .widget<Text>(find.byKey(const ValueKey('notice-sentence')))
+              .maxLines,
+          2,
+        );
       });
     }
   }

@@ -1,6 +1,7 @@
 import 'dart:ui' show Tristate;
 
 import 'package:chh_app/design/theme.dart';
+import 'package:chh_app/design/tokens.dart';
 import 'package:chh_app/ui/picker.dart';
 import 'package:chh_app/ui/segmented.dart';
 import 'package:flutter/material.dart';
@@ -61,6 +62,51 @@ double labelCenter(WidgetTester tester, String label) =>
     tester.getCenter(find.text(label)).dx;
 
 void main() {
+  for (final compact in [false, true]) {
+    testWidgets(
+      'dark lacquer message selection uses surface and text ($compact)',
+      (tester) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: buildAppTheme(Brightness.dark, AppearanceStyle.cinnabar),
+            home: Scaffold(
+              body: Center(
+                child: SizedBox(
+                  width: 220,
+                  child: AppSegmented<int>(
+                    options: const [
+                      PickerOption(value: 0, label: '提醒'),
+                      PickerOption(value: 1, label: '私信'),
+                    ],
+                    value: 0,
+                    onChanged: (_) {},
+                    compact: compact,
+                    onLac: true,
+                    messageStyle: true,
+                    badgeCounts: const [1, 0],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        final thumb = tester.widget<DecoratedBox>(
+          find.byKey(AppSegmented.thumbKey),
+        );
+        final fill = (thumb.decoration as BoxDecoration).color!;
+        expect(fill.computeLuminance(), lessThan(.1));
+        expect(
+          fill.computeLuminance(),
+          greaterThan(AppTokens.cinnabarDark.surface.computeLuminance()),
+        );
+        expect(
+          tester.widget<Text>(find.text('提醒')).style!.color,
+          AppTokens.cinnabarDark.text,
+        );
+      },
+    );
+  }
+
   testWidgets('thumb settles under the selected segment', (tester) async {
     final log = <int>[];
     await tester.pumpWidget(controlled(log));

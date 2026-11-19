@@ -41,6 +41,7 @@ class ThreadSummary {
   final String author;
   final String? authorUid;
   final DateTime? createdAt;
+  final String? createdAtRaw;
   final int replies;
   final int views;
   final String? lastPostUser;
@@ -62,6 +63,7 @@ class ThreadSummary {
     required this.author,
     this.authorUid,
     this.createdAt,
+    this.createdAtRaw,
     required this.replies,
     required this.views,
     this.lastPostUser,
@@ -523,6 +525,9 @@ class Notice {
   final String? action;
   final String? score;
 
+  /// Only populated when the reply body is supplied separately from the action.
+  final String? replyText;
+
   /// 只有源站明确将事件整段加粗时才标为新提醒。
   final bool unread;
   final String? targetUrl;
@@ -537,6 +542,7 @@ class Notice {
     this.title,
     this.action,
     this.score,
+    this.replyText,
     this.unread = false,
     this.actor,
     this.actorUid,

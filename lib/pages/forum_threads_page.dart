@@ -3,6 +3,7 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:motor/motor.dart';
+import '../design/display_text.dart';
 import '../design/scroll_progress.dart';
 import '../design/forum_tokens.dart';
 import '../design/tokens.dart';
@@ -10,7 +11,6 @@ import '../design/typography.dart';
 import '../ui/press.dart';
 import '../design/icons.dart';
 import '../design/motion.dart';
-import '../ui/app_button.dart';
 import '../models/thread_list_time.dart';
 
 import '../di.dart';
@@ -66,14 +66,6 @@ class _ForumThreadsPageState extends State<ForumThreadsPage>
     _loadTypes();
   }
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (MediaQuery.disableAnimationsOf(context)) {
-      _composeProgress.settle(reduced: true);
-    }
-  }
-
   Future<void> _loadTypes() async {
     try {
       final types = await _repository.threadTypes(widget.fid);
@@ -111,15 +103,18 @@ class _ForumThreadsPageState extends State<ForumThreadsPage>
             .label;
       }
     });
-    _composeProgress.show();
+    _showCompose();
   }
 
   void _selectSort(ThreadSort sort) {
     if (sort == _sort) return;
     setState(() => _sort = sort);
     _sortMemory[widget.fid] = sort;
-    _composeProgress.show();
+    _showCompose();
   }
+
+  void _showCompose() =>
+      _composeProgress.show(reduced: MediaQuery.disableAnimationsOf(context));
 
   bool _trackScroll(ScrollNotification notification) {
     if (notification.metrics.axis != Axis.vertical) return false;
@@ -170,7 +165,7 @@ class _ForumThreadsPageState extends State<ForumThreadsPage>
       onNotification: _trackScroll,
       child: BrowseScaffold(
         surface: AppSurface.grouped,
-        title: widget.title,
+        title: formatForumName(widget.title),
         actions: [
           FavoriteActionBuilder(
             target: FavoriteTarget(
@@ -219,7 +214,7 @@ class _ForumThreadsPageState extends State<ForumThreadsPage>
                     ? null
                     : () {
                         setState(() => _typeid = 0);
-                        _composeProgress.show();
+                        _showCompose();
                       },
                 semanticLabel: '清除分类',
                 child: ConstrainedBox(
@@ -265,22 +260,25 @@ class _ForumThreadsPageState extends State<ForumThreadsPage>
         ),
         floatingActionButton: ValueListenableBuilder<double>(
           valueListenable: _composeProgress,
-          child: Tooltip(
-            message: '发主题',
-            child: AppButton(
-              label: '发帖',
-              icon: AppIcons.compose,
-              onPressed: _openNewThread,
+          child: Padding(
+            padding: const EdgeInsetsDirectional.only(
+              end: AppSpace.screen - kFloatingActionButtonMargin,
             ),
+            child: _composeButton(context),
           ),
           builder: (context, progress, child) => IgnorePointer(
-            ignoring: progress == 1,
+            ignoring: progress >= 1,
             child: ExcludeSemantics(
-              excluding: progress == 1,
+              excluding: progress >= 1,
               child: Transform.translate(
                 key: const ValueKey('forum-compose-visibility'),
-                offset: Offset(0, ForumTokens.fabTravel * progress),
-                child: child,
+                offset: Offset(
+                  0,
+                  MediaQuery.disableAnimationsOf(context)
+                      ? 0
+                      : ForumTokens.fabTravel * progress,
+                ),
+                child: Opacity(opacity: 1 - progress, child: child),
               ),
             ),
           ),
@@ -339,8 +337,7 @@ class _ForumThreadsPageState extends State<ForumThreadsPage>
               thread: thread,
               forumStyle: true,
               readState: state,
-              eyebrow: thread.typeName,
-              showCategory: typeid == 0,
+              showCategory: false,
               timeLabel: ThreadListTime.of(thread, sort, now: now).label ?? '',
               onTap: () => Navigator.push(
                 context,
@@ -353,6 +350,33 @@ class _ForumThreadsPageState extends State<ForumThreadsPage>
                   ),
                 ),
               ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _composeButton(BuildContext context) {
+    final tokens = AppTokens.of(context);
+    return Tooltip(
+      message: '发帖',
+      excludeFromSemantics: true,
+      child: PressScale(
+        onTap: _openNewThread,
+        semanticLabel: '发帖',
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: tokens.accent,
+            shape: BoxShape.circle,
+            boxShadow: tokens.btnShadow,
+          ),
+          child: SizedBox.square(
+            dimension: ForumTokens.fabSize,
+            child: Icon(
+              AppIcons.compose,
+              color: tokens.onAccent,
+              size: ForumTokens.fabIconSize,
             ),
           ),
         ),

@@ -13,14 +13,24 @@ import 'level_glow.dart';
 
 /// Only the authoritative thread-sidebar gid selects a badge.
 class LevelBadge extends StatelessWidget {
-  const LevelBadge({super.key, required this.gid, this.onTap});
+  const LevelBadge({
+    super.key,
+    required this.gid,
+    this.onTap,
+    this.onLacquer = false,
+  });
   final int? gid;
   final VoidCallback? onTap;
+  final bool onLacquer;
 
   @override
   Widget build(BuildContext context) {
     final level = LevelDefinition.lookup(gid);
     if (level == null) return const SizedBox.shrink();
+    final whiteBacking =
+        onLacquer &&
+        AppTokens.of(context).style == AppearanceStyle.cinnabar &&
+        LevelTokens.coldTiers.contains(level.tier);
     return Semantics(
       container: true,
       label: '等级 ${level.displayName}',
@@ -34,7 +44,7 @@ class LevelBadge extends StatelessWidget {
           onLongPress: () => AppToast.show(context, level.longPress),
           child: level.animated
               ? _AnimatedBadge(key: ValueKey(level.gid), level: level)
-              : _Badge(level: level),
+              : _Badge(level: level, whiteBacking: whiteBacking),
         ),
       ),
     );
@@ -190,10 +200,15 @@ class _AnimatedBadgeState extends State<_AnimatedBadge>
 
 /// Shared appearance; static levels never create animation or visibility state.
 class _Badge extends StatelessWidget {
-  const _Badge({required this.level, this.animation});
+  const _Badge({
+    required this.level,
+    this.animation,
+    this.whiteBacking = false,
+  });
 
   final LevelDefinition level;
   final AnimationController? animation;
+  final bool whiteBacking;
 
   Duration get _sweep =>
       level.tier == 'champ' ? LevelTokens.slowSweep : LevelTokens.sweep;
@@ -215,7 +230,7 @@ class _Badge extends StatelessWidget {
       palette: palette,
       royal: royal,
       spaced: level.tier == 'gold' || level.tier == 'champ',
-      dark: dark,
+      dark: dark && !whiteBacking,
       scale: scale,
       animation: animation,
       sweep: _sweep,
@@ -249,10 +264,7 @@ class _Badge extends StatelessWidget {
         ),
         child: Center(
           child: CustomPaint(
-            size: Size.square(
-              (royal ? LevelTokens.royalIconSize : LevelTokens.iconSize) *
-                  scale,
-            ),
+            size: Size.square(LevelTokens.iconSize * scale),
             painter: LevelGlyphPainter(
               glyph: level.glyph,
               palette: royal ? palette : null,
@@ -266,7 +278,9 @@ class _Badge extends StatelessWidget {
       key: const ValueKey('level-plate'),
       height: LevelTokens.height * scale,
       decoration: BoxDecoration(
-        color: royal
+        color: whiteBacking
+            ? LevelTokens.white
+            : royal
             ? null
             : Color.alphaBlend(
                 (dark ? palette.b : palette.a).withValues(
@@ -508,7 +522,6 @@ class _LevelLabel extends StatelessWidget {
       fontSize: LevelTokens.fontSize * scale,
       height: 1,
       fontWeight: LevelTokens.fontWeight,
-      fontVariations: royal ? LevelTokens.royalFontVariations : null,
       letterSpacing: spaced ? LevelTokens.letterSpacing * scale : 0,
       color: royal ? null : (dark ? palette.j : palette.i),
     );

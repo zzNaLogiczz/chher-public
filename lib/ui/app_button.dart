@@ -1,6 +1,6 @@
 /// 文字按钮:主按钮、次要、文字、危险四种,全部是胶囊(规格 §6.3)
 ///
-/// 发送中、成功都在同一个胶囊里变形,不换按钮:文字缩小淡出 → 转圈 → 绿底对勾。
+/// 发送中、成功都在同一个胶囊里变形,不换按钮:文字缩小淡出 → C 字加载标记 → 绿底对勾。
 /// 文字始终留在布局里(只是透明),所以状态切换时宽度不会跳。
 library;
 
@@ -12,6 +12,7 @@ import '../design/motion.dart';
 import '../design/tokens.dart';
 import '../design/typography.dart';
 import 'press.dart';
+import '../widgets/chhers_loader.dart';
 
 /// quiet:无底 text2 字,用于取消、回复这类次要文字操作(规格 §6.3)
 enum AppButtonVariant { primary, tinted, plain, quiet, destructive }
@@ -48,7 +49,7 @@ class AppButton extends StatelessWidget {
     final t = AppTokens.of(context);
     final reduced = MediaQuery.disableAnimationsOf(context);
     final enabled = onPressed != null || state != AppButtonState.idle;
-    final height = small ? 34.0 : 50.0;
+    final height = small ? AppSizes.compactButtonHeight : AppSizes.buttonHeight;
 
     // 颜色:禁用一律 fill 底 + text3 字;其余按变体取令牌。
     // 主按钮不用纯色:漆面渐变 + 红调投影,是每屏唯一的实心红。
@@ -117,23 +118,13 @@ class AppButton extends StatelessWidget {
             child: Transform.scale(scale: .8 + .2 * v, child: child),
           ),
         ),
-        SingleMotionBuilder(
-          value: state == AppButtonState.busy ? 1.0 : 0.0,
-          motion: AppMotion.tap,
-          active: !reduced,
-          // 进入忙碌的那一帧就挂上转圈(随后淡入);退出时淡完才卸载
-          builder: (_, v, _) => state != AppButtonState.busy && v <= 0.001
-              ? const SizedBox.shrink()
-              : Opacity(
-                  opacity: v.clamp(0.0, 1.0),
-                  child: SizedBox.square(
-                    dimension: 18,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: foreground,
-                    ),
-                  ),
-                ),
+        Positioned.fill(
+          child: Center(
+            child: ChhersSpinner(
+              active: state == AppButtonState.busy,
+              color: foreground,
+            ),
+          ),
         ),
         SingleMotionBuilder(
           value: state == AppButtonState.success ? 1.0 : 0.0,
@@ -161,7 +152,7 @@ class AppButton extends StatelessWidget {
         height: height,
         child: Padding(
           padding: EdgeInsets.symmetric(
-            horizontal: !_filled ? 6 : (small ? 16 : 24),
+            horizontal: !_filled ? AppSpace.textButtonInset : (small ? 16 : 24),
           ),
           child: Center(widthFactor: 1, child: content),
         ),

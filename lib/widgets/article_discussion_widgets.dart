@@ -1,6 +1,7 @@
 /// Discussion-specific surfaces: local motion only, no scroll-driven effects.
 library;
 
+import '../core/display_time.dart';
 import '../design/typography.dart';
 import 'package:flutter/material.dart';
 import '../design/reading.dart';
@@ -51,15 +52,6 @@ class ArticleCommentTile extends StatelessWidget {
     this.part = ArticleCommentPart.complete,
   });
 
-  String get _timeLabel {
-    final time = comment.time;
-    if (time == null) return comment.timeRaw ?? '';
-    final month = time.month.toString().padLeft(2, '0');
-    final day = time.day.toString().padLeft(2, '0');
-    if (time.year != DateTime.now().year) return '${time.year}-$month-$day';
-    return '$month-$day ${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
-  }
-
   @override
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
@@ -68,7 +60,10 @@ class ArticleCommentTile extends StatelessWidget {
     if (part == ArticleCommentPart.footer) {
       return HitSlopRegion(
         child: Padding(
-          padding: EdgeInsets.only(left: avatar + 10, bottom: metrics.postVPad),
+          padding: EdgeInsets.only(
+            left: avatar + 10,
+            bottom: metrics.commentVPad,
+          ),
           child: _metadata(),
         ),
       );
@@ -77,8 +72,8 @@ class ArticleCommentTile extends StatelessWidget {
     return HitSlopRegion(
       child: Padding(
         padding: EdgeInsets.only(
-          top: metrics.postVPad,
-          bottom: part == ArticleCommentPart.header ? 0 : metrics.postVPad,
+          top: metrics.commentVPad,
+          bottom: part == ArticleCommentPart.header ? 0 : metrics.commentVPad,
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -161,7 +156,7 @@ class ArticleCommentTile extends StatelessWidget {
   }
 
   Widget _metadata() => CommentMetaRow(
-    timeLabel: (comment.timeRaw?.isNotEmpty ?? false) ? _timeLabel : '',
+    timeLabel: formatDisplayTime(raw: comment.timeRaw, at: comment.time),
     timeSemanticsLabel: comment.timeRaw,
     replyKey: ValueKey('article-comment-reply-${comment.cid}'),
     onReply: onReply,
@@ -284,7 +279,9 @@ class DiscussionCommentBlock extends StatelessWidget {
   Widget _content(ReadingMetrics metrics, TextStyle style) {
     return switch (block) {
       TextBlock() => Padding(
-        padding: EdgeInsets.only(bottom: last ? 0 : metrics.paragraphGap),
+        padding: EdgeInsets.only(
+          bottom: last ? 0 : ReadingMetrics.paragraphGap,
+        ),
         child: RichContentText(
           block: prefix != null
               ? _prefixed(block as TextBlock, prefix!)
@@ -297,12 +294,12 @@ class DiscussionCommentBlock extends StatelessWidget {
         child: RepaintBoundary(child: ArticleImage(url: url)),
       ),
       QuoteBlock() => Padding(
-        padding: EdgeInsets.only(bottom: metrics.paragraphGap),
+        padding: EdgeInsets.only(bottom: ReadingMetrics.paragraphGap),
         child: DiscussionQuote(quote: block as QuoteBlock),
       ),
       SiteLinkBlock() || BilibiliBlock() => Padding(
         padding: EdgeInsets.only(
-          bottom: linkGroupEnd ? metrics.paragraphGap : 0,
+          bottom: linkGroupEnd ? ReadingMetrics.paragraphGap : 0,
         ),
         child: siteLinks != null
             ? SiteLinkGroupCard(

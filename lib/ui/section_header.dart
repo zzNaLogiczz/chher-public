@@ -28,7 +28,7 @@ class SectionHeader extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(
         AppSpace.screen,
         AppSpace.section,
-        AppSpace.screen - 6,
+        AppSpace.screen - AppSpace.textButtonInset,
         8,
       ),
       child: Row(
@@ -36,9 +36,15 @@ class SectionHeader extends StatelessWidget {
           Expanded(
             child: Text(title, style: AppType.title2.copyWith(color: t.text)),
           ),
-          if (trailing != null)
-            Padding(padding: const EdgeInsets.only(right: 6), child: trailing!)
-          else if (actionLabel != null)
+          if (trailing != null) ...[
+            const SizedBox(width: AppSpace.textButtonInset),
+            Flexible(
+              child: Padding(
+                padding: const EdgeInsets.only(right: AppSpace.textButtonInset),
+                child: Align(alignment: Alignment.centerRight, child: trailing),
+              ),
+            ),
+          ] else if (actionLabel != null)
             AppButton(
               label: actionLabel!,
               variant: AppButtonVariant.plain,

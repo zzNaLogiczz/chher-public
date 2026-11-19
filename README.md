@@ -1,15 +1,15 @@
 <p align="center">
-  <img src="assets/brand/chher-logo.png" width="88" alt="Chher" />
+  <img src="assets/brand/chhers-logo.png" width="88" alt="Chhers" />
 </p>
 
-<h1 align="center">Chher</h1>
+<h1 align="center">Chhers</h1>
 
 <p align="center"><strong>更专注地逛 Chiphell。</strong></p>
 
 <p align="center">一个用 Flutter 构建的非官方 Android 客户端，把帖子、评测和讨论带进原生界面。</p>
 
 <p align="center">
-  <a href="pubspec.yaml"><img src="https://img.shields.io/badge/version-1.0.14-646464?labelColor=60646c" alt="Version 1.0.14" /></a>
+  <a href="pubspec.yaml"><img src="https://img.shields.io/badge/version-1.0.15-646464?labelColor=60646c" alt="Version 1.0.15" /></a>
   <a href="https://flutter.dev/"><img src="https://img.shields.io/badge/Flutter-3.44.2-0d74ce?logo=flutter&amp;labelColor=60646c" alt="Flutter 3.44.2" /></a>
   <a href="https://dart.dev/"><img src="https://img.shields.io/badge/Dart-3.12.2-0d74ce?logo=dart&amp;labelColor=60646c" alt="Dart 3.12.2" /></a>
   <a href="https://developer.android.com/about/versions/pie"><img src="https://img.shields.io/badge/Android-9.0%2B-218358?logo=android&amp;logoColor=ffffff&amp;labelColor=60646c" alt="Android 9.0+" /></a>
@@ -25,7 +25,7 @@
 
 ## 阅读与讨论
 
-看评测、翻长帖、追回复，也能把自己的体验分享出去。Chher 围绕这些日常动作组织界面，让内容和正在进行的讨论保持在视线里。
+看评测、翻长帖、追回复，也能把自己的体验分享出去。Chhers 围绕这些日常动作组织界面，让内容和正在进行的讨论保持在视线里。
 
 ### 长帖，连着看
 
@@ -73,12 +73,12 @@ cp android/key.properties.example android/key.properties
 在 `android/key.properties` 中填写 keystore 路径、别名和密码，然后构建：
 
 ```sh
-tool/build_release.sh 1.0.14             # 生成包含全部支持架构的通用包
+tool/build_release.sh 1.0.15             # 生成包含全部支持架构的通用包
 ```
 
-安装包位于 `build/release/1.0.14/chher-1.0.14.apk`，同时包含 ARM64、ARMv7 和 x86_64。新旧客户端统一获取通用包，无需按原安装包类型分组。
+安装包位于 `build/release/1.0.15/chher-1.0.15.apk`，同时包含 ARM64、ARMv7 和 x86_64。新旧客户端统一获取通用包，无需按原安装包类型分组。
 
-原生库采用压缩打包，调试符号单独保存在同目录的 `symbols/` 中，维护者应保留它们以便解析崩溃日志。版本号 `1.0.14` 对应 versionCode `10014`，不要使用会增加版本号偏移的 `--split-per-abi`。
+原生库采用压缩打包，调试符号单独保存在同目录的 `symbols/` 中，维护者应保留它们以便解析崩溃日志。版本号 `1.0.15` 对应 versionCode `10015`，不要使用会增加版本号偏移的 `--split-per-abi`。
 
 默认构建不连接更新服务器，也不显示检查更新入口。需要自己的更新服务时，将 `config/update.example.json` 复制为 `config/update.local.json`，在 `CHH_UPDATE_ENDPOINTS` 中填写 http(s) 服务根地址，多个地址用逗号分隔。正式构建脚本自动读取本地配置；配置缺失或地址为空时关闭更新，格式无效时停止构建。`flutter run` 和测试包脚本不自动读取此文件。自建服务还需使用自己的响应签名密钥，并对应修改 `lib/update/update_endpoints.dart` 的验签公钥。
 
@@ -90,7 +90,7 @@ tool/build_release.sh 1.0.14             # 生成包含全部支持架构的通�
 
 ## 为开发者
 
-Chher 直接获取源站 HTML，再解析为数据模型和 Flutter 界面。网络层支持 HTTP 与 WebView，Android 原生通道负责图片处理、输入法兼容、刷新率和安装等能力。
+Chhers 直接获取源站 HTML，再解析为数据模型和 Flutter 界面。网络层支持 HTTP 与 WebView，Android 原生通道负责图片处理、输入法兼容、刷新率和安装等能力。
 
 ```text
 lib/
@@ -117,7 +117,7 @@ flutter test
 
 ## 关于这个客户端
 
-Chher 是个人维护的非官方项目，与 Chiphell 官方没有隶属或背书关系。站点内容直接由客户端访问，登录使用原站网页，发帖与上传仍遵循原站的账号权限和规则。源站页面结构变化可能影响解析兼容性。
+Chhers 是个人维护的非官方项目，与 Chiphell 官方没有隶属或背书关系。站点内容直接由客户端访问，登录使用原站网页，发帖与上传仍遵循原站的账号权限和规则。源站页面结构变化可能影响解析兼容性。
 
 登录状态保存在设备本地。启用本地构建配置后，应用更新由配置的独立服务提供；检查更新时会发送应用版本、CPU 架构和本地生成的安装标识，用于版本匹配与更新统计。
 
@@ -136,12 +136,12 @@ PolyForm Noncommercial 属于源码可用许可，**不是 OSI 定义的开源�
 
 ## 测试包版本规范
 
-测试 App 固定名为 **chher-preview**，使用独立包名 `com.chhreader.chh_app.preview`。测试版本从 **90.0.1** 开始，后续依次使用 `90.0.2`、`90.0.3`，不修改或占用 `pubspec.yaml` 中的正式版版本号；构建结束后恢复 Android 本地正式版本元数据。正式版仅在用户明确要求正式发布时递增。
+测试 App 固定名为 **chhers-preview**，使用独立包名 `com.chhreader.chh_app.preview`。测试版本从 **90.0.1** 开始，后续依次使用 `90.0.2`、`90.0.3`，不修改或占用 `pubspec.yaml` 中的正式版版本号；构建结束后恢复 Android 本地正式版本元数据。正式版仅在用户明确要求正式发布时递增。
 
 ```sh
 python3 tool/build_preview.py 90.0.1
 ```
 
-产物：`build/preview/90.0.1/chher-preview-90.0.1.apk`。脚本使用正常 `lib/main.dart`，保留完整功能，默认构建包含 ARM32、ARM64 和 x86_64 的通用 APK，并核对各架构的应用及 Flutter 引擎库；应用内版本与 Android 版本一致，`90.0.1` 对应 versionCode `900001`。后续每次新的测试交付传入下一个版本，已有交付不覆盖。
+产物：`build/preview/90.0.1/chhers-preview-90.0.1.apk`。脚本使用正常 `lib/main.dart`，保留完整功能，默认构建包含 ARM32、ARM64 和 x86_64 的通用 APK，并核对各架构的应用及 Flutter 引擎库；应用内版本与 Android 版本一致，`90.0.1` 对应 versionCode `900001`。后续每次新的测试交付传入下一个版本，已有交付不覆盖。
 
 测试包与正式 App 独立安装，使用同一测试包签名覆盖时保留测试数据。不要同时运行正式与测试构建。没有用户明确指令，不提交或推送代码，不发布安装包或更新清单。

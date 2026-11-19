@@ -100,7 +100,7 @@ void main() {
   );
 
   testWidgets(
-    'a restored expanded group keeps decoded ratios before new frames arrive',
+    'a restored expanded group keeps its reserved sizes before new frames arrive',
     (tester) async {
       _phone(tester);
       final prefs = await _prefs();
@@ -129,6 +129,8 @@ void main() {
           .widget<ImageStackModeToggle>(find.byType(ImageStackModeToggle))
           .onPressed();
       await tester.pumpAndSettle();
+      final size = tester.getSize(fixture.stackStage);
+      expect(size.height, greaterThan(20 * 350 / (4 / 3) + 19 * 10));
       final position = Scrollable.of(
         tester.element(find.byType(ImageStackGallery)),
       ).position;
@@ -137,7 +139,7 @@ void main() {
         await tester.pumpAndSettle();
       }
       final height = tester.getSize(fixture.stackStage).height;
-      expect(height, closeTo(20 * 700 + 19 * 10, 1));
+      expect(height, size.height);
       await tester.pumpWidget(
         _app(prefs, const SizedBox(height: 10), bucket: bucket),
       );

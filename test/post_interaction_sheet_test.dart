@@ -7,6 +7,7 @@ import 'package:chh_app/models/post_interaction.dart';
 import 'package:chh_app/network/chh_client.dart';
 import 'package:chh_app/ui/app_button.dart';
 import 'package:chh_app/widgets/post_interaction_sheet.dart';
+import 'package:chh_app/widgets/chhers_loader.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:smooth_sheets/smooth_sheets.dart';
@@ -299,7 +300,12 @@ void main() {
         _expectVisible(tester, find.text('取消'));
         _expectVisible(tester, find.byKey(const ValueKey('interaction-send')));
         _expectVisible(tester, find.text('作者 / #2'));
-        _expectVisible(tester, find.byType(CircularProgressIndicator));
+        _expectVisible(
+          tester,
+          find.byWidgetPredicate(
+            (widget) => widget is ChhersSpinner && widget.active,
+          ),
+        );
 
         load.complete();
         await tester.pumpAndSettle();

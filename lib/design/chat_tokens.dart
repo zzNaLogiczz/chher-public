@@ -9,6 +9,12 @@ abstract final class ChatTokens {
   static const headerAvatar = 30.0;
   static const composerRadius = 26.0;
   static const composerInset = 8.0;
+  static const listPadding = EdgeInsets.fromLTRB(
+    AppSpace.screen,
+    18,
+    AppSpace.screen,
+    24,
+  );
   static const sendSize = 40.0;
   static const bodySize = 15.5;
   static const hold = Duration(milliseconds: 400);

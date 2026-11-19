@@ -6,6 +6,7 @@ import '../design/icons.dart';
 import '../design/motion.dart';
 import '../design/shapes.dart';
 import '../design/tokens.dart';
+import '../ui/grouped.dart';
 import '../ui/press.dart';
 import '../design/typography.dart';
 import 'avatar_image.dart';
@@ -89,23 +90,6 @@ class AccountAvatar extends StatelessWidget {
       AvatarImage(name: name, url: url, size: size, refreshable: refreshable);
 }
 
-/// 工具行使用无底托灰色图标。
-class AccountToolWell extends StatelessWidget {
-  final IconData icon;
-  final bool accent;
-  const AccountToolWell({super.key, required this.icon, this.accent = false});
-
-  @override
-  Widget build(BuildContext context) => SizedBox.square(
-    dimension: MeTokens.toolIconBox,
-    child: Icon(
-      icon,
-      size: MeTokens.toolIcon,
-      color: AppTokens.of(context).text2,
-    ),
-  );
-}
-
 /// 跨接缝的入口浮卡；大字号改成两列，完整保留入口标签。
 class LacEntryStrip extends StatelessWidget {
   final List<LacEntryCell> cells;
@@ -150,13 +134,11 @@ class LacEntryStrip extends StatelessWidget {
 class LacEntryCell extends StatelessWidget {
   final IconData icon;
   final String label;
-  final Color? tint;
   final VoidCallback? onTap;
   const LacEntryCell({
     super.key,
     required this.icon,
     required this.label,
-    this.tint,
     this.onTap,
   });
 
@@ -177,7 +159,7 @@ class LacEntryCell extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(icon, size: MeTokens.entryIcon, color: tint ?? t.accent),
+                IconTile(icon: icon),
                 const SizedBox(height: 6),
                 Text(
                   label,

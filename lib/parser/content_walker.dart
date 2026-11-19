@@ -211,6 +211,7 @@ class _BlockWalker {
           )
           .join(),
     );
+    // Empty paragraphs (including consecutive br) do not produce blocks.
     if (_hasOther && (text.isNotEmpty || _hasInline)) {
       out.add(
         TextBlock(text, nodes: _hasInline ? _trimInline(_inline) : const []),

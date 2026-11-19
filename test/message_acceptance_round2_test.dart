@@ -60,7 +60,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 16));
       expect(scroll.offset, 0, reason: 'arrival frame $frame');
     }
-    expect(find.text('本地标题0').hitTestable(), findsOneWidget);
+    expect(find.text('《本地标题0》').hitTestable(), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -85,12 +85,8 @@ void main() {
             final scaffold = tester.widget<LacquerTabScaffold>(
               find.byType(LacquerTabScaffold).hitTestable(),
             );
-            final scrolling = tester.widget<CustomScrollView>(
-              find.byType(CustomScrollView).hitTestable(),
-            );
-            final header =
-                (scrolling.slivers.first as SliverToBoxAdapter).child!;
-            final headerBottom = tester.getBottomLeft(find.byWidget(header)).dy;
+            final header = find.byKey(const ValueKey('tab-shared-header'));
+            final headerBottom = tester.getBottomLeft(header).dy;
             final label = find.descendant(
               of: find.byType(LacquerTabScaffold).hitTestable(),
               matching: find.byKey(const ValueKey('message-filter-row')),

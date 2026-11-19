@@ -3,6 +3,7 @@ import 'package:solar_icons/solar_icons.dart';
 
 /// Message rows in the confirmed November design.
 abstract final class NoticeTokens {
+  static const timeWidthFraction = 0.46;
   static const pokeIcon = SolarIconsOutline.handStars;
   static const avatar = 40.0;
   static const conversationAvatar = 48.0;
@@ -15,6 +16,9 @@ abstract final class NoticeTokens {
   static const dot = 7.0;
   static const rowRadius = 18.0;
   static const quoteRadius = 12.0;
+  static const titleGap = 3.0;
+  static const scoreTitleGap = 6.0;
+  static const quoteGap = 8.0;
   static const rowPadding = EdgeInsets.fromLTRB(12, 12, 14, 12);
   static const conversationPadding = EdgeInsets.fromLTRB(12, 11, 14, 11);
   static const quotePadding = EdgeInsets.symmetric(horizontal: 11, vertical: 8);

@@ -1,3 +1,4 @@
+import 'package:chh_app/widgets/chhers_loader.dart';
 import 'dart:async';
 
 import 'package:chh_app/widgets/article_image.dart';
@@ -55,7 +56,7 @@ void main() {
       // A portrait image must expand to its natural 1:2 ratio, not remain
       // constrained to the loading placeholder or a cropped thumbnail.
       expect(tester.getSize(find.byType(ArticleImage)), const Size(320, 640));
-      expect(find.byType(CircularProgressIndicator), findsNothing);
+      expect(find.byType(ChhersLoader), findsNothing);
       expect(tester.takeException(), isNull);
     },
   );

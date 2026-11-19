@@ -13,6 +13,7 @@ import '../design/tokens.dart';
 import '../design/typography.dart';
 import '../ui/chrome_button.dart';
 import '../ui/side_drawer.dart';
+import '../widgets/chhers_loading_transition.dart';
 import '../widgets/state_view.dart';
 import '../network/webview_trust.dart';
 
@@ -140,58 +141,61 @@ class _SourcePageDrawerState extends State<SourcePageDrawer> {
                 : null,
           ),
           Expanded(
-            child: !_settled
-                ? StateView.loading()
-                : Stack(
-                    children: [
-                      InAppWebView(
-                        initialUrlRequest: URLRequest(
-                          url: WebUri.uri(widget.url),
+            child: ChhersLoadingTransition(
+              child: !_settled
+                  ? null
+                  : Stack(
+                      children: [
+                        InAppWebView(
+                          initialUrlRequest: URLRequest(
+                            url: WebUri.uri(widget.url),
+                          ),
+                          initialSettings: InAppWebViewSettings(
+                            javaScriptEnabled: true,
+                            incognito: false,
+                            preferredContentMode:
+                                UserPreferredContentMode.MOBILE,
+                            useShouldOverrideUrlLoading: true,
+                          ),
+                          onReceivedServerTrustAuthRequest: (_, challenge) =>
+                              handleServerTrustChallenge(challenge),
+                          onWebViewCreated: (c) =>
+                              setState(() => _controller = c),
+                          // 页面里拉起其他 App 的协议链接直接拦下,免得出现无法打开的错误页
+                          shouldOverrideUrlLoading: (_, action) async {
+                            final scheme = action.request.url?.scheme ?? '';
+                            return scheme == 'http' || scheme == 'https'
+                                ? NavigationActionPolicy.ALLOW
+                                : NavigationActionPolicy.CANCEL;
+                          },
+                          onTitleChanged: (_, title) {
+                            if (title != null && title.trim().isNotEmpty) {
+                              setState(() => _title = title.split(' - ').first);
+                            }
+                          },
+                          onProgressChanged: (_, progress) =>
+                              setState(() => _progress = progress / 100),
+                          onReceivedError: (_, request, _) {
+                            if (request.isForMainFrame == true) {
+                              setState(() => _failed = true);
+                            }
+                          },
                         ),
-                        initialSettings: InAppWebViewSettings(
-                          javaScriptEnabled: true,
-                          incognito: false,
-                          preferredContentMode: UserPreferredContentMode.MOBILE,
-                          useShouldOverrideUrlLoading: true,
-                        ),
-                        onReceivedServerTrustAuthRequest: (_, challenge) =>
-                            handleServerTrustChallenge(challenge),
-                        onWebViewCreated: (c) =>
-                            setState(() => _controller = c),
-                        // 页面里拉起其他 App 的协议链接直接拦下,免得出现无法打开的错误页
-                        shouldOverrideUrlLoading: (_, action) async {
-                          final scheme = action.request.url?.scheme ?? '';
-                          return scheme == 'http' || scheme == 'https'
-                              ? NavigationActionPolicy.ALLOW
-                              : NavigationActionPolicy.CANCEL;
-                        },
-                        onTitleChanged: (_, title) {
-                          if (title != null && title.trim().isNotEmpty) {
-                            setState(() => _title = title.split(' - ').first);
-                          }
-                        },
-                        onProgressChanged: (_, progress) =>
-                            setState(() => _progress = progress / 100),
-                        onReceivedError: (_, request, _) {
-                          if (request.isForMainFrame == true) {
-                            setState(() => _failed = true);
-                          }
-                        },
-                      ),
-                      if (_failed)
-                        Positioned.fill(
-                          child: ColoredBox(
-                            color: t.surface,
-                            child: StateView(
-                              icon: AppIcons.warning,
-                              message: '原页面暂时无法加载',
-                              actionLabel: '重新加载',
-                              onAction: _reload,
+                        if (_failed)
+                          Positioned.fill(
+                            child: ColoredBox(
+                              color: t.surface,
+                              child: StateView(
+                                icon: AppIcons.warning,
+                                message: '原页面暂时无法加载',
+                                actionLabel: '重新加载',
+                                onAction: _reload,
+                              ),
                             ),
                           ),
-                        ),
-                    ],
-                  ),
+                      ],
+                    ),
+            ),
           ),
         ],
       ),

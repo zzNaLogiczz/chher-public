@@ -16,6 +16,7 @@ import 'package:chh_app/pages/forum_threads_page.dart';
 import 'package:chh_app/pages/favorites_page.dart';
 import 'package:chh_app/ui/chrome_button.dart';
 import 'package:chh_app/ui/favorite_action.dart';
+import 'package:chh_app/ui/plain_rows.dart';
 import 'package:chh_app/ui/reading_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -150,6 +151,48 @@ void main() {
     chhSession.loggedIn = false;
     favoriteIndex.setUid(null);
   });
+
+  testWidgets(
+    'favorites use the shared row for threads with available metadata',
+    (tester) async {
+      final repository = _Space();
+      repository.pending = Completer<Paged<FavoriteItem>>();
+      repository.pending!.complete(
+        const Paged(
+          items: [
+            FavoriteItem(
+              type: FavoriteType.thread,
+              targetId: 42,
+              favid: '42',
+              title: '收藏里的本地帖子',
+              url: 'thread-42-1-1.html',
+              timeRaw: '2020-11-19 12:00',
+            ),
+            _forum,
+          ],
+          page: PageInfo(current: 1, hasNext: false),
+        ),
+      );
+      await tester.pumpWidget(_app(FavoritesBody(repository: repository)));
+      await tester.pumpAndSettle();
+
+      final row = find.byType(ThreadRow);
+      expect(row, findsOneWidget);
+      expect(
+        find.descendant(of: row, matching: find.text('收藏里的本地帖子')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: row, matching: find.text('2020年11月19日')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: row, matching: find.byIcon(AppIcons.comments)),
+        findsNothing,
+      );
+      expect(find.text('收藏摄影版块'), findsOneWidget);
+    },
+  );
 
   testWidgets('favorite change callback runs only after confirmed changes', (
     tester,

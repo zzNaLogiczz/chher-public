@@ -18,7 +18,7 @@ allprojects {
                     'preview/AndroidManifest.xml')
             previewManifest.parentFile.mkdirs()
             previewManifest.setText(sourceManifest.getText('UTF-8').replace(
-                    'android:label="Chher"', 'android:label="Chher-preview"'), 'UTF-8')
+                    'android:label="Chhers"', 'android:label="chhers-preview"'), 'UTF-8')
             project.android.sourceSets.main.manifest.srcFile(previewManifest)
         }
     }

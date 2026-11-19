@@ -68,6 +68,7 @@ void main() {
     expect(find.widgetWithText(GroupedRow, '设置'), findsOneWidget);
     await tester.pumpWidget(const ChhApp());
     final application = tester.widget<MaterialApp>(find.byType(MaterialApp));
+    expect(application.title, 'Chhers');
     expect(
       application.routes?.keys,
       containsAll(['/favorites', '/settings', '/logs']),

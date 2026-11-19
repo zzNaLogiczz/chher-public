@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:chh_app/core/display_time.dart';
 import 'package:chh_app/design/content_element_tokens.dart';
 import 'package:chh_app/design/reading.dart';
 import 'package:chh_app/core/reading_prefs.dart';
@@ -75,7 +76,7 @@ void main() {
         expect(
           tester.getTopLeft(find.text('第二段')).dy -
               tester.getBottomLeft(find.text('第一段')).dy,
-          closeTo(6, .1),
+          closeTo(14, .1),
         );
         expect(
           tester.getTopLeft(headings.last).dy -
@@ -132,7 +133,7 @@ void main() {
             for (final note in scenario.post.notes) {
               final supplement = parseSupplement(note.text)!;
               expect(
-                find.text(supplementDateLabel(supplement.timeRaw)),
+                find.text(formatDisplayTime(raw: supplement.timeRaw)),
                 findsOneWidget,
               );
               final body = find.text(supplement.text);
@@ -159,7 +160,7 @@ void main() {
                 ContentElementTokens.supplementHeading.fontVariations,
               );
               final date = tester.widget<Text>(
-                find.text(supplementDateLabel(supplement.timeRaw)),
+                find.text(formatDisplayTime(raw: supplement.timeRaw)),
               );
               expect(date.style!.color, tokens.text3);
               expect(date.style!.fontWeight, FontWeight.w500);

@@ -1,6 +1,7 @@
 import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/models/models.dart';
 import 'package:chh_app/parser/thread_parser.dart';
+import 'package:chh_app/widgets/avatar_image.dart';
 import 'package:chh_app/widgets/post_card.dart';
 import 'package:chh_app/widgets/post_feedback.dart';
 import 'package:chh_app/design/tokens.dart';
@@ -66,6 +67,25 @@ Future<void> tap(WidgetTester tester, Finder finder) async {
   await tester.pumpAndSettle();
 }
 
+final strip = find.byKey(const ValueKey('post-rating-strip'));
+
+Future<void> openRating(WidgetTester tester) async {
+  final disclosure = tester.widget<Semantics>(
+    find
+        .ancestor(
+          of: strip,
+          matching: find.byWidgetPredicate(
+            (w) => w is Semantics && w.properties.expanded != null,
+          ),
+        )
+        .first,
+  );
+  if (disclosure.properties.expanded != true) await tap(tester, strip);
+}
+
+Finder ratingText(String text) =>
+    find.descendant(of: strip, matching: find.text(text));
+
 void main() {
   testWidgets(
     'common rating headers keep values and labels inline and compact',
@@ -78,6 +98,7 @@ void main() {
               : FloorFeedback(rating: rating(4)),
           width: 320,
         );
+        await openRating(tester);
         final score = find.text('+55 邪恶指数');
         final people = find.text('4 人评分');
         expect(score, findsOneWidget);
@@ -129,6 +150,7 @@ void main() {
               : const FloorFeedback(rating: value),
           brightness: brightness,
         );
+        await openRating(tester);
         final tokens = brightness == Brightness.light
             ? AppTokens.light
             : AppTokens.dark;
@@ -176,6 +198,7 @@ void main() {
               width: width,
               scale: scale,
             );
+            await openRating(tester);
             expect(find.text('+55 邪恶指数'), findsOneWidget);
             expect(find.text('12 人评分'), findsOneWidget);
             if (value.entries.isEmpty) {
@@ -224,11 +247,11 @@ void main() {
               CommentFeedback(rating: value),
               brightness: brightness,
             );
-            final label = find.text(rawSummary ? '站点原文' : '评分');
-            expect(label, findsOneWidget);
-            expect(find.text('合成评分人'), findsNothing);
-            await tap(tester, label);
+            expect(find.text('★ $score'), findsOneWidget);
             expect(find.text('合成评分人'), findsOneWidget);
+            await tap(tester, strip);
+            expect(find.text('合成评分人'), findsNWidgets(2));
+            if (rawSummary) expect(find.text('站点原文'), findsOneWidget);
             expect(find.text(score), findsOneWidget);
             if (score.startsWith('-')) {
               expect(
@@ -241,8 +264,9 @@ void main() {
             expect(find.textContaining('1人'), findsNothing);
             expect(find.textContaining('人评分'), findsNothing);
             expect(value.participants, isNull);
-            await tap(tester, label);
-            expect(find.text('合成评分人'), findsNothing);
+            await tap(tester, strip);
+            expect(find.text('合成评分人'), findsOneWidget);
+            expect(find.text(score), findsNothing);
           }
         },
       );
@@ -266,10 +290,10 @@ void main() {
     final controls = find.byType(PressScale);
     final first = tester.getRect(controls.first);
     final second = tester.getRect(controls.at(1));
-    expect(first.height, 28);
+    expect(first.height, 26);
     expect(second.height, 28);
     expect(second.top - first.bottom, 6);
-    expect(tester.getSize(find.byType(CommentFeedback)).height, 62);
+    expect(tester.getSize(find.byType(CommentFeedback)).height, 60);
     await tester.tapAt(Offset(second.center.dx, first.bottom - 1));
     await tester.pumpAndSettle();
     expect(find.text('评分者3'), findsOneWidget);
@@ -354,7 +378,7 @@ void main() {
     expect(wrap.runSpacing, 6);
     final presses = find.byType(PressScale);
     final ratingRect = tester.getRect(presses.first);
-    expect(ratingRect.height, 28);
+    expect(ratingRect.height, 26);
     await tester.tapAt(Offset(ratingRect.center.dx, ratingRect.top - 6));
     await tester.pumpAndSettle();
     expect(find.text('评分者3'), findsOneWidget);
@@ -404,26 +428,62 @@ void main() {
         ),
         findsNothing,
       );
+      await openRating(tester);
       expect(find.text('评分者2'), findsOneWidget);
       expect(find.text('点评者1'), findsOneWidget);
     }
   });
 
-  testWidgets('floor strip reason reaches the right inset within 45 percent', (
+  testWidgets('rating strip leads with a signed score and 16dp avatar', (
     tester,
   ) async {
-    await mount(
-      tester,
-      const FloorFeedback(
-        rating: PostRating(
-          summary: ['参与人数 1', '邪恶指数 +5'],
-          entries: [RatingEntry(user: '甲', score: '+5', reason: '理由')],
-        ),
-      ),
-    );
-    final rect = tester.getRect(find.text('理由'));
-    expect(rect.right, closeTo(390 - 8, .01));
-    expect(rect.width, lessThanOrEqualTo(390 * .45));
+    for (final brightness in Brightness.values) {
+      final t = brightness == Brightness.light
+          ? AppTokens.light
+          : AppTokens.dark;
+      for (final (score, scoreColor) in [
+        ('+20', ThreadTokens.score(t)),
+        ('-20', t.red),
+      ]) {
+        await mount(
+          tester,
+          CommentFeedback(
+            rating: PostRating(
+              summary: ['参与人数 1', '邪恶指数 $score'],
+              entries: [RatingEntry(user: '甲', score: score)],
+            ),
+          ),
+          brightness: brightness,
+        );
+        final decoration =
+            tester.widget<Container>(strip).decoration as BoxDecoration;
+        expect(tester.getSize(strip).height, 26);
+        expect(decoration.borderRadius, BorderRadius.circular(9));
+        expect(decoration.color, t.greenSoft);
+        final scoreText = find.text('★ $score');
+        final avatar = find.descendant(
+          of: strip,
+          matching: find.byType(AvatarImage),
+        );
+        final name = find.text('甲');
+        expect(
+          tester.widget<Text>(scoreText).style!.fontWeight,
+          FontWeight.w700,
+        );
+        expect(tester.widget<Text>(scoreText).style!.color, scoreColor);
+        expect(tester.widget<Text>(name).style!.color, t.text2);
+        expect(tester.getSize(avatar), const Size.square(16));
+        expect(tester.getTopLeft(strip).dx, 0);
+        expect(
+          tester.getTopLeft(avatar).dx,
+          greaterThan(tester.getTopLeft(scoreText).dx),
+        );
+        expect(
+          tester.getTopLeft(name).dx,
+          greaterThan(tester.getTopLeft(avatar).dx),
+        );
+      }
+    }
   });
   testWidgets(
     'opening whole and footer use opening feedback even in comment mode',
@@ -444,6 +504,7 @@ void main() {
       ]) {
         await mount(tester, widget);
         expect(find.byType(OpeningFeedback), findsOneWidget);
+        if (find.text('评分者2').evaluate().isEmpty) await tap(tester, strip);
         expect(find.text('评分者2'), findsOneWidget);
         expect(find.text('评分者3'), findsNothing);
       }
@@ -473,9 +534,11 @@ void main() {
       entries: [RatingEntry(user: '用户', score: '+5')],
     );
     await mount(tester, const OpeningFeedback(rating: value));
+    await tap(tester, strip);
     expect(find.text('站点原文'), findsOneWidget);
     expect(find.textContaining('人评分'), findsNothing);
     await mount(tester, const CommentFeedback(rating: value));
+    await tap(tester, strip);
     expect(find.text('站点原文'), findsOneWidget);
     expect(find.textContaining('1人'), findsNothing);
   });
@@ -483,7 +546,12 @@ void main() {
     tester,
   ) async {
     await mount(tester, OpeningFeedback(rating: rating(4)));
-    final firstPosition = tester.getTopLeft(find.text('评分者0'));
+    await tap(tester, strip);
+    final firstRater = find.descendant(
+      of: find.byKey(const PageStorageKey('rating-card')),
+      matching: find.text('评分者0'),
+    );
+    final firstPosition = tester.getTopLeft(firstRater);
     await tester.tap(find.text('其余 1 人'));
     await tester.pump();
     final panel = find
@@ -492,7 +560,7 @@ void main() {
     expect(tester.widget<Align>(panel).heightFactor, 0);
     await tester.pump(const Duration(milliseconds: 50));
     expect(tester.widget<Align>(panel).heightFactor, inExclusiveRange(0, 1));
-    expect(tester.getTopLeft(find.text('评分者0')), firstPosition);
+    expect(tester.getTopLeft(firstRater), firstPosition);
     expect(
       find.ancestor(of: find.text('评分者3'), matching: find.byType(Opacity)),
       findsNothing,
@@ -506,11 +574,12 @@ void main() {
     tester,
   ) async {
     await mount(tester, OpeningFeedback(rating: rating(12)));
+    await tap(tester, strip);
     expect(find.text('评分者2'), findsOneWidget);
     expect(find.text('评分者3'), findsNothing);
     await tap(tester, find.text('其余 9 人'));
     for (var i = 0; i < 12; i++) {
-      expect(find.text('评分者$i'), findsOneWidget);
+      expect(find.text('评分者$i'), findsNWidgets(i == 0 ? 2 : 1));
     }
     await tap(tester, find.text('收起'));
     expect(find.text('评分者2'), findsOneWidget);
@@ -549,21 +618,89 @@ void main() {
     (tester) async {
       await mount(tester, FloorFeedback(rating: rating(1)));
       expect(find.text('评分者0'), findsOneWidget);
-      expect(find.text('+5 邪恶指数'), findsOneWidget);
+      expect(find.text('★ +5'), findsOneWidget);
       expect(find.textContaining('展开全部'), findsNothing);
       await mount(tester, FloorFeedback(rating: rating(4)));
+      expect(find.text('★ +55'), findsOneWidget);
+      expect(ratingText('评分者0'), findsOneWidget);
+      expect(ratingText('等 4 人'), findsOneWidget);
+      expect(find.text('评分者1'), findsNothing);
+      await tap(tester, strip);
       expect(find.text('评分者1'), findsOneWidget);
       expect(find.text('评分者2'), findsNothing);
       await tap(tester, find.text('展开全部 4 条评分'));
       expect(find.text('评分者3'), findsOneWidget);
     },
   );
+  testWidgets('multi-rating strip preserves the count beside a long name', (
+    tester,
+  ) async {
+    await mount(
+      tester,
+      const CommentFeedback(
+        rating: PostRating(
+          summary: ['参与人数 3', '邪恶指数 +35'],
+          entries: [
+            RatingEntry(
+              user: 'averyveryverylongforumusername2026',
+              score: '+20',
+            ),
+            RatingEntry(user: '乙', score: '+10', reason: '附言'),
+            RatingEntry(user: '丙', score: '+5'),
+          ],
+        ),
+      ),
+      width: 320,
+    );
+    expect(find.text('★ +35'), findsOneWidget);
+    final count = tester.renderObject<RenderParagraph>(
+      find.descendant(of: ratingText('等 3 人'), matching: find.byType(RichText)),
+    );
+    expect(count.didExceedMaxLines, isFalse);
+    expect(tester.getSize(strip).height, 26);
+    expect(find.text('附言'), findsNothing);
+    await tap(tester, strip);
+    expect(find.text('附言'), findsOneWidget);
+    await tap(tester, strip);
+    expect(find.text('附言'), findsNothing);
+  });
+
+  testWidgets('ratings without a summary only sum complete same-credit rows', (
+    tester,
+  ) async {
+    const entries = [
+      RatingEntry(user: '甲', score: '+ 20', credit: '邪恶指数'),
+      RatingEntry(user: '乙', score: '+10', credit: '邪恶指数'),
+      RatingEntry(user: '丙', score: '+5', credit: '邪恶指数'),
+    ];
+    for (final (summary, rows, label) in [
+      (['参与人数 3'], entries, '★ +35'),
+      (['参与人数 4'], entries, '★ 评分'),
+      (
+        ['参与人数 3'],
+        [
+          ...entries.take(2),
+          const RatingEntry(user: '丙', score: '+5', credit: '家园分'),
+        ],
+        '★ 评分',
+      ),
+    ]) {
+      await mount(
+        tester,
+        CommentFeedback(
+          rating: PostRating(summary: summary, entries: rows),
+        ),
+      );
+      expect(find.text(label), findsOneWidget);
+    }
+  });
+
   testWidgets('single reasonless capsule does not expand', (tester) async {
     await mount(tester, CommentFeedback(rating: rating(1)));
-    await tap(tester, find.text('评分者0 +5'));
-    expect(find.text('评分者0'), findsNothing);
-    final press = tester.widget<PressScale>(find.byType(PressScale));
-    expect(press.onTap, isNull);
+    await tap(tester, strip);
+    expect(find.text('评分者0'), findsOneWidget);
+    expect(find.text('+5'), findsNothing);
+    expect(find.byType(PressScale), findsNothing);
     expect(find.byType(AnimatedRotation), findsNothing);
   });
   testWidgets(
@@ -573,7 +710,7 @@ void main() {
         tester,
         CommentFeedback(rating: rating(4), comments: comments(7)),
       );
-      await tap(tester, find.text('+55 邪恶指数　4人'));
+      await tap(tester, strip);
       expect(find.text('评分者3'), findsOneWidget);
       expect(find.textContaining('点评者0'), findsNothing);
       await tap(tester, find.text('点评 7'));
@@ -581,7 +718,7 @@ void main() {
         expect(find.textContaining('点评者$i'), findsOneWidget);
       }
       expect(find.text('评分者3'), findsOneWidget);
-      await tap(tester, find.text('+55 邪恶指数　4人'));
+      await tap(tester, strip);
       expect(find.text('评分者3'), findsNothing);
       expect(find.textContaining('点评者6'), findsOneWidget);
     },
@@ -590,7 +727,7 @@ void main() {
     tester,
   ) async {
     await mount(tester, CommentFeedback(rating: rating(1, reason: '评分理由')));
-    await tap(tester, find.text('评分者0 +5'));
+    await tap(tester, strip);
     expect(find.text('评分理由'), findsOneWidget);
     await mount(
       tester,
@@ -602,19 +739,23 @@ void main() {
         ),
       ),
     );
-    await tap(tester, find.text('单人 +5'));
+    await tap(tester, strip);
     expect(find.text('+2 家园分'), findsOneWidget);
   });
   testWidgets('participants use summary even when entries are incomplete', (
     tester,
   ) async {
     await mount(tester, OpeningFeedback(rating: rating(1, participants: 12)));
+    expect(ratingText('评分者0'), findsOneWidget);
+    expect(ratingText('等 12 人'), findsOneWidget);
+    await tap(tester, strip);
     expect(find.text('12 人评分'), findsOneWidget);
     expect(find.text('+8'), findsOneWidget);
     await mount(tester, CommentFeedback(rating: rating(1, participants: 12)));
-    expect(find.text('+55 邪恶指数　12人'), findsOneWidget);
-    await tap(tester, find.text('+55 邪恶指数　12人'));
-    expect(find.text('评分者0'), findsOneWidget);
+    expect(ratingText('评分者0'), findsOneWidget);
+    expect(ratingText('等 12 人'), findsOneWidget);
+    await tap(tester, strip);
+    expect(find.text('评分者0'), findsNWidgets(2));
   });
   testWidgets('negative detail scores use red in both themes', (tester) async {
     for (final brightness in Brightness.values) {
@@ -623,6 +764,7 @@ void main() {
         OpeningFeedback(rating: rating(1, negative: true)),
         brightness: brightness,
       );
+      await openRating(tester);
       expect(
         tester.widget<Text>(find.text('-5')).style!.color,
         brightness == Brightness.light
@@ -635,7 +777,12 @@ void main() {
     'reduced motion expands immediately and controls have 44dp targets',
     (tester) async {
       await mount(tester, OpeningFeedback(rating: rating(12)), reduced: true);
-      final button = find.byType(PressScale);
+      await tester.tap(strip);
+      await tester.pump();
+      final button = find.ancestor(
+        of: find.text('其余 9 人'),
+        matching: find.byType(PressScale),
+      );
       expect(tester.getSize(button).height, greaterThanOrEqualTo(44));
       await tester.tap(find.text('其余 9 人'));
       await tester.pump();
@@ -690,7 +837,8 @@ void main() {
         ),
       ),
     );
-    expect(find.text('评分者 +5'), findsOneWidget);
+    expect(find.text('★ +5'), findsOneWidget);
+    expect(find.text('评分者'), findsOneWidget);
     expect(find.text('点评 1'), findsOneWidget);
   });
 }

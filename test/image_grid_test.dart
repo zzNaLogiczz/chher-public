@@ -1,3 +1,4 @@
+import 'package:chh_app/widgets/chhers_loader.dart';
 import 'dart:async';
 
 import 'package:chh_app/widgets/image_grid.dart';
@@ -61,7 +62,7 @@ void main() {
       await tester.pump();
       // 640px portrait + 160px landscape + 16px inter-image spacing.
       expect(tester.getSize(find.byType(ImageGrid)), const Size(320, 816));
-      expect(find.byType(CircularProgressIndicator), findsNothing);
+      expect(find.byType(ChhersLoader), findsNothing);
       expect(tester.takeException(), isNull);
     },
   );

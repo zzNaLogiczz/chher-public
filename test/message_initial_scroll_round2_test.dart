@@ -148,7 +148,7 @@ void main() {
       await tab('消息');
       expect(repository.noticeReads, 2);
       expect(scroll().offset, 0);
-      expect(find.text('本地帖子0').hitTestable(), findsOneWidget);
+      expect(find.text('《本地帖子0》').hitTestable(), findsOneWidget);
 
       scroll().jumpTo(500);
       await tester.pumpAndSettle();
@@ -175,7 +175,7 @@ void main() {
       expect(repository.noticeReads, 4);
       expect(scroll().offset, 0);
       expect(find.text('登录后查看消息'), findsOneWidget);
-      expect(find.text('本地帖子0'), findsNothing);
+      expect(find.text('《本地帖子0》'), findsNothing);
       expect(tester.takeException(), isNull);
     },
   );
