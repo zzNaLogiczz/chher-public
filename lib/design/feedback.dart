@@ -9,11 +9,7 @@ abstract final class FeedbackMetrics {
   static const floorRadius = 14.0;
   static const panelRadius = 14.0;
   static const capsuleHeight = 28.0;
-  static const stripHeight = 26.0;
-  static const stripRadius = 9.0;
-  static const stripAvatar = 16.0;
-  static const stripCountFraction = .4;
-  static const stripHitSlop = (touchTarget - stripHeight) / 2;
+  static const stripHeight = 36.0;
   static const ratingTop = 8.0;
   static const ratingBottom = 6.0;
   static const touchTarget = 44.0;
@@ -50,6 +46,7 @@ abstract final class FeedbackMetrics {
   static const lineHeight = 1.6;
   static const summaryAvatar = 20.0;
   static const floorSummaryAvatar = 18.0;
+  static const floorAvatar = 20.0;
   static const rowAvatar = 22.0;
   static const smallAvatar = 18.0;
   static const avatarBorder = 2.0;
@@ -62,6 +59,8 @@ abstract final class FeedbackMetrics {
   static const scoreWidth = 52.0;
   static const compactScoreWidth = 44.0;
   static const userFraction = .3;
+  static const stripUserFraction = .4;
+  static const stripMinReasonWidth = 28.0;
   static const arrowSize = 14.0;
   static const halfTurn = .5;
   static const halfTurnQuarters = 2;

@@ -17,6 +17,31 @@ LABEL = 'chhers-preview'
 ABIS = ('armeabi-v7a', 'arm64-v8a', 'x86_64')
 
 
+def preview_init_script():
+    template = (ROOT / 'tool/preview_package.gradle').read_text()
+    app_dir, preview_res = (
+        str(ROOT / directory).replace('\\', '\\\\').replace("'", "\\'")
+        for directory in ('android/app', 'tool/preview_res')
+    )
+    return template.replace(
+        "project.name == 'app' &&",
+        f"project.name == 'app' && project.projectDir.canonicalPath == '{app_dir}' &&",
+    ).replace("project.file('../../tool/preview_res')", f"project.file('{preview_res}')")
+
+
+def verify_launcher_icon(badging, resources):
+    # Release optimization can shorten APK paths (for example res/BW.xml).
+    # Map the badging paths to the named mipmap using the compiled resource table.
+    entry = re.search(
+        r'^ +resource 0x[0-9a-f]+ mipmap/ic_launcher_preview(?: [^\n]*)?\n'
+        r'((?: +\([^\n]*\) [^\n]*\n)+)', resources, re.M,
+    )
+    preview_paths = set(re.findall(r'\(file\) (\S+) type=XML', entry[1])) if entry else set()
+    icons = set(re.findall(r"^application-icon-\d+:'([^']+)'$", badging, re.M))
+    if not icons or not icons <= preview_paths:
+        raise SystemExit('APK 图标未指向 mipmap/ic_launcher_preview；未复制交付文件')
+
+
 def main():
     if len(sys.argv) != 2:
         raise SystemExit('用法: python3 tool/build_preview.py 90.0.1')
@@ -48,12 +73,9 @@ def main():
     init = Path.home() / '.gradle/init.d/chher-isolated-preview.gradle'
     if init.exists():
         raise SystemExit(f'已有临时构建配置，拒绝覆盖: {init}')
-    template = (ROOT / 'tool/preview_package.gradle').read_text()
-    app_dir = str(ROOT / 'android/app').replace('\\', '\\\\').replace("'", "\\'")
-    content = template.replace(
-        "project.name == 'app' &&",
-        f"project.name == 'app' && project.projectDir.canonicalPath == '{app_dir}' &&",
-    )
+    if not (ROOT / 'tool/preview_res').is_dir():
+        raise SystemExit('找不到测试包图标资源，请先运行 python3 tool/launcher_icon.py')
+    content = preview_init_script()
     out.mkdir(parents=True, exist_ok=True)
     init.parent.mkdir(parents=True, exist_ok=True)
     init.write_text(content)
@@ -84,6 +106,8 @@ def main():
     label = re.search(r"^application-label:'([^']+)'", badging, re.M)
     if not package or package.groups() != (PACKAGE, str(code), version) or not label or label[1] != LABEL:
         raise SystemExit('APK 身份与测试构建要求不符；未复制交付文件')
+    resources = subprocess.check_output([str(tools[-1]), 'dump', 'resources', str(built)], text=True)
+    verify_launcher_icon(badging, resources)
     with ZipFile(built) as archive:
         entries = set(archive.namelist())
         for abi in ABIS:

@@ -52,8 +52,22 @@ List<RatingSummaryItem> _scores(PostRating rating) =>
     rating.items.where((item) => item.label != '参与人数').toList();
 bool _hasRating(PostRating? rating) => rating != null && !rating.isEmpty;
 bool _negative(String score) => RegExp(r'^\s*[-−]').hasMatch(score);
-String _summaryText(RatingSummaryItem item) =>
-    item.value == null ? item.label : '${item.value} ${item.label}';
+
+final _scoreSignSpacing = RegExp(r'^(\s*[+−-])\s+(?=\d)');
+String _displayScore(String score) =>
+    score.replaceFirstMapped(_scoreSignSpacing, (match) => match[1]!);
+
+TextStyle _effectiveRatingTextStyle(BuildContext context, TextStyle style) =>
+    DefaultTextStyle.of(context).style
+        .merge(style)
+        .merge(
+          TextStyle(
+            fontWeight: MediaQuery.boldTextOf(context) ? FontWeight.bold : null,
+            height: MediaQuery.maybeLineHeightScaleFactorOverrideOf(context),
+            letterSpacing: MediaQuery.maybeLetterSpacingOverrideOf(context),
+            wordSpacing: MediaQuery.maybeWordSpacingOverrideOf(context),
+          ),
+        );
 
 class OpeningFeedback extends StatelessWidget {
   final PostRating? rating;
@@ -68,7 +82,6 @@ class OpeningFeedback extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => _FeedbackCards(
-    key: const PageStorageKey('opening-feedback-cards'),
     rating: rating,
     comments: comments,
     opening: true,
@@ -86,13 +99,12 @@ class FloorFeedback extends StatelessWidget {
       _FeedbackCards(rating: rating, comments: comments, opening: false);
 }
 
-class _FeedbackCards extends StatefulWidget {
+class _FeedbackCards extends StatelessWidget {
   final RatingRepository? repository;
   final PostRating? rating;
   final List<PostComment> comments;
   final bool opening;
   const _FeedbackCards({
-    super.key,
     required this.rating,
     required this.comments,
     required this.opening,
@@ -100,33 +112,7 @@ class _FeedbackCards extends StatefulWidget {
   });
 
   @override
-  State<_FeedbackCards> createState() => _FeedbackCardsState();
-}
-
-class _FeedbackCardsState extends State<_FeedbackCards> {
-  bool _ratingOpen = false;
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (widget.opening) {
-      _ratingOpen =
-          PageStorage.maybeOf(context)?.readState(context) as bool? ?? false;
-    }
-  }
-
-  void _toggleRating() {
-    setState(() => _ratingOpen = !_ratingOpen);
-    if (widget.opening) {
-      PageStorage.maybeOf(context)?.writeState(context, _ratingOpen);
-    }
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final rating = widget.rating;
-    final comments = widget.comments;
-    final opening = widget.opening;
     final hasRating = _hasRating(rating);
     if (!hasRating && comments.isEmpty) return const SizedBox.shrink();
     return HitSlopRegion(
@@ -142,28 +128,12 @@ class _FeedbackCardsState extends State<_FeedbackCards> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (hasRating) ...[
-              Align(
-                alignment: Alignment.centerLeft,
-                child: _RatingStrip(
-                  rating: rating!,
-                  open: _ratingOpen,
-                  onTap: _toggleRating,
-                ),
+            if (hasRating)
+              _RatingFeedback(
+                rating: rating!,
+                opening: opening,
+                repository: repository,
               ),
-              _Reveal(
-                open: _ratingOpen,
-                child: Padding(
-                  padding: const EdgeInsets.only(top: FeedbackMetrics.smallGap),
-                  child: _RatingCard(
-                    key: const PageStorageKey('rating-card'),
-                    rating: rating,
-                    opening: opening,
-                    repository: widget.repository,
-                  ),
-                ),
-              ),
-            ],
             if (hasRating && comments.isNotEmpty)
               const SizedBox(height: FeedbackMetrics.cardGap),
             if (comments.isNotEmpty)
@@ -171,6 +141,39 @@ class _FeedbackCardsState extends State<_FeedbackCards> {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _RatingFeedback extends StatelessWidget {
+  final PostRating rating;
+  final bool opening;
+  final RatingRepository? repository;
+  const _RatingFeedback({
+    required this.rating,
+    this.opening = false,
+    this.repository,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final participants = rating.participants;
+    if (!opening &&
+        rating.entries.length == 1 &&
+        (participants == null || participants == 1)) {
+      final score = _scores(rating).singleOrNull;
+      if (score?.value != null) {
+        return _SingleRatingCapsule(
+          entry: rating.entries.single,
+          label: score!.label,
+        );
+      }
+    }
+    return _RatingCard(
+      key: const PageStorageKey('rating-card'),
+      rating: rating,
+      opening: opening,
+      repository: repository,
     );
   }
 }
@@ -489,16 +492,7 @@ class _RatingRowState extends State<_RatingRow> {
   }
 
   bool _isTruncated(String reason, TextStyle style, double width) {
-    final effectiveStyle = DefaultTextStyle.of(context).style
-        .merge(style)
-        .merge(
-          TextStyle(
-            fontWeight: MediaQuery.boldTextOf(context) ? FontWeight.bold : null,
-            height: MediaQuery.maybeLineHeightScaleFactorOverrideOf(context),
-            letterSpacing: MediaQuery.maybeLetterSpacingOverrideOf(context),
-            wordSpacing: MediaQuery.maybeWordSpacingOverrideOf(context),
-          ),
-        );
+    final effectiveStyle = _effectiveRatingTextStyle(context, style);
     final scaler = MediaQuery.textScalerOf(context);
     final direction = Directionality.of(context);
     final locale = Localizations.maybeLocaleOf(context);
@@ -611,6 +605,7 @@ class _RatingRowState extends State<_RatingRow> {
     final t = AppTokens.of(context);
     final entry = widget.entry;
     final opening = widget.opening;
+    final score = _displayScore(entry.score);
     final reason = entry.reason?.trim() ?? '';
     final size = opening
         ? FeedbackMetrics.rowSize
@@ -678,14 +673,14 @@ class _RatingRowState extends State<_RatingRow> {
                     SizedBox(
                       width: scoreWidth,
                       child: Text(
-                        entry.score,
+                        score,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontSize: size,
                           fontWeight: FontWeight.w700,
                           fontFeatures: FeedbackMetrics.tabular,
-                          color: _negative(entry.score)
+                          color: _negative(score)
                               ? t.red
                               : ThreadTokens.score(t),
                         ),
@@ -732,7 +727,7 @@ class _RatingRowState extends State<_RatingRow> {
           container: true,
           button: true,
           expanded: open,
-          label: '${entry.user} ${entry.score} ${_fullReason ?? reason}',
+          label: '${entry.user} $score ${_fullReason ?? reason}',
           hint: open ? '收起附言' : '展开附言',
           value: _loading ? '正在读取完整附言' : null,
           liveRegion: _loading,
@@ -754,155 +749,129 @@ class _RatingRowState extends State<_RatingRow> {
   }
 }
 
-final _scoreSignSpacing = RegExp(r'^([+−-])\s+(?=\d)');
-String _compactScore(String raw) =>
-    raw.trim().replaceFirstMapped(_scoreSignSpacing, (match) => match[1]!);
+class _SingleRatingCapsule extends StatelessWidget {
+  final RatingEntry entry;
+  final String label;
+  const _SingleRatingCapsule({required this.entry, required this.label});
 
-String? _sumCompleteRatings(List<RatingEntry> entries, int? participants) {
-  final credit = entries.firstOrNull?.credit?.trim();
-  if (participants != entries.length || credit == null || credit.isEmpty) {
-    return null;
-  }
-  var total = BigInt.zero;
-  for (final entry in entries) {
-    if (entry.credit?.trim() != credit) return null;
-    final score = BigInt.tryParse(
-      _compactScore(entry.score).replaceFirst('−', '-'),
-      radix: 10,
-    );
-    if (score == null) return null;
-    total += score;
-  }
-  return total.toString();
-}
-
-class _RatingStrip extends StatelessWidget {
-  final PostRating rating;
-  final bool open;
-  final VoidCallback? onTap;
-  const _RatingStrip({required this.rating, required this.open, this.onTap});
+  double _textWidth(BuildContext context, String text, TextStyle style) =>
+      TextPainter.computeWidth(
+        text: TextSpan(
+          text: text,
+          style: _effectiveRatingTextStyle(context, style),
+        ),
+        textDirection: Directionality.of(context),
+        textScaler: MediaQuery.textScalerOf(context),
+        locale: Localizations.maybeLocaleOf(context),
+        maxLines: 1,
+      );
 
   @override
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
-    final entry = rating.entries.firstOrNull;
-    final participants = rating.participants;
-    final multiple = (participants ?? 0) > 1 || rating.entries.length > 1;
-    final summary = _scores(
-      rating,
-    ).where((item) => item.value != null).firstOrNull;
-    final entryScore = entry?.score.trim();
-    final rawScore = !multiple && entryScore != null && entryScore.isNotEmpty
-        ? _compactScore(entryScore)
-        : summary?.value ??
-              _sumCompleteRatings(rating.entries, participants) ??
-              '评分';
-    final number = BigInt.tryParse(rawScore, radix: 10);
-    final score =
-        number != null && number > BigInt.zero && !rawScore.startsWith('+')
-        ? '+$rawScore'
-        : rawScore;
-    final scoreColor = _negative(score) ? t.red : ThreadTokens.score(t);
-    final people = switch ((entry, participants, multiple)) {
-      (null, final int count, _) => '$count 人',
-      (_, final int count, true) when count > 1 => '等 $count 人',
-      (_, _, true) => '等人',
-      _ => null,
-    };
-    final names = [if (entry != null) entry.user, ?people].join(' ');
-    final strip = Container(
-      key: const ValueKey('post-rating-strip'),
-      constraints: BoxConstraints(
-        minHeight: FeedbackMetrics.stripHeight,
-        minWidth: onTap == null ? 0 : FeedbackMetrics.touchTarget,
-      ),
+    final reason = entry.reason?.trim();
+    final score = '${_displayScore(entry.score)} $label';
+    final scoreStyle = TextStyle(
+      fontSize: FeedbackMetrics.rowSize,
+      fontWeight: FontWeight.w700,
+      color: _negative(score) ? t.red : ThreadTokens.score(t),
+      fontFeatures: FeedbackMetrics.tabular,
+    );
+    final nameStyle = TextStyle(
+      fontSize: FeedbackMetrics.rowSize,
+      fontWeight: FontWeight.w600,
+      color: t.text,
+    );
+    final avatar = _Avatar(
+      url: entry.avatarUrl,
+      name: entry.user,
+      size: FeedbackMetrics.floorAvatar,
+    );
+    final scoreText = Text(
+      score,
+      maxLines: 1,
+      softWrap: false,
+      style: scoreStyle,
+    );
+    const gap = SizedBox(width: FeedbackMetrics.gap);
+    return Container(
+      key: const ValueKey('single-rating-capsule'),
+      constraints: const BoxConstraints(minHeight: FeedbackMetrics.stripHeight),
       padding: const EdgeInsets.symmetric(horizontal: FeedbackMetrics.gap),
       decoration: BoxDecoration(
         color: PostFeedbackHighlight.backgroundOf(
           context,
-          open ? t.greenFill : t.greenSoft,
+          t.greenSoft,
           emphasis: t.green.withValues(alpha: .10),
         ),
-        borderRadius: BorderRadius.circular(FeedbackMetrics.stripRadius),
+        borderRadius: BorderRadius.circular(AppRadii.full),
       ),
       child: LayoutBuilder(
-        builder: (context, constraints) => Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Flexible(
-              flex: 2,
-              child: Text(
-                '★ $score',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: FeedbackMetrics.rowSize,
-                  fontWeight: FontWeight.w700,
-                  color: scoreColor,
-                  fontFeatures: FeedbackMetrics.tabular,
-                ),
+        builder: (context, constraints) {
+          final width = constraints.maxWidth;
+          final requiredWidth =
+              FeedbackMetrics.floorAvatar +
+              FeedbackMetrics.gap +
+              _textWidth(context, score, scoreStyle);
+          final availableWidth = width - requiredWidth;
+          final namedAvatar = Semantics(label: entry.user, child: avatar);
+          if (availableWidth < 0) {
+            // Keep the avatar and full score visible even below their natural width.
+            return FittedBox(
+              alignment: AlignmentDirectional.centerStart,
+              fit: BoxFit.scaleDown,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [namedAvatar, gap, scoreText],
               ),
+            );
+          }
+
+          final nameWidth = _textWidth(context, entry.user, nameStyle).clamp(
+            0.0,
+            (availableWidth - FeedbackMetrics.gap).clamp(
+              0.0,
+              width * FeedbackMetrics.stripUserFraction,
             ),
-            if (entry != null) ...[
-              const SizedBox(width: FeedbackMetrics.smallGap),
-              _Avatar(
-                url: entry.avatarUrl,
-                name: entry.user,
-                size: FeedbackMetrics.stripAvatar,
-              ),
-              const SizedBox(width: FeedbackMetrics.smallGap),
-              Flexible(
-                flex: 3,
-                child: Text(
-                  entry.user,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: FeedbackMetrics.rowSize,
-                    color: t.text2,
+          );
+          final nameSpace = nameWidth > 0 ? nameWidth + FeedbackMetrics.gap : 0;
+          final reasonWidth = availableWidth - nameSpace - FeedbackMetrics.gap;
+          return Row(
+            children: [
+              nameWidth > 0 ? avatar : namedAvatar,
+              gap,
+              if (nameWidth > 0) ...[
+                SizedBox(
+                  width: nameWidth,
+                  child: Text(
+                    entry.user,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: nameStyle,
                   ),
                 ),
-              ),
-            ],
-            if (people != null) ...[
-              const SizedBox(width: FeedbackMetrics.smallGap),
-              ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxWidth:
-                      constraints.maxWidth * FeedbackMetrics.stripCountFraction,
-                ),
-                child: Text(
-                  people,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: FeedbackMetrics.rowSize,
-                    color: t.text2,
+                gap,
+              ],
+              scoreText,
+              if (reason != null &&
+                  reason.isNotEmpty &&
+                  reasonWidth >= FeedbackMetrics.stripMinReasonWidth) ...[
+                gap,
+                Expanded(
+                  child: Text(
+                    reason,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: FeedbackMetrics.rowSize,
+                      color: t.text2,
+                    ),
                   ),
                 ),
-              ),
+              ],
             ],
-            if (onTap != null) ...[
-              const SizedBox(width: FeedbackMetrics.tinyGap),
-              _Arrow(open: open, color: scoreColor),
-            ],
-          ],
-        ),
-      ),
-    );
-    if (onTap == null) return strip;
-    final scoreLabel = score == '评分' ? '评分' : '评分 $score';
-    return HitSlopTarget(
-      enabled: true,
-      slop: const EdgeInsets.symmetric(vertical: FeedbackMetrics.stripHitSlop),
-      child: Semantics(
-        expanded: open,
-        hint: open ? '收起明细' : '展开明细',
-        child: PressScale(
-          onTap: onTap,
-          semanticLabel: names.isEmpty ? scoreLabel : '$scoreLabel，$names',
-          child: ExcludeSemantics(child: strip),
-        ),
+          );
+        },
       ),
     );
   }
@@ -1052,7 +1021,6 @@ class CommentFeedback extends StatefulWidget {
 }
 
 class _CommentFeedbackState extends State<CommentFeedback> {
-  bool _ratingOpen = false;
   bool _commentsOpen = false;
 
   @override
@@ -1061,91 +1029,30 @@ class _CommentFeedbackState extends State<CommentFeedback> {
     final rating = widget.rating;
     final hasRating = _hasRating(rating);
     if (!hasRating && widget.comments.isEmpty) return const SizedBox.shrink();
-    final scores = hasRating ? _scores(rating!) : const <RatingSummaryItem>[];
-    final showSummary =
-        scores.length > 1 ||
-        scores.any((item) => item.value == null) ||
-        (rating?.entries.isEmpty == true && scores.isNotEmpty);
-    final expandable =
-        hasRating &&
-        (showSummary ||
-            rating!.entries.length > 1 ||
-            (scores.isEmpty && rating.entries.isNotEmpty) ||
-            (rating.entries.isNotEmpty && (rating.participants ?? 0) > 1) ||
-            rating.entries.any(
-              (entry) => entry.reason?.trim().isNotEmpty == true,
-            ));
     return HitSlopRegion(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Wrap(
-            spacing: FeedbackMetrics.smallGap,
-            runSpacing: FeedbackMetrics.smallGap,
-            children: [
-              if (hasRating)
-                _RatingStrip(
-                  rating: rating!,
-                  open: _ratingOpen && expandable,
-                  onTap: expandable
-                      ? () => setState(() => _ratingOpen = !_ratingOpen)
-                      : null,
-                ),
-              if (widget.comments.isNotEmpty)
-                _Capsule(
-                  label: '点评 ${widget.comments.length}',
-                  semanticLabel:
-                      '点评 ${widget.comments.length} 条，${_commentsOpen ? '收起' : '展开'}',
+          if (hasRating) _RatingFeedback(rating: rating!),
+          if (widget.comments.isNotEmpty) ...[
+            if (hasRating) const SizedBox(height: FeedbackMetrics.smallGap),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: _Capsule(
+                label: '点评 ${widget.comments.length}',
+                semanticLabel:
+                    '点评 ${widget.comments.length} 条，${_commentsOpen ? '收起' : '展开'}',
+                color: t.text2,
+                background: _commentsOpen ? t.fill : t.fill3,
+                open: _commentsOpen,
+                onTap: () => setState(() => _commentsOpen = !_commentsOpen),
+                leading: Icon(
+                  AppIcons.comments,
+                  size: FeedbackMetrics.arrowSize,
                   color: t.text2,
-                  background: _commentsOpen ? t.fill : t.fill3,
-                  open: _commentsOpen,
-                  onTap: () => setState(() => _commentsOpen = !_commentsOpen),
-                  leading: Icon(
-                    AppIcons.comments,
-                    size: FeedbackMetrics.arrowSize,
-                    color: t.text2,
-                  ),
-                ),
-            ],
-          ),
-          if (hasRating)
-            _Reveal(
-              open: _ratingOpen && expandable,
-              child: _Panel(
-                color: PostFeedbackHighlight.backgroundOf(
-                  context,
-                  t.greenSoft,
-                  emphasis: t.green.withValues(alpha: .10),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    if (showSummary)
-                      Wrap(
-                        spacing: FeedbackMetrics.compactInset,
-                        runSpacing: FeedbackMetrics.tinyGap,
-                        children: [
-                          for (final item in scores)
-                            Text(
-                              _summaryText(item),
-                              style: TextStyle(
-                                fontSize: FeedbackMetrics.labelSize,
-                                fontWeight: FontWeight.w700,
-                                color: _negative(item.value ?? '')
-                                    ? t.red
-                                    : ThreadTokens.score(t),
-                                fontFeatures: FeedbackMetrics.tabular,
-                              ),
-                            ),
-                        ],
-                      ),
-                    for (final entry in rating!.entries)
-                      _RatingRow(entry: entry, rating: rating),
-                  ],
                 ),
               ),
             ),
-          if (widget.comments.isNotEmpty)
             _Reveal(
               open: _commentsOpen,
               child: _Panel(
@@ -1158,6 +1065,7 @@ class _CommentFeedbackState extends State<CommentFeedback> {
                 ),
               ),
             ),
+          ],
         ],
       ),
     );
@@ -1207,25 +1115,8 @@ class _Capsule extends StatelessWidget {
               leading,
               const SizedBox(width: FeedbackMetrics.smallGap),
               Flexible(
-                child: Text.rich(
-                  TextSpan(
-                    children: [
-                      TextSpan(
-                        text: label.contains('　')
-                            ? label.substring(0, label.lastIndexOf('　'))
-                            : label,
-                      ),
-                      if (label.contains('　'))
-                        TextSpan(
-                          text: label.substring(label.lastIndexOf('　')),
-                          style: TextStyle(
-                            color: ThreadTokens.participants(
-                              AppTokens.of(context),
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
+                child: Text(
+                  label,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(

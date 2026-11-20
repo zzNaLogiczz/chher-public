@@ -127,7 +127,7 @@ void main() {
       );
 
       testWidgets(
-        '$style $brightness floor rating strip stays 26 high with radius 9',
+        '$style $brightness floor rating capsule stays 36 high with fully rounded ends',
         (tester) async {
           await tester.pumpWidget(
             MaterialApp(
@@ -144,16 +144,13 @@ void main() {
               ),
             ),
           );
-          final strip = surface(find.byType(FloorFeedback));
-          expect(tester.getSize(strip).height, 26);
-          expect(radius(tester, strip), 9);
+          final capsule = surface(find.byType(FloorFeedback));
+          expect(tester.getSize(capsule).height, 36);
+          expect(radius(tester, capsule), 18);
           expect(find.text('本地评分者'), findsOneWidget);
-          expect(find.text('★ +5'), findsOneWidget);
-          expect(find.text('样例附言'), findsNothing);
-          await tester.tap(strip);
-          await tester.pumpAndSettle();
           expect(find.text('+5 邪恶指数'), findsOneWidget);
           expect(find.text('样例附言'), findsOneWidget);
+          expect(find.textContaining('★'), findsNothing);
         },
       );
     }

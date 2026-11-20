@@ -67,21 +67,6 @@ Future<void> mount(
     ),
   );
   await tester.pumpAndSettle();
-  final strip = find.byKey(const ValueKey('post-rating-strip'));
-  final disclosure = tester.widget<Semantics>(
-    find
-        .ancestor(
-          of: strip,
-          matching: find.byWidgetPredicate(
-            (w) => w is Semantics && w.properties.expanded != null,
-          ),
-        )
-        .first,
-  );
-  if (disclosure.properties.expanded != true) {
-    await tester.tap(strip);
-    await tester.pumpAndSettle();
-  }
 }
 
 Finder row(String name) =>
@@ -268,8 +253,6 @@ void main() {
           ),
         ),
       );
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('post-rating-strip')));
       await tester.pumpAndSettle();
       await tester.tap(find.text('其余 1 人'));
       await tester.pumpAndSettle();

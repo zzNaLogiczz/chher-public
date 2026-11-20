@@ -29,6 +29,8 @@ abstract final class ThreadPageTokens {
   static const progressHeight = 2.0;
   static const commentHeadingGap = 8.0;
   static const commentHeadingBottom = 8.0;
+  static const loadBeforePages = 15;
+  static const loadBeforeGap = 16.0;
   static const openingCommentsGap = 34.0;
   static const expansionLineWidth = 16.0;
   static const expansionLineHeight = 2.0;

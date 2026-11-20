@@ -235,12 +235,14 @@ void main() {
           ),
         );
         final text = tester.getRect(find.byType(RichContentText));
-        final strip = tester.getRect(
-          find.byKey(const ValueKey('post-rating-strip')),
+        final rating = tester.getRect(
+          opening
+              ? find.byKey(const PageStorageKey('rating-card'))
+              : find.byKey(const ValueKey('single-rating-capsule')),
         );
-        expect(strip.left, text.left);
-        expect(strip.top - text.bottom, 8);
-        expect(strip.height, 26);
+        expect(rating.left, text.left);
+        expect(rating.top - text.bottom, 8);
+        if (!opening) expect(rating.height, 36);
         if (!opening) {
           final timeRow = tester.getRect(
             find
@@ -250,7 +252,7 @@ void main() {
                 )
                 .first,
           );
-          expect(timeRow.top - strip.bottom, 6);
+          expect(timeRow.top - rating.bottom, 6);
         }
       }
     }

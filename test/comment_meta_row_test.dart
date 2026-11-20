@@ -408,7 +408,6 @@ void main() {
         final replyRect = tester.getRect(reply);
         final body = tester.getRect(find.byType(RichContentText));
         final feedback = tester.getRect(find.byType(CommentFeedback));
-        final rating = find.byKey(const ValueKey('post-rating-strip'));
         expect(timeRect.top, greaterThan(feedback.bottom));
         expect(timeRect.left, closeTo(body.left, .01));
         expect(replyRect.left - timeRect.right, closeTo(16, .01));
@@ -434,8 +433,6 @@ void main() {
           findsNothing,
         );
         await tester.tap(find.text('点评 1'));
-        await tester.pumpAndSettle();
-        await tester.tap(rating);
         await tester.pumpAndSettle();
         expect(find.textContaining('合成点评', findRichText: true), findsOneWidget);
         expect(find.text('合成理由'), findsOneWidget);

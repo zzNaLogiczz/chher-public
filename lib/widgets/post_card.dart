@@ -1034,7 +1034,11 @@ class PostCard extends StatelessWidget {
             ? FeedbackMetrics.ratingTop
             : FeedbackMetrics.smallGap,
       ),
-      CommentFeedback(rating: post.rating, comments: post.comments),
+      CommentFeedback(
+        key: PageStorageKey('comment-feedback-${post.pid}'),
+        rating: post.rating,
+        comments: post.comments,
+      ),
     ],
   ];
 

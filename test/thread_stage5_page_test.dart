@@ -331,15 +331,15 @@ void main() {
         ThreadDetailPage(
           tid: 123,
           title: '',
-          initialPage: 3,
+          initialPage: 2,
           initialThreaded: false,
           loadPage: (page, _, _) {
             requests.add(page);
-            return page == 3
+            return page == 2
                 ? Future.value(
                     _page([
                       for (var n = 21; n <= 27; n++) _post(n, lines: 3),
-                    ], number: 3),
+                    ], number: 2),
                   )
                 : previous.future;
           },
@@ -356,7 +356,7 @@ void main() {
       previous.complete(
         _page([
           for (var n = 11; n <= 20; n++) _post(n, lines: n.isEven ? 12 : 1),
-        ], number: 2),
+        ], number: 1),
       );
       await tester.pump();
       expect(_card(21), findsOneWidget);
@@ -366,13 +366,13 @@ void main() {
         reason: 'The first inserted frame must preserve the visible reply.',
       );
       await tester.pumpAndSettle();
-      expect(requests, [3, 2]);
+      expect(requests, [2, 1]);
       expect(_card(21), findsOneWidget);
       expect(tester.getTopLeft(_card(21)).dy, closeTo(anchor.dy, 1));
       tester.widget<ReadingBar>(find.byType(ReadingBar)).onBackToTop();
       await tester.pumpAndSettle();
       expect(_position(tester).extentBefore, lessThan(1));
-      expect(find.text('查看前面的回复').hitTestable(), findsOneWidget);
+      expect(find.text('查看前面的回复'), findsNothing);
       expect(tester.takeException(), isNull);
     },
   );
@@ -385,13 +385,13 @@ void main() {
         ThreadDetailPage(
           tid: 123,
           title: '',
-          initialPage: 3,
+          initialPage: 2,
           initialThreaded: false,
-          loadPage: (page, _, _) => page == 3
+          loadPage: (page, _, _) => page == 2
               ? Future.value(
                   _page([
                     for (var n = 21; n <= 27; n++) _post(n, lines: 3),
-                  ], number: 3),
+                  ], number: 2),
                 )
               : previous.future,
         ),
@@ -419,7 +419,7 @@ void main() {
             content: [for (var n = 0; n < 1000; n++) TextBlock('前页长段落$n')],
           ),
           for (var n = 13; n <= 20; n++) _post(n),
-        ], number: 2),
+        ], number: 1),
       );
       await tester.pump();
       expect(_card(21), findsOneWidget);
@@ -431,7 +431,7 @@ void main() {
       tester.widget<ReadingBar>(find.byType(ReadingBar)).onBackToTop();
       await tester.pumpAndSettle();
       expect(_position(tester).pixels, 0);
-      expect(find.text('查看前面的回复').hitTestable(), findsOneWidget);
+      expect(find.text('查看前面的回复'), findsNothing);
       expect(find.text('前页长段落999'), findsNothing);
       expect(tester.binding.transientCallbackCount, 0);
     },

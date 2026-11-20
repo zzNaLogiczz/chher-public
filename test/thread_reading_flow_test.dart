@@ -252,7 +252,7 @@ void main() {
         );
       } else {
         expect(
-          find.text(feedback == 'comment' ? '通知对应点评' : '★ +1').hitTestable(),
+          find.text(feedback == 'comment' ? '通知对应点评' : '+1 邪恶指数').hitTestable(),
           findsOneWidget,
         );
         final scroll = tester.state<ScrollableState>(

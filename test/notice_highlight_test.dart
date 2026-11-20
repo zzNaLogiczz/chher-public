@@ -205,17 +205,12 @@ void main() {
           .toList();
       await show(0);
       final original = backgrounds();
-      expect(original, [tokens.greenSoft, Colors.transparent]);
+      expect(original, [tokens.surface, Colors.transparent]);
       await show(1);
       final highlighted = backgrounds();
       expect(
         highlighted.first,
-        isSameColorAs(
-          Color.alphaBlend(
-            tokens.green.withValues(alpha: .10),
-            Color.alphaBlend(tokens.greenSoft, tokens.bg),
-          ),
-        ),
+        isSameColorAs(Color.alphaBlend(tokens.accentFill, tokens.surface)),
       );
       expect(
         highlighted.last,
@@ -226,13 +221,7 @@ void main() {
       final fading = backgrounds();
       expect(
         fading.first,
-        isSameColorAs(
-          Color.lerp(
-            Color.alphaBlend(tokens.greenSoft, tokens.bg),
-            highlighted.first,
-            .5,
-          )!,
-        ),
+        isSameColorAs(Color.lerp(tokens.surface, highlighted.first, .5)!),
       );
       await show(0);
       expect(backgrounds(), original);
@@ -241,7 +230,7 @@ void main() {
   }
 
   testWidgets(
-    'opening rating panel shares the 1.6s notice fade and restores its subtle fill',
+    'opening rating panel shares the 1.6s notice fade and restores surface',
     (tester) async {
       final controller = await _openNotice(
         tester,
@@ -264,18 +253,22 @@ void main() {
         return (panel.decoration! as BoxDecoration).color!;
       }
 
-      final tokens = AppTokens.light;
-      final base = Color.alphaBlend(tokens.greenSoft, tokens.bg);
-      final high = Color.alphaBlend(tokens.green.withValues(alpha: .10), base);
+      final high = Color.alphaBlend(
+        AppTokens.light.accentFill,
+        AppTokens.light.surface,
+      );
       final position = tester
           .state<ScrollableState>(find.byType(Scrollable).first)
           .position;
       expect(position.pixels, greaterThan(0));
       expect(panelColor(), isSameColorAs(high));
       await _at(tester, controller, 800);
-      expect(panelColor(), isSameColorAs(Color.lerp(base, high, .5)!));
+      expect(
+        panelColor(),
+        isSameColorAs(Color.lerp(AppTokens.light.surface, high, .5)!),
+      );
       await _at(tester, controller, 1600);
-      expect(panelColor(), isSameColorAs(tokens.greenSoft));
+      expect(panelColor(), isSameColorAs(AppTokens.light.surface));
       await tester.pump(const Duration(milliseconds: 1));
       expect(controller.isAnimating, isFalse);
       expect(tester.takeException(), isNull);

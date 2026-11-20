@@ -2,6 +2,7 @@
 library;
 
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart' show PointerDeviceKind, VelocityTracker;
 import 'package:flutter/material.dart';
@@ -38,6 +39,7 @@ import '../data/post_interaction_repository.dart';
 import '../data/user_block_index.dart';
 import '../data/blocked_post_projection.dart';
 import '../ui/user_block_action.dart';
+import '../widgets/chhers_loader.dart';
 import '../widgets/chhers_loading_transition.dart';
 import '../widgets/chhers_refresh_indicator.dart';
 import '../widgets/post_action_menu.dart';
@@ -201,6 +203,8 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
   String? _authorUid;
   String? _openingAuthor;
   bool _loading = true;
+  Object? _beforeLoad;
+  bool get _loadingBefore => _beforeLoad != null;
   bool _hasNext = false;
   Timer? _preloadTimer;
   bool _prefetching = false;
@@ -222,6 +226,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
           WidgetsBinding.instance.lifecycleState ==
               AppLifecycleState.resumed) &&
       !_loading &&
+      !_loadingBefore &&
       !_landingPaintPending &&
       _pendingMode == null &&
       !_composerOpen &&
@@ -685,6 +690,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     _sessionUid = loggedIn ? (uid ?? _sessionUid) : null;
     if (!changed || !mounted) return;
     _generation++;
+    _beforeLoad = null;
     _prefetching = false;
     _authorEpoch++;
     _update(() {
@@ -962,6 +968,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
   /// 评论 ⇄ 原楼层:只对已读楼层重新排列,不读网络
   void _regroup(bool threaded) {
     _update(() {
+      _beforeLoad = null;
       _threaded = threaded;
       _pinnedRoots.clear();
       _visibleReplies.clear();
@@ -978,6 +985,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     final epoch = ++_authorEpoch;
     // 丢弃进行中的翻页,旧方式的回包不能混进新内容
     _generation++;
+    _beforeLoad = null;
     _prefetching = false;
     _update(() {
       _pendingMode = ThreadViewMode.author;
@@ -1027,6 +1035,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     final snapshot = _beforeAuthor;
     final epoch = ++_authorEpoch;
     _generation++;
+    _beforeLoad = null;
     _prefetching = false;
     if (snapshot != null) {
       _update(() {
@@ -1133,6 +1142,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
   /// 用一次完整读取替换已读楼层(首次进入、刷新、切换只看楼主)
   void _resetPages(ThreadDetail detail) {
     _generation++;
+    _beforeLoad = null;
     _prefetching = false;
     _preloadEndPage = detail.page.current + widget.preloadPages - 1;
     _pages.clear();
@@ -1486,7 +1496,20 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     }
   }
 
-  void _remember(ThreadDetail detail) {
+  void _remember(ThreadDetail detail) => _rememberPages([detail]);
+
+  void _rememberPages(List<ThreadDetail> details) {
+    for (final detail in details) {
+      _storePage(detail);
+    }
+    if (_portalLanding) {
+      _chrome.title = details.last.title;
+      _chrome.sourceUrl = threadSourceUrl(widget.tid, page: _firstPage);
+    }
+    _rebuildReadIndex();
+  }
+
+  void _storePage(ThreadDetail detail) {
     // Page appends must not move the denominator while the viewport stays still.
     _readingTotalPosts ??= detail.replyCount == null
         ? null
@@ -1516,11 +1539,6 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
       page: detail.page,
     );
     _pages[detail.page.current] = detail;
-    if (_portalLanding) {
-      _chrome.title = detail.title;
-      _chrome.sourceUrl = threadSourceUrl(widget.tid, page: _firstPage);
-    }
-    _rebuildReadIndex();
     // 只有真正的首楼才能确定楼主；提醒落地页的首条回复不是楼主。
     final opening = detail.posts.where((p) => postIsOpening(p)).firstOrNull;
     _openingAuthor ??= opening?.authorUid;
@@ -1532,6 +1550,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     bool refresh = false,
   }) async {
     final generation = ++_generation;
+    _beforeLoad = null;
     _prefetching = false;
     if (_portalLanding && _pages.isEmpty && !_landingSkeletonVisible) {
       _landingSkeletonDelay?.cancel();
@@ -1637,6 +1656,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
         _composerOpen ||
         _unlocking.isNotEmpty ||
         _loading ||
+        _loadingBefore ||
         _tailError != null ||
         !_hasNext ||
         _pages.isEmpty ||
@@ -1653,6 +1673,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     bool background = false,
   }) async {
     if (_loading ||
+        _loadingBefore ||
         _prefetching ||
         _navigationBusy ||
         !_hasNext ||
@@ -1769,47 +1790,68 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
   }
 
   Future<void> _loadBefore() async {
-    if (_loading || _pages.isEmpty || _firstPage <= 1) return;
-    final target = _firstPage - 1;
+    if (_loading ||
+        _loadingBefore ||
+        _pendingMode != null ||
+        !_routeCurrent ||
+        _pages.isEmpty ||
+        _firstPage <= 1) {
+      return;
+    }
+    final firstPage = _firstPage;
+    final lastTarget = math.max(
+      1,
+      firstPage - ThreadPageTokens.loadBeforePages,
+    );
     final generation = _generation;
+    final load = Object();
+    bool active() =>
+        mounted && generation == _generation && identical(_beforeLoad, load);
     final retry = _beforeError != null;
     _update(() {
-      _loading = true;
+      _beforeLoad = load;
       _beforeError = null;
     });
+    final pages = <ThreadDetail>[];
+    Object? failure;
     try {
-      final detail = await _read(
-        target,
-        refresh: retry,
-        shouldContinue: () => mounted && generation == _generation,
-      );
-      if (!mounted || generation != _generation) return;
-      final anchor = _readingAnchor();
-      _update(() {
-        if (detail.page.current == target) {
-          _remember(detail);
-          if (anchor != null && _entryIndices.containsKey(anchor.key)) {
-            _centerEntryKey = anchor.key;
-            // The new origin and offset reach layout together, before paint.
-            final firstReply =
-                _entryIndices[anchor.key] ==
-                (_entryIndices[_ThreadReadEntry.headingKey] ?? -2) + 1;
-            _scroll.position.correctPixels(
-              -anchor.y + (firstReply ? ThreadPageTokens.cardInset : 0),
-            );
-            _titleAt = double.negativeInfinity;
-            _commentsAt = double.negativeInfinity;
-          }
+      // Finish any existing forward prefetch before issuing backward reads.
+      await _appendCompletion?.future;
+      for (var page = firstPage - 1; page >= lastTarget; page--) {
+        if (!active()) return;
+        final detail = await _read(
+          page,
+          refresh: retry && page == firstPage - 1,
+          shouldContinue: active,
+        );
+        if (!active()) return;
+        if (detail.page.current != page) {
+          throw StateError('Expected page $page, got ${detail.page.current}');
         }
-        _loading = false;
-      });
+        pages.add(detail);
+      }
     } catch (error) {
-      if (!mounted || generation != _generation) return;
-      _update(() {
-        _loading = false;
-        _beforeError = error;
-      });
+      failure = error;
     }
+    if (!active()) return;
+    final anchor = pages.isEmpty ? null : _readingAnchor();
+    _update(() {
+      if (pages.isNotEmpty) _rememberPages(pages);
+      if (anchor != null && _entryIndices.containsKey(anchor.key)) {
+        _centerEntryKey = anchor.key;
+        // The new origin and offset reach layout together, before paint.
+        final firstReply =
+            _entryIndices[anchor.key] ==
+            (_entryIndices[_ThreadReadEntry.headingKey] ?? -2) + 1;
+        _scroll.position.correctPixels(
+          -anchor.y + (firstReply ? ThreadPageTokens.cardInset : 0),
+        );
+        _titleAt = double.negativeInfinity;
+        _commentsAt = double.negativeInfinity;
+      }
+      _beforeLoad = null;
+      _beforeError = failure;
+    });
   }
 
   ThreadPoll? _pollSource;
@@ -1943,6 +1985,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
 
   Future<void> _expandReplies(int rootPid) async {
     if (_loading ||
+        _loadingBefore ||
         _pendingMode != null ||
         _expandingRoot != null ||
         _replyReveal.isAnimating) {
@@ -2291,6 +2334,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
           builder: (context, covered, child) {
             // Back makes this route current before the viewer's Hero lands.
             _routeCurrent = ModalRoute.isCurrentOf(context) ?? true;
+            if (!_routeCurrent) _beforeLoad = null;
             _viewerCovered = covered;
             _navigationGestureChanged();
             return child!;
@@ -2536,33 +2580,9 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
                                           CrossAxisAlignment.stretch,
                                       children: [
                                         if (_firstPage > 1)
-                                          Align(
-                                            alignment: Alignment.center,
-                                            child: Padding(
-                                              padding: const EdgeInsets.only(
-                                                bottom: 16,
-                                              ),
-                                              child: DecoratedBox(
-                                                decoration: BoxDecoration(
-                                                  color: t.surface,
-                                                  borderRadius:
-                                                      BorderRadius.circular(
-                                                        AppRadii.full,
-                                                      ),
-                                                ),
-                                                child: AppButton(
-                                                  label: _beforeError == null
-                                                      ? '查看前面的回复'
-                                                      : '加载失败，重试',
-                                                  variant:
-                                                      AppButtonVariant.plain,
-                                                  icon: AppIcons.up,
-                                                  onPressed: _loading
-                                                      ? null
-                                                      : _loadBefore,
-                                                ),
-                                              ),
-                                            ),
+                                          Builder(
+                                            builder: (context) =>
+                                                _loadBeforeControl(context, t),
                                           ),
                                         ThreadCommentHeading(
                                           loadedCount: _shownReplyCount,
@@ -2970,6 +2990,66 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
               ),
             ),
         ],
+      ),
+    );
+  }
+
+  Widget _loadBeforeControl(BuildContext context, AppTokens t) {
+    final reduced = MediaQuery.disableAnimationsOf(context);
+    // Only the control needs to rebuild when another route interrupts loading.
+    final loading = (ModalRoute.isCurrentOf(context) ?? true) && _loadingBefore;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: ThreadPageTokens.loadBeforeGap),
+      child: SizedBox(
+        height: AppSizes.buttonHeight,
+        child: Semantics(
+          container: loading,
+          label: loading ? '正在加载' : null,
+          liveRegion: loading,
+          excludeSemantics: loading,
+          child: AnimatedSwitcher(
+            duration: reduced ? AppMotion.reducedFade : AppMotion.loadingIn,
+            reverseDuration: reduced
+                ? AppMotion.reducedFade
+                : AppMotion.loadingOut,
+            switchInCurve: AppMotion.contentFadeCurve,
+            layoutBuilder: (current, previous) {
+              return Stack(
+                alignment: Alignment.center,
+                children: [
+                  for (final child in [...previous, ?current])
+                    IgnorePointer(
+                      key: child.key,
+                      ignoring: child != current,
+                      child: ExcludeSemantics(
+                        excluding: child != current,
+                        child: child,
+                      ),
+                    ),
+                ],
+              );
+            },
+            child: loading
+                ? const ChhersLoader(
+                    size: ChhersLoaderSize.list,
+                    delayed: false,
+                  )
+                : DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: t.surface,
+                      borderRadius: BorderRadius.circular(AppRadii.full),
+                    ),
+                    child: AppButton(
+                      label: _beforeError == null ? '查看前面的回复' : '加载失败，重试',
+                      variant: AppButtonVariant.plain,
+                      icon: AppIcons.up,
+                      onPressed: _loading || _pendingMode != null
+                          ? null
+                          : _loadBefore,
+                    ),
+                  ),
+          ),
+        ),
       ),
     );
   }
