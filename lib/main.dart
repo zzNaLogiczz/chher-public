@@ -17,7 +17,7 @@ Future<void> main() async {
   TouchSampling(frames: 2);
   FrameMetrics.install();
   await editorialCoverCache.load();
-  setupDependencies();
+  await setupDependencies();
   // 先恢复外观避免首帧闪色;超时不阻塞启动,读完仍会通知主题更新。
   await appearance.load().timeout(
     const Duration(milliseconds: 300),

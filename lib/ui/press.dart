@@ -8,7 +8,8 @@ library;
 
 import 'dart:async';
 
-import 'package:flutter/gestures.dart' show kTouchSlop;
+import 'package:flutter/gestures.dart'
+    show kTouchSlop, LongPressGestureRecognizer, TapGestureRecognizer;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:motor/motor.dart';
@@ -23,6 +24,7 @@ import '../widgets/expressive_controls.dart' show ActionFocusRing;
 class _PressCore extends StatefulWidget {
   final VoidCallback? onTap;
   final VoidCallback? onLongPress;
+  final Duration? longPressDuration;
   final String? semanticLabel;
   final ValueChanged<bool> onPressedChanged;
   final VoidCallback onPressCancelled;
@@ -33,6 +35,7 @@ class _PressCore extends StatefulWidget {
   const _PressCore({
     required this.onTap,
     required this.onLongPress,
+    this.longPressDuration,
     required this.semanticLabel,
     required this.onPressedChanged,
     required this.onPressCancelled,
@@ -108,6 +111,65 @@ class _PressCoreState extends State<_PressCore> {
   @override
   Widget build(BuildContext context) {
     final enabled = widget.onTap != null;
+    final child = widget.builder(
+      context,
+      ActionFocusRing(visible: _showFocus && enabled, child: widget.child),
+    );
+    final onTap = enabled
+        ? () {
+            if (_rowMoved) return;
+            if (_highlightOnTap) {
+              _highlightOnTap = false;
+              _press(true);
+              _press(false);
+            }
+            widget.onTap?.call();
+          }
+        : null;
+    void onLongPress() {
+      if (!_rowMoved) widget.onLongPress?.call();
+    }
+
+    final duration = widget.longPressDuration;
+    final gestures = duration == null
+        ? GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            excludeFromSemantics: true,
+            onTap: onTap,
+            onTapCancel: _cancel,
+            onLongPress: widget.onLongPress == null ? null : onLongPress,
+            child: child,
+          )
+        : RawGestureDetector(
+            key: ValueKey(duration),
+            behavior: HitTestBehavior.opaque,
+            excludeFromSemantics: true,
+            gestures: {
+              TapGestureRecognizer:
+                  GestureRecognizerFactoryWithHandlers<TapGestureRecognizer>(
+                    TapGestureRecognizer.new,
+                    (recognizer) => recognizer
+                      ..gestureSettings = MediaQuery.maybeGestureSettingsOf(
+                        context,
+                      )
+                      ..onTap = onTap
+                      ..onTapCancel = _cancel,
+                  ),
+              // An unavailable hold action still consumes the gesture.
+              LongPressGestureRecognizer:
+                  GestureRecognizerFactoryWithHandlers<
+                    LongPressGestureRecognizer
+                  >(
+                    () => LongPressGestureRecognizer(duration: duration),
+                    (recognizer) => recognizer
+                      ..gestureSettings = MediaQuery.maybeGestureSettingsOf(
+                        context,
+                      )
+                      ..onLongPress = onLongPress,
+                  ),
+            },
+            child: child,
+          );
     return Semantics(
       button: true,
       label: widget.semanticLabel,
@@ -173,34 +235,7 @@ class _PressCoreState extends State<_PressCore> {
             _press(false);
           },
           onPointerCancel: (_) => _cancel(),
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            excludeFromSemantics: true,
-            onTap: widget.onTap == null
-                ? null
-                : () {
-                    if (_rowMoved) return;
-                    if (_highlightOnTap) {
-                      _highlightOnTap = false;
-                      _press(true);
-                      _press(false);
-                    }
-                    widget.onTap?.call();
-                  },
-            onLongPress: widget.onLongPress == null
-                ? null
-                : () {
-                    if (!_rowMoved) widget.onLongPress?.call();
-                  },
-            onTapCancel: _cancel,
-            child: widget.builder(
-              context,
-              ActionFocusRing(
-                visible: _showFocus && enabled,
-                child: widget.child,
-              ),
-            ),
-          ),
+          child: gestures,
         ),
       ),
     );
@@ -212,8 +247,10 @@ class PressScale extends StatefulWidget {
   final Widget child;
   final VoidCallback? onTap;
   final VoidCallback? onLongPress;
+  final Duration? longPressDuration;
   final double scale;
   final String? semanticLabel;
+  final Widget Function(Widget scaledChild)? surroundScaledChild;
 
   /// Optional contrast feedback for small inline marks whose scale is subtle.
   final double pressedOpacity;
@@ -227,8 +264,10 @@ class PressScale extends StatefulWidget {
     required this.child,
     this.onTap,
     this.onLongPress,
+    this.longPressDuration,
     this.scale = AppPressScale.control,
     this.semanticLabel,
+    this.surroundScaledChild,
     this.pressedOpacity = 1,
     this.pressedColor,
     this.motion = AppMotion.tap,
@@ -281,33 +320,16 @@ class _PressScaleState extends State<PressScale>
     super.dispose();
   }
 
+  Widget _scaled(Widget child) => AnimatedBuilder(
+    animation: _scale,
+    child: child,
+    builder: (_, child) => Transform.scale(scale: _scale.value, child: child),
+  );
+
   @override
-  Widget build(BuildContext context) => _PressCore(
-    onTap: widget.onTap,
-    onLongPress: widget.onLongPress,
-    semanticLabel: widget.semanticLabel,
-    onPressedChanged: _onPressed,
-    onPressCancelled: _onCancelled,
-    builder: (_, ringed) => AnimatedBuilder(
-      animation: _scale,
-      child: widget.pressedColor == null
-          ? ringed
-          : AnimatedContainer(
-              duration: _pressed || _reduced || _cancelled
-                  ? Duration.zero
-                  : AppMotion.fade,
-              curve: Curves.easeOut,
-              decoration: ShapeDecoration(
-                color: widget.pressedColor!.withValues(
-                  alpha: _pressed ? widget.pressedColor!.a : 0,
-                ),
-                shape: appShape(AppRadii.sm),
-              ),
-              child: ringed,
-            ),
-      builder: (_, child) => Transform.scale(scale: _scale.value, child: child),
-    ),
-    child: widget.pressedOpacity == 1
+  Widget build(BuildContext context) {
+    final surround = widget.surroundScaledChild;
+    final child = widget.pressedOpacity == 1
         ? widget.child
         : AnimatedOpacity(
             opacity: _pressed ? widget.pressedOpacity : 1,
@@ -316,8 +338,34 @@ class _PressScaleState extends State<PressScale>
                 : AppMotion.fade,
             curve: Curves.easeOut,
             child: widget.child,
-          ),
-  );
+          );
+    return _PressCore(
+      onTap: widget.onTap,
+      onLongPress: widget.onLongPress,
+      longPressDuration: widget.longPressDuration,
+      semanticLabel: widget.semanticLabel,
+      onPressedChanged: _onPressed,
+      onPressCancelled: _onCancelled,
+      builder: (_, ringed) {
+        final color = widget.pressedColor;
+        final content = color == null
+            ? ringed
+            : AnimatedContainer(
+                duration: _pressed || _reduced || _cancelled
+                    ? Duration.zero
+                    : AppMotion.fade,
+                curve: Curves.easeOut,
+                decoration: ShapeDecoration(
+                  color: color.withValues(alpha: _pressed ? color.a : 0),
+                  shape: appShape(AppRadii.sm),
+                ),
+                child: ringed,
+              );
+        return surround == null ? _scaled(content) : content;
+      },
+      child: surround == null ? child : surround(_scaled(child)),
+    );
+  }
 }
 
 /// 滚动行按住 70ms 后铺上 `pressed` 底色，松手淡回，不缩放；

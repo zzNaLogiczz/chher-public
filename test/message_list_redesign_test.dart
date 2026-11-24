@@ -25,6 +25,7 @@ class _ListRepository extends FakeMessages {
   int noticeReads = 0;
   int pmReads = 0;
   Completer<Paged<Notice>>? loading;
+  Completer<Paged<PmConversation>>? pmLoading;
   List<PmConversation> rows = List.generate(
     30,
     (i) => PmConversation(
@@ -60,6 +61,7 @@ class _ListRepository extends FakeMessages {
   }) async {
     pmReads++;
     if (failPm) throw StateError('offline');
+    if (pmLoading != null) return pmLoading!.future;
     return Paged(
       items: filter == PmFilter.privatePm
           ? rows
@@ -299,6 +301,143 @@ void main() {
       isFalse,
     );
   });
+  testWidgets('opening a PM removes its badge and dot immediately', (
+    tester,
+  ) async {
+    final previous = chhSession.badges;
+    final loggedIn = chhSession.loggedIn;
+    addTearDown(() {
+      chhSession.badges = previous;
+      chhSession.loggedIn = loggedIn;
+    });
+    chhSession.loggedIn = true;
+    chhSession.badges = const HeaderBadges(notices: 2, messages: 0);
+    const rows = [
+      PmConversation(
+        id: '11',
+        peer: '测试会话一',
+        preview: '未读内容一',
+        timeRaw: '2026-11-15 18:01',
+        viewUrl:
+            'https://www.chiphell.com/home.php?mod=space&do=pm&subop=view&plid=11',
+        unread: true,
+      ),
+      PmConversation(
+        id: '12',
+        peer: '测试会话二',
+        preview: '未读内容二',
+        timeRaw: '2026-11-15 18:00',
+        viewUrl:
+            'https://www.chiphell.com/home.php?mod=space&do=pm&subop=view&plid=12',
+        unread: true,
+      ),
+    ];
+    final repo = _ListRepository()..rows = rows;
+    await tester.pumpWidget(_app(MessagesTabPage(repository: repo)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('私信').hitTestable().first);
+    await tester.pumpAndSettle();
+    expect(chhSession.badges.messages, 2);
+    expect(chhSession.badges.total, 4);
+    expect(repo.pmReads, 1);
+    expect(find.byKey(NoticeRow.unreadDotKey), findsNWidgets(2));
+
+    final row = find.byWidgetPredicate(
+      (widget) => widget is NoticeRow && widget.name == '测试会话一',
+      skipOffstage: false,
+    );
+    final response = repo.pmLoading = Completer<Paged<PmConversation>>();
+    chhSession.setUnreadPmIds({'11', '12', '13'});
+    await tester.pump();
+    expect(repo.pmReads, 2);
+    await tester.tap(row);
+    await tester.pumpAndSettle();
+    expect(chhSession.badges.messages, 2);
+    expect(tester.widget<NoticeRow>(row).unread, isFalse);
+
+    response.complete(
+      Paged(
+        items: [
+          PmConversation(
+            id: rows.first.id,
+            peer: rows.first.peer,
+            preview: '打开对话前发来的另一条消息',
+            timeRaw: '2026-11-15 18:03',
+            viewUrl: rows.first.viewUrl,
+            unread: true,
+          ),
+          rows.last,
+        ],
+        page: const PageInfo(current: 1, hasNext: false),
+      ),
+    );
+    await tester.pumpAndSettle();
+    tester.state<NavigatorState>(find.byType(Navigator)).pop();
+    await tester.pumpAndSettle();
+    expect(chhSession.badges.messages, 1);
+    expect(tester.widget<NoticeRow>(row).unread, isFalse);
+    expect(find.byKey(NoticeRow.unreadDotKey), findsOneWidget);
+    expect(repo.pmReads, 2);
+  });
+
+  for (final hiddenBy in ['section', 'tab', 'route']) {
+    testWidgets('a PM badge waits for the list hidden by another $hiddenBy', (
+      tester,
+    ) async {
+      final previous = chhSession.badges;
+      addTearDown(() => chhSession.badges = previous);
+      chhSession.badges = const HeaderBadges(notices: 0, messages: 0);
+      final active = ValueNotifier(true);
+      addTearDown(active.dispose);
+      final repo = _ListRepository();
+      const routeKey = ValueKey('covering-route');
+      await tester.pumpWidget(
+        _app(
+          ValueListenableBuilder(
+            valueListenable: active,
+            child: MessagesTabPage(repository: repo),
+            builder: (context, active, child) =>
+                TickerMode(enabled: active, child: child!),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('私信').hitTestable().first);
+      await tester.pumpAndSettle();
+      expect(repo.pmReads, 1);
+      final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+      switch (hiddenBy) {
+        case 'section':
+          await tester.tap(find.text('提醒').hitTestable().first);
+        case 'tab':
+          active.value = false;
+        case 'route':
+          unawaited(
+            navigator.push<void>(
+              MaterialPageRoute(builder: (_) => const Scaffold(key: routeKey)),
+            ),
+          );
+      }
+      await tester.pumpAndSettle();
+      chhSession.setUnreadPmIds({'1'});
+      await tester.pumpAndSettle();
+      chhSession.setUnreadPmIds({'1', '2'});
+      await tester.pumpAndSettle();
+      expect(repo.pmReads, 1);
+      switch (hiddenBy) {
+        case 'section':
+          await tester.tap(find.text('私信').hitTestable().first);
+        case 'tab':
+          active.value = true;
+        case 'route':
+          expect(find.byKey(routeKey), findsOneWidget);
+          navigator.pop();
+      }
+      await tester.pumpAndSettle();
+      expect(repo.pmReads, 2);
+    });
+  }
+
   testWidgets(
     'loading keeps three skeleton rows aligned with arriving content',
     (tester) async {

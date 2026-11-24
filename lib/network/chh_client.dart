@@ -132,6 +132,16 @@ class ChhClient {
   Future<String> getAjaxHtml(Uri url, {bool refresh = false}) =>
       _getHtml(url, refresh: refresh, ajax: true);
 
+  /// Read a standalone AJAX payload with the current transport cookies, without
+  /// caching it, observing the header or recording response details in GET logs.
+  Future<String?> readAjaxPayload(Uri url) async {
+    final response = await fetchers.first.getHtml(
+      url,
+      headers: {'Referer': ChhUrls.base, 'X-Requested-With': 'XMLHttpRequest'},
+    );
+    return response.status == 200 ? response.body : null;
+  }
+
   Future<String> _getHtml(
     Uri url, {
     bool refresh = false,
@@ -298,7 +308,8 @@ class ChhClient {
           '${f.name} ${AppLog.url(url)} '
               'status=${resp.status} len=${resp.body.length} title=${AppLog.failureReason(resp.titleSummary)}',
         );
-        if (generation == _cacheGeneration &&
+        if (resp.status == 200 &&
+            generation == _cacheGeneration &&
             sequence >= _lastObservedHeaderSequence &&
             htmlObserver?.call(resp.body) == true) {
           _lastObservedHeaderSequence = sequence;

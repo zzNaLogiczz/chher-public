@@ -4,6 +4,23 @@ library;
 import 'package:chh_app/data/space_repository.dart';
 import 'package:chh_app/models/models.dart';
 import 'package:chh_app/network/chh_client.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+/// Lets the real parser isolate finish while keeping route animations on the
+/// widget test clock. The caller still asserts the rendered profile.
+Future<void> settleProfile(WidgetTester tester, Finder ready) async {
+  final deadline = Stopwatch()..start();
+  await tester.pump();
+  while (ready.evaluate().isEmpty &&
+      deadline.elapsed < const Duration(seconds: 5)) {
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 10)),
+    );
+    await tester.pump(const Duration(milliseconds: 16));
+  }
+  expect(ready, findsWidgets);
+  await tester.pumpAndSettle();
+}
 
 class FixtureSpace extends SpaceRepository {
   FixtureSpace() : super(ChhClient(fetchers: []));

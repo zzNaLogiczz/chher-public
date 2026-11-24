@@ -19,6 +19,7 @@ import 'data/poll_repository.dart';
 import 'data/post_interaction_repository.dart';
 import 'data/user_block_index.dart';
 import 'data/space_repository.dart';
+import 'core/accounts.dart';
 import 'core/app_log.dart';
 import 'core/app_paths.dart';
 import 'core/appearance.dart';
@@ -33,7 +34,8 @@ import 'data/favorite_repository.dart';
 import 'data/user_group_levels.dart';
 
 final ChhClient chhClient = ChhClient.createDefault();
-final ChhSession chhSession = ChhSession(chhClient);
+final AccountStore accountStore = AccountStore();
+final ChhSession chhSession = ChhSession(chhClient, accounts: accountStore);
 final AppearanceController appearance = AppearanceController();
 final ReadingPrefsController readingPrefs = ReadingPrefsController();
 final MessageNotifications messageNotifications = MessageNotifications(
@@ -82,10 +84,11 @@ final LinkPreviewRepository linkPreviewRepo = LinkPreviewRepository.live(
 /// 不要用顶层 final 的惰性初始化来做副作用:Dart 只在变量被读取时才初始化它,
 /// 没人读就永远不执行 —— 之前页头观察钩子就是这样从未生效,
 /// 表现为个人中心始终显示「已登录」而不是账号名。
-void setupDependencies() {
+Future<void> setupDependencies() {
   // 进后台时进程随时可能被回收,debounce/周期定时器来不及触发,先把数据落盘
   WidgetsFlutterBinding.ensureInitialized();
   WidgetsBinding.instance.addObserver(_lifecycleFlusher);
+  accountStore.start();
   // 让会话顺带观察每次页面响应,从页头取账号与未读计数,不额外发请求
   chhClient.htmlObserver = chhSession.observeHtml;
   messageNotifications.start();
@@ -104,6 +107,7 @@ void setupDependencies() {
   chhSession.addListener(_favoriteSessionChanged);
   _favoriteStorage = _attachFavoriteIndex();
   _favoriteSessionChanged();
+  return accountStore.recover();
 }
 
 Future<void> _favoriteStorage = Future<void>.value();
@@ -210,13 +214,23 @@ Future<void> _attachGroupLevels() async {
 final _lifecycleFlusher = LifecycleFlusher();
 
 /// Flushes the read ledger and the log when the app leaves the foreground.
-/// Holds no timer of its own; both flushes are no-ops while nothing is attached.
+/// Also snapshots the active account once per trip to the background.
 class LifecycleFlusher with WidgetsBindingObserver {
+  bool _inBackground = false;
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _inBackground = false;
+      unawaited(accountStore.reload());
+    }
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden ||
         state == AppLifecycleState.detached) {
+      if (!_inBackground) {
+        _inBackground = true;
+        unawaited(chhSession.captureCurrent());
+      }
       unawaited(threadReadIndex.flush());
       unawaited(userBlockIndex.flush());
       unawaited(favoriteIndex.flush());

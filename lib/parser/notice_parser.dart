@@ -168,7 +168,7 @@ String? _categoryFromIgnoreLink(dom.Element dl) {
 }
 
 String? _avatarOf(dom.Element dl) {
-  final src = dl.querySelector('dd.avt img')?.attributes['src'];
+  final src = avatarSrcOf(dl.querySelector('dd.avt img'));
   if (src == null || src.isEmpty) return null;
   return ChhUrls.absolutize(src);
 }

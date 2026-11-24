@@ -4,8 +4,11 @@ import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/design/tokens.dart';
 import 'package:chh_app/di.dart';
 import 'package:chh_app/network/chh_fetcher.dart';
+import 'package:chh_app/pages/login_page.dart';
 import 'package:chh_app/pages/me_page.dart';
 import 'package:chh_app/pages/my_threads_page.dart';
+import 'package:chh_app/pages/support_page.dart';
+import 'package:chh_app/pages/user_page.dart';
 import 'package:chh_app/parser/header_parser.dart';
 import 'package:chh_app/ui/grouped.dart';
 import 'package:chh_app/ui/press.dart';
@@ -13,6 +16,7 @@ import 'package:chh_app/widgets/account_widgets.dart';
 import 'package:chh_app/widgets/lacquer_tab_scaffold.dart';
 import 'package:chh_app/ui/chrome_button.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'support/space_fixtures.dart';
 
@@ -398,6 +402,8 @@ void main() {
       expect(find.text(label), findsNothing);
     }
     expect(find.text('登录 CHH').first, findsOneWidget);
+    expect(find.byKey(const ValueKey('me-account-switch')), findsNothing);
+    expect(find.byKey(const ValueKey('me-account-caret')), findsNothing);
     expect(find.text('设置'), findsOneWidget);
     expect(fetcher.requests, isEmpty);
     expect(tester.takeException(), isNull);
@@ -428,6 +434,180 @@ void main() {
     });
   }
 
+  for (final (style, fallback) in [
+    (AppearanceStyle.misty, false),
+    (AppearanceStyle.cinnabar, false),
+    (AppearanceStyle.cinnabar, true),
+  ]) {
+    testWidgets(
+      'identity opens account switcher beside profile $style $fallback',
+      (tester) async {
+        await tester.pumpWidget(
+          _app(
+            style: style,
+            page: fallback ? MeFallbackPage(repository: FixtureSpace()) : null,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final switcher = find.byKey(const ValueKey('me-account-name'));
+        final caret = find.byKey(const ValueKey('me-account-caret'));
+        expect(find.byKey(const ValueKey('me-account-switch')), findsNothing);
+        expect(
+          tester.getSize(switcher).height,
+          greaterThanOrEqualTo(MeTokens.actionTarget),
+        );
+        expect(tester.getSize(caret), const Size.square(20));
+        await tester.tap(
+          find.descendant(of: switcher, matching: find.text('测试账号')),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text('添加账号'), findsOneWidget);
+        expect(find.byType(UserPage), findsNothing);
+        Navigator.of(tester.element(find.text('添加账号'))).pop();
+        await tester.pumpAndSettle();
+
+        final identity = fallback
+            ? find.byType(AccountIdentityRow)
+            : find.byKey(const ValueKey('me-identity-row'));
+        await tester.tap(
+          find.descendant(of: identity, matching: find.byType(AccountAvatar)),
+        );
+        // Check the route without waiting for its background profile parser.
+        await tester.pump();
+        await tester.pump(const Duration(seconds: 1));
+        expect(find.byType(UserPage), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'long account name keeps caret and shows only other-account unread $style $fallback',
+      (tester) async {
+        const channel = MethodChannel('chh/accounts');
+        final messenger = tester.binding.defaultBinaryMessenger;
+        String? storedUid = '100001';
+        var otherUnread = 0;
+        Map<String, Object> account(String uid, int notices, int messages) => {
+          'uid': uid,
+          'name': uid,
+          'state': 'ok',
+          'checkedAt': 0,
+          'notices': notices,
+          'messages': messages,
+          'lastUsedAt': 0,
+        };
+        messenger.setMockMethodCallHandler(
+          channel,
+          (_) async => {
+            'currentUid': storedUid,
+            'max': 5,
+            'accounts': storedUid == null
+                ? []
+                : [account('100001', 4, 5), account('100002', 0, otherUnread)],
+          },
+        );
+        addTearDown(() async {
+          storedUid = null;
+          await accountStore.reload();
+          messenger.setMockMethodCallHandler(channel, null);
+        });
+
+        const name = '这是一段在窄屏上装不下并且需要省略的账号显示名称';
+        chhSession.badges = const HeaderBadges(
+          uid: '100001',
+          userName: name,
+          notices: 0,
+          messages: 0,
+        );
+        await accountStore.reload();
+        await tester.binding.setSurfaceSize(const Size(320, 844));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        final semantics = tester.ensureSemantics();
+        try {
+          await tester.pumpWidget(
+            _app(
+              style: style,
+              page: fallback
+                  ? MeFallbackPage(repository: FixtureSpace())
+                  : null,
+            ),
+          );
+          await tester.pumpAndSettle();
+          final switcher = find.byKey(const ValueKey('me-account-name'));
+          final caret = find.byKey(const ValueKey('me-account-caret'));
+          final label = find.descendant(
+            of: switcher,
+            matching: find.text(name),
+          );
+          final dot = find.descendant(
+            of: caret,
+            matching: find.byKey(DotBadge.surfaceKey),
+          );
+          expect(tester.widget<Text>(label).overflow, TextOverflow.ellipsis);
+          expect(
+            tester.getRect(caret).right,
+            lessThanOrEqualTo(tester.getRect(switcher).right),
+          );
+          expect(tester.getSize(caret), const Size.square(20));
+          expect(dot, findsNothing);
+          expect(find.bySemanticsLabel('切换账号，当前 $name'), findsOneWidget);
+
+          otherUnread = 1;
+          await accountStore.reload();
+          await tester.pumpAndSettle();
+          expect(dot, findsOneWidget);
+          expect(
+            find.bySemanticsLabel('切换账号，当前 $name，其他账号有新消息'),
+            findsOneWidget,
+          );
+          expect(tester.takeException(), isNull);
+        } finally {
+          semantics.dispose();
+        }
+      },
+    );
+
+    testWidgets('expired identity opens relogin for its UID $style $fallback', (
+      tester,
+    ) async {
+      const channel = MethodChannel('chh/accounts');
+      final messenger = tester.binding.defaultBinaryMessenger;
+      String? reloginUid;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        if (call.method == 'beginLogin') {
+          reloginUid = (call.arguments as Map)['uid'] as String?;
+          throw PlatformException(code: 'fixture');
+        }
+        return null;
+      });
+      addTearDown(() {
+        messenger.setMockMethodCallHandler(channel, null);
+        chhSession.observeHtml(
+          '<div id="um"><strong class="vwmy">'
+          '<a href="space-uid-100001.html">测试账号</a></strong></div>',
+        );
+      });
+
+      await tester.pumpWidget(
+        _app(
+          style: style,
+          page: fallback ? MeFallbackPage(repository: FixtureSpace()) : null,
+        ),
+      );
+      await tester.pumpAndSettle();
+      chhSession.observeHtml(
+        '<html><body><div id="hd"></div><form id="lsform"></form></body></html>',
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('登录已失效'), findsOneWidget);
+      expect(find.text('主页'), findsNothing);
+      await tester.tap(find.text('重新登录'));
+      await tester.pumpAndSettle();
+      expect(find.byType(LoginPage), findsOneWidget);
+      expect(reloginUid, '100001');
+    });
+  }
+
   testWidgets('misty guest keeps login identity without entries', (
     tester,
   ) async {
@@ -439,6 +619,8 @@ void main() {
     expect(find.text('未登录'), findsWidgets);
     expect(find.text('登录 CHH'), findsNothing);
     expect(find.text('登录'), findsOneWidget);
+    expect(find.byKey(const ValueKey('me-account-switch')), findsNothing);
+    expect(find.byKey(const ValueKey('me-account-caret')), findsNothing);
     for (final label in _labels) {
       expect(find.text(label), findsNothing);
     }
@@ -462,7 +644,7 @@ void main() {
           of: find.byKey(const ValueKey('me-tools')),
           matching: find.byType(IconTile),
         ),
-        findsNWidgets(2),
+        findsNWidgets(3),
       );
       expect(find.byType(Divider), findsNothing);
       final dot = find.descendant(
@@ -475,6 +657,29 @@ void main() {
       );
       expect(tester.getCenter(dot).dx, lessThan(tester.getCenter(arrow).dx));
       expect(find.text('Chhers'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('$style opens 支持开发 below settings without a badge', (
+      tester,
+    ) async {
+      await tester.pumpWidget(_app(style: style, reduced: true));
+      await tester.pumpAndSettle();
+      final support = find.widgetWithText(GroupedRow, '支持开发');
+      await tester.scrollUntilVisible(support, 100);
+      await tester.pumpAndSettle();
+      final settings = find.byKey(const ValueKey('me-settings'));
+      final row = tester.widget<GroupedRow>(support);
+      expect(
+        tester.getTopLeft(support).dy,
+        closeTo(tester.getBottomLeft(settings).dy, .01),
+      );
+      expect((row.leading! as IconTile).icon, AppIcons.supportBold);
+      expect(row.dot, isFalse);
+      await tester.tap(support);
+      await tester.pumpAndSettle();
+      expect(find.byType(SupportPage), findsOneWidget);
+      expect(fetcher.requests, isEmpty);
       expect(tester.takeException(), isNull);
     });
   }

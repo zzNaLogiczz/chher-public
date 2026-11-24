@@ -231,7 +231,8 @@ class DotBadge extends StatelessWidget {
   static const surfaceKey = ValueKey('dot-badge-surface');
   static const double size = 8;
   final bool visible;
-  const DotBadge({super.key, required this.visible});
+  final Color? ringColor;
+  const DotBadge({super.key, required this.visible, this.ringColor});
 
   @override
   Widget build(BuildContext context) => BadgeAppearance(
@@ -240,7 +241,15 @@ class DotBadge extends StatelessWidget {
       key: surfaceKey,
       decoration: ShapeDecoration(
         color: AppTokens.of(context).red,
-        shape: const CircleBorder(),
+        shape: CircleBorder(
+          side: ringColor == null
+              ? BorderSide.none
+              : BorderSide(
+                  color: ringColor!,
+                  width: 1.5,
+                  strokeAlign: BorderSide.strokeAlignOutside,
+                ),
+        ),
       ),
       child: const SizedBox.square(dimension: size),
     ),

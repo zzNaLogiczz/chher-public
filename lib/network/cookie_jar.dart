@@ -7,13 +7,17 @@ library;
 
 class CookieJar {
   final Map<String, String> _cookies = {};
+  // Responses sent before clear() cannot repopulate a different session.
+  int _generation = 0;
+  int get generation => _generation;
 
   Map<String, String> get all => Map.unmodifiable(_cookies);
 
   bool get isEmpty => _cookies.isEmpty;
 
   /// 收下响应里的 Set-Cookie
-  void absorb(Iterable<String> setCookieHeaders) {
+  void absorb(Iterable<String> setCookieHeaders, {int? generation}) {
+    if (generation != null && generation != _generation) return;
     for (final raw in setCookieHeaders) {
       final c = parseSetCookie(raw);
       if (c == null) continue;
@@ -32,7 +36,10 @@ class CookieJar {
     });
   }
 
-  void clear() => _cookies.clear();
+  void clear() {
+    _generation++;
+    _cookies.clear();
+  }
 
   /// 组装成请求头形态
   String? header() {

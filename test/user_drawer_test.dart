@@ -166,7 +166,7 @@ void main() {
       }
       expect(tester.widget<PressScale>(entry).semanticLabel, '查看作者4的主页');
       await tester.tap(entry);
-      await tester.pumpAndSettle();
+      await settleProfile(tester, find.text('离线用户主页'));
       expect(find.byType(UserDrawer), findsOneWidget);
       expect(find.byType(UserProfileBody), findsOneWidget);
       expect(find.text('离线用户主页'), findsNWidgets(2));
@@ -267,7 +267,7 @@ void main() {
       final height = tester.getSize(linked).height;
       for (var i = 0; i < 2; i++) {
         await tester.tap(links.at(i));
-        await tester.pumpAndSettle();
+        await settleProfile(tester, find.text('离线用户主页'));
         expect(tester.widget<UserDrawer>(find.byType(UserDrawer)).uid, '4');
         await tester.tap(
           find.byWidgetPredicate(

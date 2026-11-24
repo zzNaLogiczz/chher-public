@@ -14,16 +14,39 @@ String header(int notices, int messages, {String uid = '1001'}) =>
 
 class Fetcher extends ChhFetcher {
   int calls = 0;
+  final requests = <Uri>[];
+  Map<String, String>? pmHeaders;
+  ChhResponse pmResponse = const ChhResponse(503, '');
+  Completer<ChhResponse>? pendingPm;
   Completer<ChhResponse>? pending;
   String html = header(2, 1);
   @override
   String get name => 'local';
   @override
   Future<ChhResponse> getHtml(Uri url, {Map<String, String>? headers}) async {
+    requests.add(url);
+    if (url.queryParameters['op'] == 'getpmuser') {
+      pmHeaders = headers;
+      return pendingPm?.future ?? pmResponse;
+    }
     calls++;
     return pending == null ? ChhResponse(200, html) : pending!.future;
   }
 }
+
+ChhResponse pmResponse(List<int> ids) {
+  final rows = ids
+      .map(
+        (id) =>
+            "$id:{'uid':$id, 'username':'fixture', 'avatar':'/a', "
+            "'plid':$id, 'isnew':3, 'daterange':1}",
+      )
+      .join(',');
+  return ChhResponse(200, "<root><![CDATA[{'userdata':{$rows}}]]></root>");
+}
+
+String promptHeader() =>
+    header(2, 0).replaceFirst('私信(0)', '<em class="prompt_news"></em>私信');
 
 Future<void> settle() async {
   for (var i = 0; i < 10; i++) {
@@ -55,7 +78,6 @@ void main() {
     messenger.setMockMethodCallHandler(channel, (call) async {
       calls.add(call);
       if (call.method == 'requestPermission') return true;
-      if (call.method == 'takeLaunch') return false;
       return null;
     });
   });
@@ -72,7 +94,12 @@ void main() {
       await settle();
       expect(calls.where((c) => c.method == 'requestPermission'), isNotEmpty);
       final show = calls.lastWhere((c) => c.method == 'show');
-      expect(show.arguments, {'uid': '1001', 'notices': 2, 'messages': 1});
+      expect(show.arguments, {
+        'uid': '1001',
+        'notices': 2,
+        'messages': 1,
+        'pmHasCount': false,
+      });
       final uri = Uri.parse('https://www.chiphell.com/fixture');
       await client.getHtml(uri); // cache 2/1
       session.observeHtml(header(0, 0));
@@ -82,6 +109,108 @@ void main() {
       expect(calls.where((c) => c.method == 'show'), isEmpty);
     },
   );
+
+  test(
+    'checks the header before PM and publishes exact and fallback counts',
+    () async {
+      fetcher.html = promptHeader();
+      fetcher.pmResponse = pmResponse([11, 22, 33]);
+      notifications.start();
+      await settle();
+      expect(fetcher.requests.map((uri) => uri.path), [
+        '/forum.php',
+        '/home.php',
+      ]);
+      expect(fetcher.requests.last.queryParameters, {
+        'mod': 'spacecp',
+        'ac': 'pm',
+        'op': 'getpmuser',
+        'inajax': '1',
+      });
+      expect(fetcher.pmHeaders?['X-Requested-With'], 'XMLHttpRequest');
+      expect(session.badges.messages, 3);
+      expect(session.badges.total, 5);
+      expect(calls.lastWhere((c) => c.method == 'show').arguments, {
+        'uid': '1001',
+        'notices': 2,
+        'messages': 3,
+        'pmHasCount': true,
+      });
+
+      session.markPmRead('22');
+      expect(session.badges.messages, 2);
+
+      fetcher.pmResponse = pmResponse([]);
+      await notifications.check();
+      expect(session.badges.messages, 0); // Known zero takes precedence.
+
+      final revision = client.freshHeaderRevision;
+      fetcher.pmResponse = const ChhResponse(
+        200,
+        '<html><body><div id="hd"><form id="lsform"></form></div></body></html>',
+      );
+      await notifications.check();
+      expect(client.freshHeaderRevision, revision + 1);
+      expect(session.currentExpired, isFalse);
+      expect(session.badges.messages, 1);
+      expect(calls.lastWhere((c) => c.method == 'show').arguments, {
+        'uid': '1001',
+        'notices': 2,
+        'messages': 1,
+        'pmHasCount': false,
+      });
+    },
+  );
+
+  testWidgets(
+    'browsing retries a positive header at most once per 30 seconds',
+    (tester) async {
+      notifications.dispose();
+      session.dispose();
+      client = ChhClient(fetchers: [fetcher], now: tester.binding.clock.now);
+      session = ChhSession(client)..loggedIn = true;
+      client.htmlObserver = session.observeHtml;
+      notifications = MessageNotifications(
+        session,
+        interval: const Duration(hours: 1),
+      )..start();
+      await tester.pump();
+      int pmReads() => fetcher.requests
+          .where((uri) => uri.queryParameters['op'] == 'getpmuser')
+          .length;
+      expect(pmReads(), 1);
+      fetcher.html = promptHeader();
+      final browse = Uri.parse('https://www.chiphell.com/browse');
+      await tester.pump(const Duration(seconds: 29));
+      await client.getHtml(browse, refresh: true);
+      expect(pmReads(), 1);
+      await tester.pump(const Duration(seconds: 1));
+      fetcher.pmResponse = pmResponse([11, 22]);
+      await client.getHtml(browse, refresh: true);
+      await tester.pump();
+      expect(pmReads(), 2);
+      expect(session.badges.messages, 2);
+      await tester.pump(const Duration(seconds: 30));
+      await client.getHtml(browse, refresh: true);
+      expect(pmReads(), 2); // Known positive counts do not trigger supplements.
+      notifications.didChangeAppLifecycleState(AppLifecycleState.paused);
+    },
+  );
+
+  test('an in-flight check cannot undo a locally read conversation', () async {
+    fetcher.pmResponse = pmResponse([11]);
+    notifications.start();
+    await settle();
+    expect(session.badges.messages, 1);
+
+    fetcher.pendingPm = Completer<ChhResponse>();
+    final check = notifications.check();
+    await settle();
+    session.markPmRead('11');
+    fetcher.pendingPm!.complete(pmResponse([11]));
+    await check;
+    expect(session.badges.messages, 0);
+  });
 
   testWidgets(
     'foreground checks do not wait for permission and repeat every 15s',
@@ -180,6 +309,51 @@ void main() {
       notifications.didChangeAppLifecycleState(AppLifecycleState.paused);
     },
   );
+
+  testWidgets('expired guest headers back off until the member header returns', (
+    tester,
+  ) async {
+    notifications.dispose();
+    session.dispose();
+    client = ChhClient(fetchers: [fetcher], now: tester.binding.clock.now);
+    session = ChhSession(client)..loggedIn = true;
+    client.htmlObserver = session.observeHtml;
+    notifications = MessageNotifications(session)..start();
+    await tester.pump();
+
+    fetcher.html =
+        '<html><body><div id="hd"><form id="lsform"></form></div></body></html>';
+    final memberRevision = client.freshHeaderRevision;
+    final beforeExpiry = fetcher.calls;
+    await tester.pump(const Duration(seconds: 15));
+    expect(fetcher.calls, beforeExpiry + 1);
+    expect(session.currentExpired, isTrue);
+    expect(client.freshHeaderRevision, greaterThan(memberRevision));
+
+    for (final seconds in [30, 60, 120, 240, 300, 300]) {
+      final before = fetcher.calls;
+      await tester.pump(Duration(seconds: seconds - 1));
+      expect(fetcher.calls, before);
+      // A guest page from another read still advances the watermark.
+      await client.getHtml(
+        Uri.parse('https://www.chiphell.com/guest'),
+        refresh: true,
+      );
+      expect(fetcher.calls, before + 1);
+      await tester.pump(const Duration(seconds: 1));
+      expect(fetcher.calls, before + 2);
+    }
+
+    fetcher.html = header(1, 0);
+    await client.getHtml(Uri.parse('https://www.chiphell.com/recovered'));
+    expect(session.currentExpired, isFalse);
+    final afterRecovery = fetcher.calls;
+    await tester.pump(const Duration(seconds: 14));
+    expect(fetcher.calls, afterRecovery);
+    await tester.pump(const Duration(seconds: 1));
+    expect(fetcher.calls, afterRecovery + 1);
+    notifications.didChangeAppLifecycleState(AppLifecycleState.paused);
+  });
 
   testWidgets('clock rollback cannot keep a future-dated header fresh', (
     tester,
@@ -335,26 +509,36 @@ void main() {
     },
   );
 
-  test(
-    'notification launch and hot taps request the messages destination',
-    () async {
-      messenger.setMockMethodCallHandler(
-        channel,
-        (call) async => call.method == 'takeLaunch',
-      );
-      notifications.start();
-      await settle();
-      expect(notifications.openRequests.value, 1);
-      final done = Completer<void>();
-      messenger.handlePlatformMessage(
-        channel.name,
-        const StandardMethodCodec().encodeMethodCall(
-          const MethodCall('openMessages'),
-        ),
-        (_) => done.complete(),
-      );
-      await done.future;
-      expect(notifications.openRequests.value, 2);
-    },
-  );
+  test('notification launch and hot taps carry action and account', () async {
+    messenger.setMockMethodCallHandler(
+      channel,
+      (call) async => call.method == 'takeLaunch'
+          ? {'action': 'messages', 'uid': '1001'}
+          : null,
+    );
+    notifications.start();
+    await settle();
+    expect(
+      notifications.openRequests.value?.action,
+      NotificationAction.messages,
+    );
+    expect(notifications.openRequests.value?.uid, '1001');
+    final done = Completer<void>();
+    messenger.handlePlatformMessage(
+      channel.name,
+      const StandardMethodCodec().encodeMethodCall(
+        const MethodCall('openNotification', {
+          'action': 'relogin',
+          'uid': '1002',
+        }),
+      ),
+      (_) => done.complete(),
+    );
+    await done.future;
+    expect(
+      notifications.openRequests.value?.action,
+      NotificationAction.relogin,
+    );
+    expect(notifications.openRequests.value?.uid, '1002');
+  });
 }

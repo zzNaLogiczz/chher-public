@@ -28,6 +28,7 @@ enum AppDestination {
 class AppBottomNavigation extends StatelessWidget {
   final AppDestination current;
   final ValueChanged<AppDestination> onNavigate;
+  final VoidCallback? onMeLongPress;
 
   /// "消息"图标上的未读数,0 时不显示
   final int messagesBadge;
@@ -38,6 +39,7 @@ class AppBottomNavigation extends StatelessWidget {
     super.key,
     required this.current,
     required this.onNavigate,
+    this.onMeLongPress,
     this.messagesBadge = 0,
     this.meDot = false,
   });
@@ -94,6 +96,13 @@ class AppBottomNavigation extends StatelessWidget {
                             selected: i == index,
                             child: PressScale(
                               onTap: () => onNavigate(destinations[i]),
+                              onLongPress: destinations[i] == AppDestination.me
+                                  ? onMeLongPress
+                                  : null,
+                              longPressDuration:
+                                  destinations[i] == AppDestination.me
+                                  ? AppMotion.longPress
+                                  : null,
                               semanticLabel: destinations[i].label,
                               scale: AppPressScale.control,
                               child: SizedBox(

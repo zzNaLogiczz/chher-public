@@ -1,7 +1,7 @@
 /// 页头未读计数单测
 ///
 /// 关键约束(PAGE_SPEC §6.1):`.a` 类不能当未读状态,无未读时页头同样带 showmenu。
-/// 所以只认数字;取不到数字就是没有未读,宁可不显示也不编造。
+/// 私信另外识别 Discuz 用来表示有新私信的独立 prompt_news 类。
 library;
 
 import 'package:flutter_test/flutter_test.dart';
@@ -43,6 +43,24 @@ void main() {
       _page('<div id="um"><a id="myprompt">提醒(7)</a></div>'),
     )!;
     expect(b.notices, 7);
+  });
+
+  test('私信先识别确切的类名，再回退到文案数字', () {
+    HeaderBadges parse(String css) => parseHeaderBadges(
+      _page('''
+<div id="um">
+  <a id="myprompt"><em class="prompt_news"></em>提醒(3)</a>
+</div>
+<a id="pm_ntc"><em class="other $css"></em>私信(7)</a>'''),
+    )!;
+
+    expect(parse('prompt_news').messages, 1);
+    expect(parse('prompt_news').pmPrompt, isTrue);
+    expect(parse('prompt_news_0').messages, 0);
+    expect(parse('prompt_news_2').messages, 2);
+    expect(parse('prompt_news_2').pmPrompt, isFalse);
+    expect(parse('xprompt_news prompt_news_2suffix').messages, 7);
+    expect(parse('prompt_news').notices, 3);
   });
 
   test('缺少某一侧入口时该侧计为 0', () {

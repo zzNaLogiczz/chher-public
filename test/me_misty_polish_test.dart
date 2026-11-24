@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:chh_app/data/space_repository.dart';
+import 'package:chh_app/design/motion.dart';
 import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/design/tokens.dart';
 import 'package:chh_app/di.dart';
@@ -30,7 +31,7 @@ UserProfile _profile(String uid, {int? replies = 377, int? gid}) => UserProfile(
 );
 
 class _Profiles extends SpaceRepository {
-  _Profiles() : super(ChhClient(fetchers: []));
+  _Profiles(DateTime Function() now) : super(ChhClient(fetchers: [], now: now));
   final requests = <(String, bool)>[];
   Future<UserProfile> Function(String)? respond;
   @override
@@ -38,6 +39,34 @@ class _Profiles extends SpaceRepository {
     requests.add((uid, refresh));
     return respond?.call(uid) ?? Future.value(_profile(uid));
   }
+}
+
+class _TrackedSpace extends SpaceRepository {
+  _TrackedSpace(super.client);
+  late Future<UserProfile> pending;
+
+  @override
+  Future<UserProfile> profile(String uid, {bool refresh = false}) =>
+      pending = super.profile(uid, refresh: refresh);
+}
+
+TransitionRoute<void> _cover({required bool popup}) {
+  const cover = Scaffold(body: Text('本地覆盖页'));
+  if (popup) {
+    return RawDialogRoute<void>(
+      pageBuilder: (_, _, _) => cover,
+      transitionDuration: const Duration(milliseconds: 300),
+    );
+  }
+  return _SlowCoverRoute();
+}
+
+class _SlowCoverRoute extends MaterialPageRoute<void> {
+  _SlowCoverRoute()
+    : super(builder: (_) => const Scaffold(body: Text('本地覆盖页')));
+
+  @override
+  Duration get reverseTransitionDuration => const Duration(milliseconds: 800);
 }
 
 class _Headers extends ChhFetcher {
@@ -97,12 +126,14 @@ final _placeholder = find.byKey(const ValueKey('me-stats-placeholder'));
 void main() {
   late _Profiles profiles;
   late _Headers headers;
+  late DateTime now;
   setUp(() {
     final oldBadges = chhSession.badges;
     final oldLogged = chhSession.loggedIn;
     final oldFetchers = List<ChhFetcher>.of(chhClient.fetchers);
     final oldObserver = chhClient.htmlObserver;
-    profiles = _Profiles();
+    now = DateTime.utc(2026, 11, 23);
+    profiles = _Profiles(() => now);
     headers = _Headers();
     _testProfiles = profiles;
     chhClient.fetchers
@@ -195,12 +226,14 @@ void main() {
       expect(headers.calls, 0);
       expect(tester.binding.transientCallbackCount, 0);
       await tester.tap(find.text('3139'));
-      await tester.pumpAndSettle();
+      // Only the route target matters here. Its profile parses on a real isolate.
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
       expect(find.byType(UserPage), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('misty B guest login and two tools $brightness', (
+    testWidgets('misty B guest login and three tools $brightness', (
       tester,
     ) async {
       _session(uid: null, logged: false);
@@ -213,9 +246,10 @@ void main() {
       expect(find.text('登录'), findsOneWidget);
       expect(find.text('登录 CHH'), findsNothing);
       expect(find.byType(LacEntryStrip), findsNothing);
-      expect(find.byType(GroupedRow), findsNWidgets(2));
+      expect(find.byType(GroupedRow), findsNWidgets(3));
       expect(find.text('黑名单'), findsOneWidget);
       expect(find.text('设置'), findsOneWidget);
+      expect(find.text('支持开发'), findsOneWidget);
       expect(_stats, findsNothing);
       expect(_placeholder, findsNothing);
       expect(profiles.requests, isEmpty);
@@ -386,8 +420,10 @@ void main() {
       await tester.pumpWidget(view(false));
       final pending = Completer<UserProfile>();
       profiles.respond = (_) => pending.future;
+      now = now.add(const Duration(seconds: 60));
       await tester.pumpWidget(view(true));
       expect(find.text('3139'), findsOneWidget);
+      expect(profiles.requests, [('42', false), ('42', true)]);
       pending.complete(
         const UserProfile(
           uid: '42',
@@ -402,7 +438,9 @@ void main() {
       await tester.pumpWidget(view(false));
       profiles.respond = (_) => Completer<UserProfile>().future;
       await tester.pumpWidget(view(true));
+      await tester.pumpAndSettle();
       expect(find.text('9999'), findsOneWidget);
+      expect(profiles.requests, [('42', false), ('42', true)]);
     },
   );
 
@@ -419,6 +457,166 @@ void main() {
     expect(_placeholder, findsNothing);
   });
 
+  for (final popup in [false, true]) {
+    testWidgets('Me stays built and throttles re-entry with popup=$popup', (
+      tester,
+    ) async {
+      await tester.pumpWidget(_app());
+      await tester.pumpAndSettle();
+      final navigator = Navigator.of(tester.element(find.byType(MePage)));
+      final body = find.byType(LacquerTabScaffold, skipOffstage: false);
+      final original = tester.widget(body);
+      void expectUnchanged() => expect(tester.widget(body), same(original));
+
+      now = now.add(const Duration(seconds: 59));
+      unawaited(navigator.push(_cover(popup: popup)));
+      await tester.pump();
+      expectUnchanged();
+      await tester.pumpAndSettle();
+      expectUnchanged();
+      navigator.pop();
+      await tester.pump();
+      expectUnchanged();
+      await tester.pumpAndSettle();
+      await tester.pump(AppMotion.sheetDuration);
+      expectUnchanged();
+      expect(profiles.requests, [('42', false)]);
+
+      final cover = _cover(popup: popup);
+      unawaited(navigator.push(cover));
+      await tester.pumpAndSettle();
+      now = now.add(const Duration(seconds: 1));
+      final exitStatusAtRequest = <AnimationStatus?>[];
+      profiles.respond = (uid) async {
+        exitStatusAtRequest.add(cover.animation?.status);
+        return _profile(uid);
+      };
+      navigator.pop();
+      await tester.pump();
+      await tester.pump(
+        popup ? const Duration(milliseconds: 200) : AppMotion.sheetDuration,
+      );
+      expect(cover.animation?.status, AnimationStatus.reverse);
+      expectUnchanged();
+      expect(profiles.requests, [('42', false)]);
+      await tester.pumpAndSettle();
+      await tester.pump(AppMotion.sheetDuration);
+      await tester.pumpAndSettle();
+      expect(profiles.requests, [('42', false), ('42', true)]);
+      expect(exitStatusAtRequest, [AnimationStatus.dismissed]);
+    });
+  }
+
+  testWidgets('an expired popup refresh is cancelled when covered again', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_app());
+    await tester.pumpAndSettle();
+    final navigator = Navigator.of(tester.element(find.byType(MePage)));
+    now = now.add(const Duration(seconds: 60));
+    unawaited(navigator.push(_cover(popup: true)));
+    await tester.pumpAndSettle();
+    navigator.pop();
+    await tester.pump();
+    final halfway = AppMotion.sheetDuration ~/ 2;
+    await tester.pump(halfway);
+    unawaited(navigator.push(_cover(popup: true)));
+    await tester.pumpAndSettle();
+    await tester.pump(AppMotion.sheetDuration);
+    expect(profiles.requests, [('42', false)]);
+    navigator.pop();
+    await tester.pump();
+    await tester.pump(AppMotion.sheetDuration);
+    await tester.pumpAndSettle();
+    expect(profiles.requests, [('42', false), ('42', true)]);
+  });
+
+  testWidgets('tab activation during popup exit waits for the exit', (
+    tester,
+  ) async {
+    final active = ValueNotifier(true);
+    addTearDown(active.dispose);
+    await tester.pumpWidget(
+      _app(
+        page: ValueListenableBuilder<bool>(
+          valueListenable: active,
+          builder: (_, enabled, child) =>
+              TickerMode(enabled: enabled, child: child!),
+          child: MePage(repository: profiles),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final navigator = Navigator.of(tester.element(find.byType(MePage)));
+    now = now.add(const Duration(seconds: 60));
+    active.value = false;
+    unawaited(navigator.push(_cover(popup: true)));
+    await tester.pumpAndSettle();
+    navigator.pop();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    active.value = true;
+    await tester.pump();
+    expect(profiles.requests, [('42', false)]);
+    await tester.pump(AppMotion.sheetDuration);
+    await tester.pumpAndSettle();
+    expect(profiles.requests, [('42', false), ('42', true)]);
+  });
+
+  testWidgets('only a successful profile refresh restarts the cooldown', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_app());
+    await tester.pumpAndSettle();
+    final navigator = Navigator.of(tester.element(find.byType(MePage)));
+    Future<void> reenter() async {
+      unawaited(navigator.push(_cover(popup: true)));
+      await tester.pumpAndSettle();
+      navigator.pop();
+      await tester.pump();
+      await tester.pump(AppMotion.sheetDuration);
+      await tester.pumpAndSettle();
+    }
+
+    now = now.add(const Duration(seconds: 60));
+    profiles.respond = (_) async => throw StateError('offline');
+    await reenter();
+    expect(profiles.requests, [('42', false), ('42', true)]);
+    profiles.respond = (uid) async => _profile(uid);
+    await reenter();
+    expect(profiles.requests, [('42', false), ('42', true), ('42', true)]);
+    await reenter();
+    expect(profiles.requests, hasLength(3));
+  });
+
+  testWidgets('account switch and disposal cancel deferred popup refreshes', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_app());
+    await tester.pumpAndSettle();
+    final navigator = Navigator.of(tester.element(find.byType(MePage)));
+    Future<void> popAfterSuccessExpires() async {
+      now = now.add(const Duration(seconds: 60));
+      unawaited(navigator.push(_cover(popup: true)));
+      await tester.pumpAndSettle();
+      navigator.pop();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+
+    await popAfterSuccessExpires();
+    _session(uid: '43');
+    expect(profiles.requests, [('42', false), ('43', true)]);
+    await tester.pumpAndSettle();
+    await tester.pump(AppMotion.sheetDuration);
+    expect(profiles.requests, [('42', false), ('43', true)]);
+
+    await popAfterSuccessExpires();
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(AppMotion.sheetDuration);
+    expect(profiles.requests, [('42', false), ('43', true)]);
+  });
+
   testWidgets('account replacement and logout discard late profile responses', (
     tester,
   ) async {
@@ -427,6 +625,7 @@ void main() {
     profiles.respond = (uid) => uid == '42' ? old.future : next.future;
     await tester.pumpWidget(_app());
     _session(uid: '43');
+    expect(profiles.requests, [('42', false), ('43', true)]);
     await tester.pump();
     expect(find.text('UID 42'), findsNothing);
     expect(find.text('UID 43'), findsOneWidget);
@@ -515,7 +714,11 @@ void main() {
           final row = find.byWidgetPredicate(
             (w) => w is PressHighlight && w.semanticLabel == label,
           );
-          await tester.ensureVisible(row);
+          await tester.scrollUntilVisible(
+            row,
+            180,
+            scrollable: find.byType(Scrollable).first,
+          );
           await tester.pumpAndSettle();
           expect(tester.getSize(row).height, 52);
         }
@@ -550,19 +753,26 @@ void main() {
       <ul><li><em>统计信息</em><a>主题数 31</a><a>回帖数 377</a></li></ul>
       <div><h2>活跃概况</h2><ul><li><em>用户组</em><a>测试用户组</a></li></ul></div>
       <ul id="psts"><li><em>积分</em>3139</li></ul></div></div>''';
-      final repository = SpaceRepository(chhClient);
+      final repository = _TrackedSpace(chhClient);
       Widget app() => _app(page: MePage(repository: repository));
-      await tester.pumpWidget(app());
-      await tester.pumpAndSettle();
+      Future<void> mount() async {
+        await tester.runAsync(() async {
+          await tester.pumpWidget(app());
+          await repository.pending;
+        });
+        await tester.pumpAndSettle();
+      }
+
+      await mount();
       expect(find.text('3139'), findsOneWidget);
       expect(headers.calls, 1);
       await tester.pumpWidget(_app(page: const SizedBox()));
-      await tester.pumpWidget(app());
-      await tester.pumpAndSettle();
+      await mount();
       expect(headers.calls, 2);
-      await tester
+      final refresh = tester
           .widget<LacquerTabScaffold>(find.byType(LacquerTabScaffold))
-          .onRefresh!();
+          .onRefresh!;
+      await tester.runAsync(refresh);
       await tester.pumpAndSettle();
       expect(headers.calls, 4);
       expect(_stats, findsOneWidget);

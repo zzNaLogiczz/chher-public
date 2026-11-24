@@ -1,7 +1,47 @@
 import 'package:chh_app/core/chh_urls.dart';
+import 'package:chh_app/data/space_repository.dart';
 import 'package:chh_app/models/models.dart';
+import 'package:chh_app/network/chh_client.dart';
+import 'package:chh_app/network/chh_fetcher.dart';
 import 'package:chh_app/parser/space_parser.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+class _ProfileFetcher extends ChhFetcher {
+  _ProfileFetcher(this.html);
+
+  String html;
+  final urls = <Uri>[];
+
+  @override
+  String get name => 'local-profile-fixture';
+
+  @override
+  Future<ChhResponse> getHtml(Uri url, {Map<String, String>? headers}) async {
+    urls.add(url);
+    return ChhResponse(200, html);
+  }
+}
+
+List<Object?> _profileFields(UserProfile p) => [
+  p.uid,
+  p.name,
+  p.avatarUrl,
+  p.group,
+  p.groupId,
+  p.nextLevelCredits,
+  p.onlineHours,
+  p.credits,
+  p.evil,
+  p.threads,
+  p.replies,
+  p.friends,
+  p.registeredAt,
+  p.lastVisitAt,
+  p.lastPostAt,
+  p.portalArticles,
+  p.profile,
+  p.stats,
+];
 
 // 以下个人资料日期与统计均为虚构，仅用于测试，不来自真实账号。
 String _profileHtml({
@@ -52,6 +92,29 @@ void _expectNoActivity(UserProfile profile) {
 }
 
 void main() {
+  test('repository isolate preserves profile fields and page errors', () async {
+    const uid = '900001';
+    final html = _profileHtml()
+        .replaceFirst('<body>', '<body><div id="ct">')
+        .replaceFirst('</body>', '</div></body>');
+    final fetcher = _ProfileFetcher(html);
+    final repository = SpaceRepository(ChhClient(fetchers: [fetcher]));
+    final expected = parseUserProfile(html, uid: uid);
+    final profile = await repository.profile(uid);
+    expect(_profileFields(profile), _profileFields(expected));
+
+    fetcher.html = '<div id="messagetext"><p>请先登录</p></div>';
+    await expectLater(
+      repository.profile(uid, refresh: true),
+      throwsA(
+        isA<PageMessage>()
+            .having((e) => e.kind, 'kind', PageMessageKind.loginRequired)
+            .having((e) => e.text, 'text', '请先登录'),
+      ),
+    );
+    expect(fetcher.urls, [ChhUrls.userSpace(uid), ChhUrls.userSpace(uid)]);
+  });
+
   group('用户组门槛解析', () {
     test('目标组名与首个积分下限', () {
       final level = parseUserGroupLevel('''<ul id="tba" class="tb c2">

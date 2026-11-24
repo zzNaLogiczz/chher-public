@@ -4,10 +4,16 @@ library;
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
+import '../core/accounts.dart';
+import '../core/app_log.dart';
+import '../core/message_notifications.dart';
 import '../di.dart';
 import '../design/tokens.dart';
-import '../core/app_log.dart';
+import '../network/chh_session.dart';
+import '../ui/feedback.dart';
+import '../widgets/account_switcher_sheet.dart';
 import '../widgets/app_shell.dart';
 import '../widgets/lacquer_tab_scaffold.dart';
 import '../widgets/launch_splash.dart';
@@ -16,6 +22,7 @@ import '../update/update_controller.dart';
 import '../widgets/update_sheet.dart';
 import 'feed_page.dart';
 import 'forum_index_view.dart';
+import 'login_page.dart';
 import 'me_page.dart';
 import 'messages_page.dart';
 
@@ -38,21 +45,95 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
-    messageNotifications.openRequests.addListener(_openMessages);
+    messageNotifications.openRequests.addListener(_receiveNotification);
     _restoreSession();
   }
 
-  int _handledOpenRequest = 0;
   int _messagesRevision = 0;
   Timer? _pendingMessageOpen;
+  bool _routingNotification = false;
 
-  void _openMessages() {
+  void _receiveNotification() {
+    final request = messageNotifications.openRequests.value;
+    if (!mounted || !_sessionReady || request == null) return;
+    messageNotifications.openRequests.value = null;
+    _pendingMessageOpen?.cancel();
+    unawaited(_openNotification(request));
+  }
+
+  Future<void> _openNotification(NotificationOpenRequest request) async {
     if (!mounted ||
-        !_sessionReady ||
-        messageNotifications.openRequests.value == _handledOpenRequest) {
+        _routingNotification ||
+        chhSession.accountOperationInProgress) {
       return;
     }
-    _pendingMessageOpen?.cancel();
+    _routingNotification = true;
+    try {
+      final uid = request.uid;
+      final currentUid = chhSession.badges.uid ?? accountStore.currentUid;
+      final relogin = request.action == NotificationAction.relogin;
+      AccountSummary? target;
+      if (relogin || (uid != null && uid != currentUid)) {
+        if (uid == null) return;
+        await accountStore.reload();
+        if (!mounted || chhSession.accountOperationInProgress) return;
+        target = accountStore.find(uid);
+        if (target == null) {
+          if (relogin ||
+              currentUid != null ||
+              accountStore.accounts.isNotEmpty ||
+              !chhSession.loggedIn) {
+            return;
+          }
+          // A notification from the single-account session can precede migration.
+          await chhSession.ensureIdentity();
+          if (!mounted ||
+              chhSession.accountOperationInProgress ||
+              chhSession.badges.uid != uid) {
+            return;
+          }
+        }
+      }
+      if (relogin) {
+        await _openRelogin(target!);
+        return;
+      }
+      if (!_prepareMessageRoute(request)) return;
+      if (target != null) {
+        final result = await chhSession.switchAccount(target.uid);
+        if (!mounted) return;
+        switch (result) {
+          case AccountSwitchResult.expired:
+            await _openRelogin(target);
+            return;
+          case AccountSwitchResult.failed:
+            if (accountStore.find(target.uid) != null) {
+              AppToast.show(context, '暂时无法切换账号');
+            }
+            return;
+          case AccountSwitchResult.success:
+            if (!_prepareMessageRoute(request)) return;
+        }
+      }
+      setState(() {
+        _messagesRevision++;
+        _visited.remove(AppDestination.messages);
+        _dest = AppDestination.messages;
+      });
+    } finally {
+      _routingNotification = false;
+    }
+  }
+
+  Future<void> _openRelogin(AccountSummary account) async {
+    await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => LoginPage.relogin(account.uid, account.name),
+      ),
+    );
+  }
+
+  bool _prepareMessageRoute(NotificationOpenRequest request) {
     // Keep a submitting composer alive; retry the navigation after it unlocks.
     var blocked = false;
     Navigator.of(context).popUntil((route) {
@@ -66,23 +147,17 @@ class _HomePageState extends State<HomePage> {
     if (blocked) {
       _pendingMessageOpen = Timer(
         const Duration(milliseconds: 500),
-        _openMessages,
+        () => unawaited(_openNotification(request)),
       );
-      return;
     }
-    _handledOpenRequest = messageNotifications.openRequests.value;
-    setState(() {
-      _messagesRevision++;
-      _visited.remove(AppDestination.messages);
-      _dest = AppDestination.messages;
-    });
+    return !blocked;
   }
 
   @override
   void dispose() {
     _pendingMessageOpen?.cancel();
     _feedReselect.dispose();
-    messageNotifications.openRequests.removeListener(_openMessages);
+    messageNotifications.openRequests.removeListener(_receiveNotification);
     super.dispose();
   }
 
@@ -92,7 +167,7 @@ class _HomePageState extends State<HomePage> {
       await (widget.initialiseSession ?? chhSession.refresh)();
       if (!mounted) return;
       setState(() => _sessionReady = true);
-      _openMessages();
+      _receiveNotification();
       if (widget.initialiseSession == null) {
         unawaited(chhSession.ensureIdentity());
         // 会话就绪、首页已显示后再检查更新,不和首屏请求抢网络
@@ -170,6 +245,13 @@ class _HomePageState extends State<HomePage> {
                 builder: (context, _) => AppBottomNavigation(
                   current: _dest,
                   onNavigate: _navigate,
+                  onMeLongPress: chhSession.loggedIn
+                      ? () {
+                          if (chhSession.accountOperationInProgress) return;
+                          unawaited(HapticFeedback.selectionClick());
+                          unawaited(showAccountSwitcher(context));
+                        }
+                      : null,
                   messagesBadge: chhSession.badges.total,
                   // 有新版本,或朱砂红上线尚未引导时:从"我的"→设置→外观一路用红点引过去
                   meDot: appUpdater.hasUpdate || !appearance.styleDotSeen,
@@ -204,7 +286,9 @@ class _HomePageState extends State<HomePage> {
     }
     FocusManager.instance.primaryFocus?.unfocus();
     setState(() {
-      if (d == AppDestination.messages && chhSession.badges.hasAny) {
+      if (d == AppDestination.messages &&
+          chhSession.badges.notices > 0 &&
+          chhSession.badges.messages == 0) {
         _messagesRevision++;
         _visited.remove(d);
       }

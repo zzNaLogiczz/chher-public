@@ -149,6 +149,9 @@ class ChhUrls {
         },
       );
 
+  static Uri pmUsers() =>
+      Uri.parse('$base/home.php?mod=spacecp&ac=pm&op=getpmuser&inajax=1');
+
   /// 收藏:type = all / thread / forum / article
   static Uri favorite({String type = 'all', int page = 1}) =>
       Uri.parse('$base/home.php').replace(

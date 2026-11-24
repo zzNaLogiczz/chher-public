@@ -11,6 +11,17 @@ public final class MessageHeaderTest {
         assert header != null && header.uid.equals("1001") && header.notices == 3 && header.messages == 2;
         header = MessageHeader.parse(page("<a id='myprompt' class='a showmenu'>提醒</a><a id='pm_ntc'><em class='prompt_news_0'>私信</em></a>"));
         assert header != null && header.notices == 0 && header.messages == 0;
+        String links = "<a id='myprompt'>提醒4</a><a id='pm_ntc'><em class='badge prompt_news'></em>消息</a>";
+        header = MessageHeader.parse(page(links));
+        assert header != null && header.notices == 4 && header.messages == 1;
+        header = MessageHeader.parse(page(links.replace("badge prompt_news", "badge prompt_news_0")));
+        assert header != null && header.notices == 4 && header.messages == 0;
+        header = MessageHeader.parse(page(links.replace("badge prompt_news", "another-prompt_news prompt_news_2-other")
+            .replace("消息", "消息 (5)")));
+        assert header != null && header.notices == 4 && header.messages == 5;
+        header = MessageHeader.parse("<ul id='myprompt_menu'><li><a id='pm_ntc'><em class='prompt_news'></em>消息</a></li></ul>"
+            + page("<a id='myprompt'>提醒4</a><a id='pm_ntc' class='new'>消息</a>"));
+        assert header != null && header.notices == 4 && header.messages == 1;
         assert MessageHeader.parse("<div>WAF challenge</div>") == null;
         assert MessageHeader.parse(page("<a id='myprompt'>提醒3</a>")) == null;
         assert MessageHeader.parse(page("<a id='myprompt'>9999999999999999999</a><a id='pm_ntc'>0</a>")) == null;

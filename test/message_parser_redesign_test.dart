@@ -160,6 +160,7 @@ void main() {
       expect(c.peer, '合成用户');
       expect(c.peerUid, '17');
       expect(c.isOutgoing, isFalse);
+      expect(c.unread, isFalse);
       expect(c.viewUrl, contains('subop=view&touid=17'));
       expect(c.timeRaw, '2026-11-15 17:40');
     });
@@ -178,13 +179,23 @@ void main() {
       expect(c.isOutgoing, isTrue);
     });
 
-    test('缺少方向前缀时保留预览，不根据未验证class猜未读', () {
+    test('缺少方向前缀时保留预览，newpm_avt 不表示未读', () {
       final c = parsePmList(
         conversationHtml('$actor 普通摘要', attributes: 'class="cur1 newpm_avt"'),
       ).items.single;
       expect(c.preview, '合成用户 普通摘要');
       expect(c.isOutgoing, isFalse);
       expect(c.unread, isFalse);
+    });
+
+    test('独立的 newpm 类标记未读会话', () {
+      final c = parsePmList(
+        conversationHtml(
+          '$actor 对您说：新消息',
+          attributes: 'class="bbda cur1 cl newpm"',
+        ),
+      ).items.single;
+      expect(c.unread, isTrue);
     });
 
     test('公共消息保留真实标题与正文', () {

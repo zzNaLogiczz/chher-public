@@ -83,6 +83,7 @@ PmConversation? _parseConversation(dom.Element dl, String prefix) {
     avatarUrl: _avatarOf(dl),
     preview: preview,
     isOutgoing: isOutgoing,
+    unread: dl.classes.contains('newpm'),
     timeRaw: time.isNotEmpty ? time : trailingTime?.group(1) ?? '',
     viewUrl: ChhUrls.absolutize(href),
   );
@@ -181,7 +182,7 @@ PostForm? parsePmReplyForm(String html) {
 }
 
 String? _avatarOf(dom.Element dl) {
-  final src = dl.querySelector('.avt img')?.attributes['src'];
+  final src = avatarSrcOf(dl.querySelector('.avt img'));
   if (src == null || src.isEmpty) return null;
   return ChhUrls.absolutize(src);
 }

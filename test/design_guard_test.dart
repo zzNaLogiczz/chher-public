@@ -46,4 +46,18 @@ void main() {
     }
     expect(hits, isEmpty, reason: hits.join('\n'));
   });
+
+  test('lib does not use Solar plus glyphs', () {
+    final solarPlus = RegExp(r'\bSolarIcons\w*\s*\.\s*plus\b');
+    final hits =
+        Directory('lib')
+            .listSync(recursive: true)
+            .whereType<File>()
+            .where((file) => file.path.endsWith('.dart'))
+            .where((file) => solarPlus.hasMatch(file.readAsStringSync()))
+            .map((file) => file.path)
+            .toList()
+          ..sort();
+    expect(hits, isEmpty);
+  });
 }

@@ -3,30 +3,63 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
+import '../data/message_repository.dart';
 import '../network/chh_session.dart';
 import 'app_log.dart';
 import 'chh_urls.dart';
 
-/// Poll only a read-only header; opening a notice/PM list can mark it read.
+enum NotificationAction { messages, relogin }
+
+class NotificationOpenRequest {
+  const NotificationOpenRequest(this.action, {this.uid});
+
+  final NotificationAction action;
+  final String? uid;
+
+  static NotificationOpenRequest? fromPlatform(Object? value) {
+    if (value is! Map) return null;
+    final rawUid = value['uid'];
+    if (rawUid != null && rawUid is! String) return null;
+    final uid = rawUid is String && rawUid.isNotEmpty ? rawUid : null;
+    return switch (value['action']) {
+      'messages' => NotificationOpenRequest(
+        NotificationAction.messages,
+        uid: uid,
+      ),
+      'relogin' when uid != null => NotificationOpenRequest(
+        NotificationAction.relogin,
+        uid: uid,
+      ),
+      _ => null,
+    };
+  }
+}
+
+/// Poll the header and unread private conversation IDs.
 /// Android owns notification permissions, persistent deduplication and taps.
 class MessageNotifications with WidgetsBindingObserver {
   MessageNotifications(
     this.session, {
     this.interval = const Duration(seconds: 15),
-  });
+  }) : _messages = MessageRepository(session.client);
 
   final ChhSession session;
+  final MessageRepository _messages;
   final Duration interval;
   static const _channel = MethodChannel('chh/notifications');
-  final openRequests = ValueNotifier<int>(0);
+  static const _pmSupplementInterval = Duration(seconds: 30);
+  final openRequests = ValueNotifier<NotificationOpenRequest?>(null);
   Timer? _timer;
   bool _started = false;
   bool _foreground = true;
   bool _busy = false;
+  bool _wasExpired = false;
   int _failures = 0;
   DateTime? _nextAttempt;
   int? _revision;
   int _generation = 0;
+  int _pmReadSequence = 0;
+  final _lastPmAttempts = <String?, DateTime>{};
   Future<bool?>? _permissionRequest;
 
   void start() {
@@ -36,7 +69,7 @@ class MessageNotifications with WidgetsBindingObserver {
     _foreground = state == null || state == AppLifecycleState.resumed;
     WidgetsBinding.instance.addObserver(this);
     _channel.setMethodCallHandler((call) async {
-      if (call.method == 'openMessages') openRequests.value++;
+      if (call.method == 'openNotification') _receiveOpen(call.arguments);
     });
     session.addListener(_sessionChanged);
     session.client.headerFreshness.addListener(_headerUpdated);
@@ -45,9 +78,13 @@ class MessageNotifications with WidgetsBindingObserver {
   }
 
   Future<void> _consumeLaunch() async {
-    if (await _invoke<bool>('takeLaunch') == true && _started) {
-      openRequests.value++;
-    }
+    final launch = await _invoke<Object>('takeLaunch');
+    if (_started) _receiveOpen(launch);
+  }
+
+  void _receiveOpen(Object? value) {
+    final request = NotificationOpenRequest.fromPlatform(value);
+    if (request != null) openRequests.value = request;
   }
 
   Future<T?> _invoke<T>(String method, [Map<String, Object>? arguments]) async {
@@ -63,6 +100,8 @@ class MessageNotifications with WidgetsBindingObserver {
 
   void _sessionChanged() {
     if (!_started) return;
+    final recovered = _wasExpired && !session.currentExpired;
+    _wasExpired = session.currentExpired;
     if (!session.loggedIn) {
       final hadSession = _revision != null;
       _generation++;
@@ -82,11 +121,17 @@ class MessageNotifications with WidgetsBindingObserver {
       _failures = 0;
       _nextAttempt = null;
       unawaited(_activate(_generation));
+    } else if (recovered) {
+      // A member header can arrive in the same clock tick as the guest header.
+      _failures = 0;
+      _nextAttempt = session.client.now().add(interval);
+      _schedule();
     }
     _publish();
   }
 
   void _publish() {
+    if (_busy || session.currentExpired) return;
     final badges = session.badges;
     if (badges.uid != null) {
       unawaited(
@@ -94,6 +139,7 @@ class MessageNotifications with WidgetsBindingObserver {
           'uid': badges.uid!,
           'notices': badges.notices,
           'messages': badges.messages,
+          'pmHasCount': session.pmHasCount,
         }),
       );
     }
@@ -113,10 +159,43 @@ class MessageNotifications with WidgetsBindingObserver {
 
   void _headerUpdated() {
     if (session.client.lastFreshHeaderAt != null) {
+      // Guest pages advance the response watermark but do not refresh the session.
+      if (session.currentExpired) return;
       _failures = 0;
       _nextAttempt = null;
+      if (!_busy &&
+          _foreground &&
+          session.loggedIn &&
+          session.needsPmSupplement) {
+        final last = _lastPmAttempts[_pmAccount];
+        if (last == null ||
+            session.client.now().difference(last) >= _pmSupplementInterval) {
+          unawaited(_refreshUnreadPms());
+        }
+      }
     }
     _schedule();
+  }
+
+  String? get _pmAccount => session.badges.uid ?? session.accounts?.currentUid;
+
+  Future<void> _refreshUnreadPms() async {
+    final account = _pmAccount;
+    _lastPmAttempts[account] = session.client.now();
+    final generation = _generation;
+    final cacheGeneration = session.client.cacheGeneration;
+    final revision = session.pmRevision;
+    final sequence = ++_pmReadSequence;
+    final ids = await _messages.unreadPmIds();
+    if (_started &&
+        generation == _generation &&
+        cacheGeneration == session.client.cacheGeneration &&
+        sequence == _pmReadSequence &&
+        account == _pmAccount &&
+        !session.currentExpired &&
+        revision == session.pmRevision) {
+      session.setUnreadPmIds(ids);
+    }
   }
 
   Duration get _pollDelay {
@@ -145,7 +224,10 @@ class MessageNotifications with WidgetsBindingObserver {
     _timer = Timer(delay, () {
       final last = session.client.lastFreshHeaderAt;
       final age = last == null ? null : session.client.now().difference(last);
-      if (age != null && !age.isNegative && age < interval) {
+      if (!session.currentExpired &&
+          age != null &&
+          !age.isNegative &&
+          age < interval) {
         _schedule();
       } else {
         unawaited(check());
@@ -160,24 +242,42 @@ class MessageNotifications with WidgetsBindingObserver {
     _busy = true;
     _timer?.cancel();
     final generation = _generation;
+    final cacheGeneration = session.client.cacheGeneration;
+    final authentication = session.authenticationRevision;
     final headerRevision = session.client.freshHeaderRevision;
-    var failed = false;
+    var readHeader = false;
     try {
       await session.client.getHtml(
         ChhUrls.forumIndex(),
         refresh: true,
         fallback: false,
       );
-      failed = session.client.freshHeaderRevision == headerRevision;
+      readHeader =
+          _started &&
+          authentication == session.authenticationRevision &&
+          cacheGeneration == session.client.cacheGeneration &&
+          !session.currentExpired &&
+          session.client.freshHeaderRevision != headerRevision;
+      if (readHeader) await _refreshUnreadPms();
     } catch (error) {
-      failed = true;
       AppLog.w('NOTIFY', '检查未读失败 ${error.runtimeType}');
     } finally {
       _busy = false;
-      if (session.client.freshHeaderRevision != headerRevision) failed = false;
-      if (generation == _generation) {
+      if (_started &&
+          (generation == _generation ||
+              (readHeader &&
+                  authentication == session.authenticationRevision))) {
+        final failed =
+            session.currentExpired ||
+            session.client.freshHeaderRevision == headerRevision;
         _failures = failed ? (_failures + 1).clamp(0, 5) : 0;
         _nextAttempt = failed ? session.client.now().add(_pollDelay) : null;
+      }
+      if (_started &&
+          readHeader &&
+          authentication == session.authenticationRevision &&
+          cacheGeneration == session.client.cacheGeneration) {
+        _publish();
       }
       _schedule();
     }

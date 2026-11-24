@@ -433,6 +433,32 @@ class _Stroke {
   final double end;
 }
 
+/// Paints the complete wordmark fitted within [bounds].
+void paintChhersWordmark(Canvas canvas, Rect bounds, Color color) {
+  final scale = math.min(
+    bounds.width / LoadingTokens.viewWidth,
+    bounds.height / LoadingTokens.viewHeight,
+  );
+  if (scale <= 0) return;
+  final paint = Paint()
+    ..color = color
+    ..style = PaintingStyle.stroke
+    ..strokeCap = StrokeCap.round
+    ..strokeJoin = StrokeJoin.round
+    ..strokeWidth = 4.6;
+  canvas.save();
+  canvas.translate(
+    bounds.center.dx - LoadingTokens.viewWidth * scale / 2,
+    bounds.center.dy - LoadingTokens.viewHeight * scale / 2,
+  );
+  canvas.scale(scale);
+  canvas.translate(-LoadingTokens.viewLeft, -LoadingTokens.viewTop);
+  for (final path in _paths) {
+    canvas.drawPath(path, paint);
+  }
+  canvas.restore();
+}
+
 // R2b-wordmark.svg geometry, in the original loading animation stroke order.
 final _paths = <Path>[
   Path()

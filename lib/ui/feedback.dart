@@ -8,28 +8,51 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:motor/motor.dart';
 
+import '../design/feedback.dart';
+import '../design/icons.dart';
 import '../design/motion.dart';
 import '../design/tokens.dart';
 import '../design/typography.dart';
+import 'press.dart';
 
-/// 深色胶囊提示条:从顶部安全区下方弹入,1.6 秒后淡出;新提示替换旧提示。
+/// 深色胶囊提示条从顶部安全区下方弹入。新提示替换旧提示。
 abstract final class AppToast {
   static const hold = Duration(milliseconds: 1600);
   static OverlayEntry? _current;
 
-  static void show(BuildContext context, String message, {IconData? icon}) {
+  static void show(
+    BuildContext context,
+    String message, {
+    IconData? icon,
+    String? actionLabel,
+    VoidCallback? onAction,
+    Color? actionColor,
+  }) {
+    assert((actionLabel == null) == (onAction == null));
     final overlay = Overlay.maybeOf(context, rootOverlay: true);
     if (overlay == null) return;
     _current?.remove();
     late final OverlayEntry entry;
+    void dismiss() {
+      if (_current != entry) return;
+      _current = null;
+      if (entry.mounted) entry.remove();
+    }
+
     entry = OverlayEntry(
       builder: (_) => _ToastView(
         message: message,
         icon: icon,
-        onDone: () {
-          if (_current == entry) _current = null;
-          if (entry.mounted) entry.remove();
-        },
+        actionLabel: onAction == null ? null : actionLabel,
+        actionColor: actionColor,
+        onAction: actionLabel == null || onAction == null
+            ? null
+            : () {
+                if (_current != entry) return;
+                dismiss();
+                onAction();
+              },
+        onDone: dismiss,
       ),
     );
     _current = entry;
@@ -40,8 +63,18 @@ abstract final class AppToast {
 class _ToastView extends StatefulWidget {
   final String message;
   final IconData? icon;
+  final String? actionLabel;
+  final Color? actionColor;
+  final VoidCallback? onAction;
   final VoidCallback onDone;
-  const _ToastView({required this.message, this.icon, required this.onDone});
+  const _ToastView({
+    required this.message,
+    this.icon,
+    this.actionLabel,
+    this.actionColor,
+    this.onAction,
+    required this.onDone,
+  });
 
   @override
   State<_ToastView> createState() => _ToastViewState();
@@ -50,6 +83,13 @@ class _ToastView extends StatefulWidget {
 class _ToastViewState extends State<_ToastView> with TickerProviderStateMixin {
   late final SingleMotionController _pop;
   late final AnimationController _life;
+  late final _hold = widget.onAction == null
+      ? AppToast.hold
+      : const Duration(seconds: 6);
+  final _holdingPointers = <int>{};
+
+  double get _fadeStart =>
+      _hold.inMicroseconds / _life.duration!.inMicroseconds;
 
   @override
   void initState() {
@@ -60,10 +100,14 @@ class _ToastViewState extends State<_ToastView> with TickerProviderStateMixin {
       initialValue: 0,
     );
     // 停留 + 淡出用同一条动画计时,期间按帧推进,结束即移除
-    _life = AnimationController(
-      vsync: this,
-      duration: AppToast.hold + AppMotion.fade,
-    );
+    _life =
+        AnimationController(
+          vsync: this,
+          duration: _hold + AppMotion.fade,
+          animationBehavior: AnimationBehavior.preserve,
+        )..addStatusListener((status) {
+          if (status == AnimationStatus.completed) widget.onDone();
+        });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       if (MediaQuery.disableAnimationsOf(context)) {
@@ -71,10 +115,23 @@ class _ToastViewState extends State<_ToastView> with TickerProviderStateMixin {
       } else {
         _pop.animateTo(1);
       }
-      _life.forward().whenComplete(() {
-        if (mounted) widget.onDone();
-      });
+      _life.forward();
     });
+  }
+
+  void _pause(PointerDownEvent event) {
+    if (_life.isCompleted) return;
+    _holdingPointers.add(event.pointer);
+    _life.stop();
+    if (_life.value > _fadeStart) _life.value = _fadeStart;
+  }
+
+  void _resume(PointerEvent event) {
+    if (mounted &&
+        _holdingPointers.remove(event.pointer) &&
+        _holdingPointers.isEmpty) {
+      _life.forward();
+    }
   }
 
   @override
@@ -87,14 +144,14 @@ class _ToastViewState extends State<_ToastView> with TickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
     final top = MediaQuery.paddingOf(context).top;
-    final fadeStart =
-        AppToast.hold.inMilliseconds /
-        (AppToast.hold + AppMotion.fade).inMilliseconds;
+    final fadeStart = _fadeStart;
+    final actionLabel = widget.actionLabel;
     return Positioned(
       top: top + 8,
       left: 16,
       right: 16,
       child: IgnorePointer(
+        ignoring: actionLabel == null,
         child: Center(
           child: AnimatedBuilder(
             animation: Listenable.merge([_pop, _life]),
@@ -111,39 +168,104 @@ class _ToastViewState extends State<_ToastView> with TickerProviderStateMixin {
                 ),
               );
             },
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: const Color(0xF01E1E20),
-                borderRadius: BorderRadius.circular(AppRadii.full),
-              ),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(minHeight: 44),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 18,
-                    vertical: 10,
+            child: Listener(
+              behavior: HitTestBehavior.opaque,
+              onPointerDown: actionLabel == null ? null : _pause,
+              onPointerUp: _resume,
+              onPointerCancel: _resume,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: ToastColors.ink.withAlpha(0xF0),
+                  borderRadius: BorderRadius.circular(AppRadii.full),
+                ),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    minHeight: actionLabel == null ? 44 : 52,
                   ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (widget.icon != null) ...[
-                        Icon(widget.icon, size: 18, color: Colors.white),
-                        const SizedBox(width: 8),
-                      ],
-                      Flexible(
-                        child: Text(
-                          widget.message,
-                          maxLines: 3,
-                          style: AppType.subhead.copyWith(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w500,
-                            decoration: TextDecoration.none,
+                  child: Padding(
+                    padding: actionLabel == null
+                        ? const EdgeInsets.symmetric(
+                            horizontal: 18,
+                            vertical: 10,
+                          )
+                        : const EdgeInsets.fromLTRB(16, 4, 6, 4),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (widget.icon != null) ...[
+                          Icon(widget.icon, size: 18, color: Radix.whiteA12),
+                          const SizedBox(width: 8),
+                        ],
+                        Flexible(
+                          child: Padding(
+                            padding: EdgeInsets.symmetric(
+                              vertical: actionLabel == null ? 0 : 2,
+                            ),
+                            child: Text(
+                              widget.message,
+                              maxLines: 3,
+                              style: AppType.subhead.copyWith(
+                                color: Radix.whiteA12,
+                                fontWeight: FontWeight.w500,
+                                decoration: TextDecoration.none,
+                              ),
+                            ),
                           ),
                         ),
-                      ),
-                    ],
+                        if (actionLabel != null) ...[
+                          const SizedBox(width: 8),
+                          Flexible(child: _buildAction(actionLabel)),
+                        ],
+                      ],
+                    ),
                   ),
                 ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAction(String label) {
+    const height = 40.0;
+    const hitHeight = FeedbackMetrics.touchTarget;
+    final background = widget.actionColor;
+    final foreground = background == null ? ToastColors.ink : Radix.whiteA12;
+    return PressScale(
+      onTap: widget.onAction,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: (hitHeight - height) / 2),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: background ?? Radix.whiteA12.withValues(alpha: .96),
+            borderRadius: BorderRadius.circular(height / 2),
+          ),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(
+              minWidth: hitHeight,
+              minHeight: height,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.only(left: 15, right: 10),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Flexible(
+                    child: Text(
+                      label,
+                      textAlign: TextAlign.center,
+                      style: AppType.subhead.copyWith(
+                        color: foreground,
+                        fontWeight: FontWeight.w600,
+                        decoration: TextDecoration.none,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 2),
+                  Icon(AppIcons.forward, size: 12, color: foreground),
+                ],
               ),
             ),
           ),

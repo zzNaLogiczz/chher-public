@@ -67,6 +67,7 @@ abstract final class AppMotion {
   static const fade = Duration(milliseconds: 180);
   static const mediaFade = Duration(milliseconds: 150);
   static const mediaFadeCurve = Curves.easeOut;
+  static const longPress = Duration(milliseconds: 400);
   static const listPressDelay = Duration(milliseconds: 70);
   static const viewerChromeOut = Duration(milliseconds: 100);
   static const viewerChromeIn = mediaFade;

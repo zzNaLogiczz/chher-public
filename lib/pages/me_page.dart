@@ -3,7 +3,9 @@ library;
 
 import 'dart:async';
 
+import 'package:flutter/gestures.dart' show GestureBinding;
 import 'package:flutter/material.dart';
+import 'package:solar_icons/solar_icons.dart' show SolarIconsBold;
 import '../models/models.dart';
 import '../data/space_repository.dart';
 import '../core/chh_urls.dart';
@@ -12,14 +14,17 @@ import '../di.dart';
 import '../widgets/large_title_scaffold.dart';
 import '../widgets/lacquer_tab_scaffold.dart';
 import '../widgets/account_widgets.dart';
+import '../widgets/account_switcher_sheet.dart';
 import '../widgets/level_badge.dart';
 import '../design/level_tokens.dart';
 import '../design/brand.dart';
+import '../design/motion.dart';
 import '../design/tokens.dart';
 import '../design/icons.dart';
 import '../design/shapes.dart';
 import '../design/typography.dart';
 import '../ui/grouped.dart';
+import '../ui/chrome_button.dart';
 import '../ui/press.dart';
 import '../update/update_controller.dart';
 import 'favorites_page.dart';
@@ -27,6 +32,8 @@ import 'blocked_users_page.dart';
 import 'medals_page.dart';
 import 'my_threads_page.dart';
 import 'credit_log_page.dart';
+import 'login_page.dart';
+import 'support_page.dart';
 import 'user_page.dart';
 
 class MePage extends StatelessWidget {
@@ -63,50 +70,65 @@ class _MemberCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
     final name = logged ? (me.userName ?? '已登录') : '登录 CHH';
-    final onTap = !logged
-        ? () => Navigator.of(context).pushNamed('/login')
-        : me.uid == null
+    final nameStyle = AppType.title1.copyWith(
+      fontSize: MeTokens.nameSize,
+      height: 1.15,
+      color: t.onLac,
+    );
+    final expired = logged && chhSession.currentExpired;
+    final profileTap = logged && me.uid != null
+        ? () => _push(context, UserPage(uid: me.uid!))
+        : null;
+    final label = expired ? '重新登录' : (logged ? '主页' : '登录');
+    final pill = logged && !expired && profileTap == null
         ? null
-        : () => _push(context, UserPage(uid: me.uid!));
-    final action = onTap == null
-        ? null
-        : PressScale(
-            onTap: onTap,
-            semanticLabel: logged ? '主页' : '登录',
-            child: SizedBox(
-              height: 44,
-              child: Center(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: MeTokens.glass(t),
-                    borderRadius: BorderRadius.circular(AppRadii.full),
+        : SizedBox(
+            height: MeTokens.actionTarget,
+            child: Center(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: MeTokens.glass(t),
+                  borderRadius: BorderRadius.circular(AppRadii.full),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 7,
                   ),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 7,
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          logged ? '主页' : '登录',
-                          style: AppType.footnote.copyWith(
-                            color: t.onLac,
-                            fontWeight: FontWeight.w600,
-                          ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        label,
+                        style: AppType.footnote.copyWith(
+                          color: t.onLac,
+                          fontWeight: FontWeight.w600,
                         ),
-                        const SizedBox(width: 3),
-                        Icon(AppIcons.forward, size: 12, color: t.onLac2),
-                      ],
-                    ),
+                      ),
+                      const SizedBox(width: 3),
+                      Icon(AppIcons.forward, size: 12, color: t.onLac2),
+                    ],
                   ),
                 ),
               ),
             ),
           );
+    final action = pill == null
+        ? null
+        : logged && !expired
+        ? ExcludeSemantics(child: pill)
+        : Semantics(
+            container: true,
+            child: PressScale(
+              onTap: expired
+                  ? () => _openRelogin(context, me)
+                  : () => Navigator.of(context).pushNamed('/login'),
+              semanticLabel: label,
+              child: pill,
+            ),
+          );
     final large = MediaQuery.textScalerOf(context).scale(1) >= 1.5;
-    return Padding(
+    final content = Padding(
       padding: const EdgeInsets.fromLTRB(
         AppSpace.screen,
         MeTokens.identityTitleGap,
@@ -127,27 +149,37 @@ class _MemberCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  name,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppType.title1.copyWith(
-                    fontSize: MeTokens.nameSize,
-                    height: 1.15,
-                    color: t.onLac,
+                if (logged)
+                  _MeAccountName(
+                    name: name,
+                    uid: me.uid,
+                    style: nameStyle,
+                    onLacquer: true,
+                  )
+                else
+                  Text(
+                    name,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: nameStyle,
                   ),
-                ),
-                if (logged && me.uid != null) ...[
+                if (logged && (me.uid != null || expired)) ...[
                   const SizedBox(height: 5),
                   Wrap(
                     spacing: MeTokens.metadataGap,
                     runSpacing: MeTokens.labelGap,
                     crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
-                      Text(
-                        'UID ${me.uid}',
-                        style: AppType.footnote.copyWith(color: t.onLac2),
-                      ),
+                      if (me.uid != null)
+                        Text(
+                          'UID ${me.uid}',
+                          style: AppType.footnote.copyWith(color: t.onLac2),
+                        ),
+                      if (expired)
+                        Text(
+                          '登录已失效',
+                          style: AppType.footnote.copyWith(color: t.onLac2),
+                        ),
                       if (LevelDefinition.lookup(profile?.groupId) != null)
                         LevelBadge(gid: profile!.groupId, onLacquer: true),
                     ],
@@ -161,6 +193,14 @@ class _MemberCard extends StatelessWidget {
         ],
       ),
     );
+    return profileTap == null
+        ? content
+        : PressScale(
+            onTap: profileTap,
+            semanticLabel: '主页',
+            scale: AppPressScale.card,
+            child: content,
+          );
   }
 }
 
@@ -175,13 +215,17 @@ class _ProfileMe extends StatefulWidget {
 }
 
 class _ProfileMeState extends State<_ProfileMe> {
+  static const _profileFreshness = Duration(seconds: 60);
+
   UserProfile? _profile;
   String? _uid;
   int _auth = -1;
   int _request = 0;
   bool _logged = false;
   bool _loading = false;
-  bool _active = false;
+  bool? _active;
+  DateTime? _lastProfileSuccess;
+  VoidCallback? _cancelReentry;
 
   @override
   void initState() {
@@ -197,17 +241,78 @@ class _ProfileMeState extends State<_ProfileMe> {
     if (cached != null) setState(() => _profile = cached);
   }
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final active =
-        TickerMode.valuesOf(context).enabled &&
-        (ModalRoute.isCurrentOf(context) ?? true);
-    if (active && !_active && _uid != null) {
-      _profile = widget.repository.meCache.forUser(_uid!) ?? _profile;
-      if (!_loading) unawaited(_load(refresh: true, background: true));
+  bool get _profileRefreshDue {
+    final lastSuccess = _lastProfileSuccess;
+    return lastSuccess == null ||
+        widget.repository.client.now().difference(lastSuccess) >=
+            _profileFreshness;
+  }
+
+  UserProfile? _newSnapshot(String uid) {
+    final cached = widget.repository.meCache.forUser(uid);
+    // The cache copies profiles and keeps only the fields this page displays.
+    Object fields(UserProfile p) =>
+        (p.name, p.group, p.groupId, p.credits, p.threads, p.replies);
+    final displayed = _profile;
+    if (cached == null ||
+        (displayed != null && fields(cached) == fields(displayed))) {
+      return null;
     }
+    return cached;
+  }
+
+  void _activityChanged(
+    bool active,
+    ModalRoute<dynamic>? route,
+    Duration exitDelay,
+  ) {
+    final wasActive = _active;
     _active = active;
+    _cancelScheduledReentry();
+    final uid = _uid;
+    if (!active || wasActive == null || uid == null) return;
+    if (!_profileRefreshDue && _newSnapshot(uid) == null) return;
+
+    final exit = route?.secondaryAnimation;
+    var cancelled = false;
+    Timer? delay;
+    void finish() {
+      // Recheck after the frame has applied any re-cover or tab change.
+      final binding = WidgetsBinding.instance;
+      binding.addPostFrameCallback((_) {
+        if (cancelled || !mounted) return;
+        _cancelScheduledReentry();
+        if (route?.isCurrent == false) return;
+        final cached = _newSnapshot(uid);
+        if (cached != null) setState(() => _profile = cached);
+        if (!_loading && _profileRefreshDue) {
+          unawaited(_load(refresh: true, background: true));
+        }
+      });
+      binding.ensureVisualUpdate();
+    }
+
+    void onExitStatus(AnimationStatus status) {
+      if (status == AnimationStatus.dismissed) finish();
+    }
+
+    _cancelReentry = () {
+      cancelled = true;
+      delay?.cancel();
+      exit?.removeStatusListener(onExitStatus);
+    };
+    if (exit != null && !exit.isDismissed) {
+      exit.addStatusListener(onExitStatus);
+    } else if (exitDelay > Duration.zero) {
+      delay = Timer(exitDelay, finish);
+    } else {
+      finish();
+    }
+  }
+
+  void _cancelScheduledReentry() {
+    _cancelReentry?.call();
+    _cancelReentry = null;
   }
 
   void _syncSession({bool initial = false}) {
@@ -218,6 +323,8 @@ class _ProfileMeState extends State<_ProfileMe> {
         : null;
     if (logged == _logged && uid == _uid && auth == _auth) return;
     final sameAccount = logged && _logged && uid != null && uid == _uid;
+    _cancelScheduledReentry();
+    _lastProfileSuccess = null;
     _logged = logged;
     _uid = uid;
     _auth = auth;
@@ -260,6 +367,7 @@ class _ProfileMeState extends State<_ProfileMe> {
       }
       repository.meCache.put(profile);
       if (!mounted) return;
+      _lastProfileSuccess = repository.client.now();
       setState(() {
         if (!background || _profile == null) _profile = profile;
         _loading = false;
@@ -289,13 +397,26 @@ class _ProfileMeState extends State<_ProfileMe> {
 
   @override
   void dispose() {
+    _cancelScheduledReentry();
     widget.repository.meCache.removeListener(_cacheLoaded);
     chhSession.removeListener(_sessionChanged);
     super.dispose();
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => Stack(
+    fit: StackFit.passthrough,
+    children: [
+      _buildBody(context),
+      Positioned(
+        top: 0,
+        left: 0,
+        child: _MeActivityProbe(onChanged: _activityChanged),
+      ),
+    ],
+  );
+
+  Widget _buildBody(BuildContext context) {
     final header = chhSession.badges;
     final me = _logged && _uid != null
         ? HeaderBadges(
@@ -438,6 +559,50 @@ class _ProfileMeState extends State<_ProfileMe> {
   }
 }
 
+class _MeActivityProbe extends StatefulWidget {
+  const _MeActivityProbe({required this.onChanged});
+
+  final void Function(
+    bool active,
+    ModalRoute<dynamic>? route,
+    Duration exitDelay,
+  )
+  onChanged;
+
+  @override
+  State<_MeActivityProbe> createState() => _MeActivityProbeState();
+}
+
+class _MeActivityProbeState extends State<_MeActivityProbe> {
+  bool? _active;
+  bool? _current;
+  Stopwatch? _sinceUncovered;
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = TickerMode.valuesOf(context).enabled;
+    final current = ModalRoute.isCurrentOf(context) ?? true;
+    if (current && _current == false) {
+      // A popup can start exiting while this tab is still hidden, without
+      // driving the underlying secondary animation.
+      (_sinceUncovered ??= GestureBinding.instance.samplingClock.stopwatch())
+        ..reset()
+        ..start();
+    }
+    _current = current;
+    final active = enabled && current;
+    if (active != _active) {
+      _active = active;
+      final sinceUncovered = _sinceUncovered;
+      final exitDelay = sinceUncovered == null
+          ? Duration.zero
+          : AppMotion.sheetDuration - sinceUncovered.elapsed;
+      widget.onChanged(active, ModalRoute.of(context), exitDelay);
+    }
+    return const SizedBox.shrink();
+  }
+}
+
 class _MistyIdentity extends StatelessWidget {
   const _MistyIdentity({
     required this.me,
@@ -454,56 +619,24 @@ class _MistyIdentity extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
     final name = logged ? (me.userName ?? '已登录') : '未登录';
+    final nameStyle = MeTokens.identityName.copyWith(color: t.text);
     final canOpen = logged && me.uid != null;
+    final expired = logged && chhSession.currentExpired;
     final group = profile?.group?.trim();
     final complete =
         profile?.credits != null &&
         profile?.threads != null &&
         profile?.replies != null;
     final large = MediaQuery.textScalerOf(context).scale(1) >= 1.5;
-    final action = logged
-        ? canOpen
-              ? Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      '主页',
-                      style: MeTokens.homeLabel.copyWith(color: t.text2),
-                    ),
-                    const SizedBox(width: MeTokens.labelGap),
-                    Icon(
-                      AppIcons.forward,
-                      size: MeTokens.homeChevron,
-                      color: t.text3,
-                    ),
-                  ],
-                )
-              : const SizedBox.shrink()
-        : PressScale(
-            semanticLabel: '登录',
-            onTap: () => Navigator.of(context).pushNamed('/login'),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(
-                minHeight: MeTokens.actionTarget,
-              ),
-              child: Center(
-                child: Container(
-                  constraints: const BoxConstraints(
-                    minHeight: MeTokens.loginHeight,
-                  ),
-                  padding: MeTokens.loginPadding,
-                  decoration: BoxDecoration(
-                    color: t.accent,
-                    borderRadius: BorderRadius.circular(AppRadii.full),
-                  ),
-                  child: Text(
-                    '登录',
-                    style: MeTokens.loginLabel.copyWith(color: t.onAccent),
-                  ),
-                ),
-              ),
-            ),
-          );
+    final action = !logged || expired
+        ? _MeLoginButton(me: me, expired: expired)
+        : canOpen
+        ? const _MeHomeLabel()
+        : const SizedBox.shrink();
+    final metadataHeight =
+        LevelTokens.height *
+        MediaQuery.textScalerOf(context).scale(LevelTokens.fontSize) /
+        LevelTokens.fontSize;
     final content = DecoratedBox(
       key: const ValueKey('me-identity-card'),
       decoration: ShapeDecoration(
@@ -533,36 +666,58 @@ class _MistyIdentity extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text(
-                        name,
-                        style: MeTokens.identityName.copyWith(color: t.text),
-                      ),
+                      if (logged)
+                        _MeAccountName(
+                          name: name,
+                          uid: me.uid,
+                          style: nameStyle,
+                        )
+                      else
+                        Text(name, style: nameStyle),
                       if (logged) ...[
                         const SizedBox(height: MeTokens.labelGap),
-                        Wrap(
-                          spacing: MeTokens.metadataGap,
-                          runSpacing: MeTokens.labelGap,
-                          crossAxisAlignment: WrapCrossAlignment.center,
-                          children: [
-                            if (me.uid != null)
-                              Text(
-                                'UID ${me.uid}',
-                                style: MeTokens.identityMeta.copyWith(
-                                  color: t.text3,
-                                ),
-                              ),
-                            if (group != null && group.isNotEmpty)
-                              if (LevelDefinition.lookup(profile?.groupId) !=
-                                  null)
-                                LevelBadge(gid: profile!.groupId)
-                              else
-                                Text(
-                                  group,
-                                  style: MeTokens.groupLabel.copyWith(
-                                    color: t.text2,
+                        ConstrainedBox(
+                          constraints: BoxConstraints(
+                            minHeight: metadataHeight,
+                          ),
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            heightFactor: 1,
+                            child: Wrap(
+                              spacing: MeTokens.metadataGap,
+                              runSpacing: MeTokens.labelGap,
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              children: [
+                                if (me.uid != null)
+                                  Text(
+                                    'UID ${me.uid}',
+                                    style: MeTokens.identityMeta.copyWith(
+                                      color: t.text3,
+                                    ),
                                   ),
-                                ),
-                          ],
+                                if (expired)
+                                  Text(
+                                    '登录已失效',
+                                    style: MeTokens.identityMeta.copyWith(
+                                      color: t.warn,
+                                    ),
+                                  ),
+                                if (group != null && group.isNotEmpty)
+                                  if (LevelDefinition.lookup(
+                                        profile?.groupId,
+                                      ) !=
+                                      null)
+                                    LevelBadge(gid: profile!.groupId)
+                                  else
+                                    Text(
+                                      group,
+                                      style: MeTokens.groupLabel.copyWith(
+                                        color: t.text2,
+                                      ),
+                                    ),
+                              ],
+                            ),
+                          ),
                         ),
                       ],
                       if (large)
@@ -639,6 +794,155 @@ class _MistyIdentity extends StatelessWidget {
   }
 }
 
+class _MeAccountName extends StatelessWidget {
+  const _MeAccountName({
+    required this.name,
+    required this.uid,
+    required this.style,
+    this.onLacquer = false,
+  });
+
+  final String name;
+  final String? uid;
+  final TextStyle style;
+  final bool onLacquer;
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: accountStore,
+    builder: (context, _) {
+      final t = AppTokens.of(context);
+      final currentUid = uid ?? accountStore.currentUid;
+      final otherUnread =
+          currentUid != null &&
+          accountStore.accounts.any(
+            (account) =>
+                account.uid != currentUid &&
+                account.notices + account.messages > 0,
+          );
+      return Semantics(
+        container: true,
+        child: PressScale(
+          key: const ValueKey('me-account-name'),
+          semanticLabel: '切换账号，当前 $name${otherUnread ? '，其他账号有新消息' : ''}',
+          scale: .9,
+          onTap: () => showAccountSwitcher(context),
+          surroundScaledChild: (chip) => ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: MeTokens.actionTarget),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Flexible(
+                  child: ExcludeSemantics(
+                    child: Text(
+                      name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: style,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 7),
+                chip,
+              ],
+            ),
+          ),
+          child: SizedBox.square(
+            key: const ValueKey('me-account-caret'),
+            dimension: 20,
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Positioned.fill(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: onLacquer ? t.onLac.withValues(alpha: .2) : t.fill,
+                    ),
+                    child: Icon(
+                      SolarIconsBold.altArrowDown,
+                      size: 11,
+                      color: onLacquer ? t.onLac : t.text2,
+                    ),
+                  ),
+                ),
+                Positioned(
+                  top: -2,
+                  right: -2,
+                  child: DotBadge(
+                    visible: otherUnread,
+                    ringColor: onLacquer ? t.lacMid : t.surface,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    },
+  );
+}
+
+class _MeLoginButton extends StatelessWidget {
+  const _MeLoginButton({required this.me, required this.expired});
+
+  final HeaderBadges me;
+  final bool expired;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
+    final label = expired ? '重新登录' : '登录';
+    return Semantics(
+      container: true,
+      child: PressScale(
+        semanticLabel: label,
+        onTap: expired
+            ? () => _openRelogin(context, me)
+            : () => Navigator.of(context).pushNamed('/login'),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: MeTokens.actionTarget),
+          child: Center(
+            child: Container(
+              constraints: const BoxConstraints(
+                minHeight: MeTokens.loginHeight,
+              ),
+              padding: MeTokens.loginPadding,
+              decoration: BoxDecoration(
+                color: t.accent,
+                borderRadius: BorderRadius.circular(AppRadii.full),
+              ),
+              child: Text(
+                label,
+                style: MeTokens.loginLabel.copyWith(color: t.onAccent),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MeHomeLabel extends StatelessWidget {
+  const _MeHomeLabel();
+
+  @override
+  Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
+    return ExcludeSemantics(
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text('主页', style: MeTokens.homeLabel.copyWith(color: t.text2)),
+          const SizedBox(width: MeTokens.labelGap),
+          Icon(AppIcons.forward, size: MeTokens.homeChevron, color: t.text3),
+        ],
+      ),
+    );
+  }
+}
+
 class _Entries extends StatelessWidget {
   const _Entries();
 
@@ -710,6 +1014,14 @@ class _Tools extends StatelessWidget {
                 ),
               ),
             ),
+            AppClip(
+              radius: MeTokens.innerRadius,
+              child: GroupedRow(
+                title: '支持开发',
+                leading: const IconTile(icon: AppIcons.supportBold),
+                onTap: () => _push(context, const SupportPage()),
+              ),
+            ),
           ],
         ),
       ),
@@ -729,8 +1041,10 @@ class MeBody extends StatelessWidget {
     builder: (context, _) {
       final me = chhSession.badges;
       final logged = chhSession.loggedIn;
-      if (withIdentity &&
-          AppTokens.of(context).style == AppearanceStyle.misty) {
+      final expired = logged && chhSession.currentExpired;
+      final t = AppTokens.of(context);
+      final name = logged ? (me.userName ?? '已登录') : '登录 CHH';
+      if (withIdentity && t.style == AppearanceStyle.misty) {
         return _ProfileMe(fallback: true, repository: repository ?? spaceRepo);
       }
       return ListView(
@@ -740,10 +1054,24 @@ class MeBody extends StatelessWidget {
             GroupedSection(
               children: [
                 AccountIdentityRow(
-                  name: logged ? (me.userName ?? '已登录') : '登录 CHH',
+                  name: name,
+                  title: logged
+                      ? _MeAccountName(
+                          name: name,
+                          uid: me.uid,
+                          style: AppType.title2.copyWith(color: t.text),
+                        )
+                      : null,
                   avatarUrl: logged ? me.avatarUrl : null,
-                  detail: logged
+                  detail: expired
+                      ? '登录已失效'
+                      : logged
                       ? (me.uid == null ? null : 'UID ${me.uid}')
+                      : null,
+                  trailing: expired
+                      ? _MeLoginButton(me: me, expired: true)
+                      : logged && me.uid != null
+                      ? const _MeHomeLabel()
                       : null,
                   onTap: !logged
                       ? () => Navigator.of(context).pushNamed('/login')
@@ -821,3 +1149,16 @@ class _Colophon extends StatelessWidget {
 
 void _push(BuildContext context, Widget page) =>
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));
+
+void _openRelogin(BuildContext context, HeaderBadges me) {
+  if (chhSession.accountOperationInProgress) return;
+  final uid = me.uid ?? accountStore.currentUid;
+  if (uid == null) {
+    Navigator.of(context).pushNamed('/login');
+    return;
+  }
+  _push(
+    context,
+    LoginPage.relogin(uid, me.userName ?? accountStore.find(uid)?.name ?? ''),
+  );
+}

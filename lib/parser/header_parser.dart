@@ -6,12 +6,12 @@
 ///   div.avt.y > a > img.user_avatar          头像
 ///   p
 ///     strong.vwmy > a  "示例账号"           账号,href=space-uid-1001.html
-///     a#pm_ntc  <em class="prompt_news_0">   私信,未读数在 class 后缀
+///     a#pm_ntc  <em class="prompt_news_0">   私信,_0 表示无未读
 ///     a#myprompt.a.showmenu  "提醒"
 ///     span#myprompt_check
 /// ```
 ///
-/// 未读只认两个可信来源:`prompt_news_N` 的后缀数字,以及文案里的数字。
+/// 私信页头用独立的 prompt_news 表示有新私信，也兼容数字后缀和文案数字。
 /// `.a` 类不算 —— 实测无未读时 `#myprompt` 同样带 `a showmenu`。
 library;
 
@@ -24,6 +24,7 @@ import 'dom_utils.dart';
 class HeaderBadges {
   final int notices;
   final int messages;
+  final bool pmPrompt;
 
   /// 当前登录账号。页头 `#um strong.vwmy a` 就是它(PAGE_SPEC §6.1)。
   final String? userName;
@@ -38,6 +39,7 @@ class HeaderBadges {
   const HeaderBadges({
     required this.notices,
     required this.messages,
+    this.pmPrompt = false,
     this.userName,
     this.uid,
     this.avatarSrc,
@@ -60,11 +62,12 @@ class HeaderBadges {
       other is HeaderBadges &&
       other.notices == notices &&
       other.messages == messages &&
+      other.pmPrompt == pmPrompt &&
       other.userName == userName &&
       other.uid == uid;
 
   @override
-  int get hashCode => Object.hash(notices, messages, userName, uid);
+  int get hashCode => Object.hash(notices, messages, pmPrompt, userName, uid);
 
   @override
   String toString() => '提醒 $notices 私信 $messages 账号 ${userName ?? '-'}';
@@ -84,11 +87,13 @@ HeaderBadges? parseHeaderBadges(String html) {
   // 页头自带头像。实测是 small 尺寸,只在取不到 uid 时用它兜底。
   final avatarEl =
       um.querySelector('img.user_avatar') ?? um.querySelector('.avt img');
-  final avatar = avatarEl?.attributes['src'];
+  final avatar = avatarSrcOf(avatarEl);
+  final pmPrompt = doc.querySelector('#pm_ntc .prompt_news') != null;
 
   return HeaderBadges(
     notices: _countIn(doc, '#myprompt'),
-    messages: _countIn(doc, '#pm_ntc'),
+    messages: pmPrompt ? 1 : _countIn(doc, '#pm_ntc'),
+    pmPrompt: pmPrompt,
     userName: me?.name,
     uid: me?.uid,
     avatarSrc: (avatar == null || avatar.isEmpty)
@@ -162,14 +167,18 @@ String _sampleOf(dom.Element um) {
   return text.length > 120 ? '${text.substring(0, 120)}…' : text;
 }
 
+final _numericPrompt = RegExp(r'^prompt_news_([0-9]+)$');
+
 int _countIn(dom.Document doc, String selector) {
   final el = doc.querySelector(selector);
   if (el == null) return 0;
 
   // 站点把未读数编在 class 后缀里:<em class="prompt_news_0">
   for (final em in el.querySelectorAll('[class*="prompt_news_"]')) {
-    final m = RegExp(r'prompt_news_(\d+)').firstMatch(em.className);
-    if (m != null) return int.tryParse(m.group(1)!) ?? 0;
+    for (final name in em.classes) {
+      final m = _numericPrompt.firstMatch(name);
+      if (m != null) return int.tryParse(m.group(1)!) ?? 0;
+    }
   }
 
   // 其次看文案里的数字(常见是 .num 子节点)

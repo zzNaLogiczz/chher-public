@@ -109,7 +109,7 @@ PollVotersPage parsePollVoters(
     );
     final name = cleanText(link?.text);
     if (uid == null || name.isEmpty) continue;
-    final avatar = li.querySelector('img')?.attributes['src'];
+    final avatar = avatarSrcOf(li.querySelector('img'));
     voters.add(
       PollVoter(
         uid: uid,

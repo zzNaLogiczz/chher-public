@@ -31,6 +31,9 @@ class MainActivity : FlutterActivity() {
     private var updateBridge: UpdateBridge? = null
     private var imageBridge: ImageBridge? = null
     private var notificationBridge: NotificationBridge? = null
+    private var accountsBridge: AccountsBridge? = null
+    private var motionBridge: MotionBridge? = null
+    private var supportBridge: SupportBridge? = null
     private var surfaceVoteHz = 0f
     private var lastError: String? = null
     private var originalModeId = 0
@@ -97,6 +100,14 @@ class MainActivity : FlutterActivity() {
         imageBridge = ImageBridge(this, flutterEngine)
         notificationBridge?.dispose()
         notificationBridge = NotificationBridge(this, flutterEngine)
+        accountsBridge?.dispose()
+        accountsBridge = AccountsBridge(this, flutterEngine)
+        motionBridge?.dispose()
+        motionBridge = MotionBridge(this, flutterEngine) {
+            currentDisplay()?.rotation ?: Surface.ROTATION_0
+        }
+        supportBridge?.dispose()
+        supportBridge = SupportBridge(this, flutterEngine)
         sessionChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "chh/session")
         sessionChannel?.setMethodCallHandler { call, result ->
             if (call.method != "flushCookies") {
@@ -137,6 +148,7 @@ class MainActivity : FlutterActivity() {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         if (notificationBridge?.onRequestPermissionsResult(requestCode) == true) return
+        if (supportBridge?.onRequestPermissionsResult(requestCode, grantResults) == true) return
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
     }
 
@@ -200,6 +212,12 @@ class MainActivity : FlutterActivity() {
         imageBridge = null
         notificationBridge?.dispose()
         notificationBridge = null
+        accountsBridge?.dispose()
+        accountsBridge = null
+        motionBridge?.dispose()
+        motionBridge = null
+        supportBridge?.dispose()
+        supportBridge = null
         flutterSurface?.holder?.removeCallback(surfaceCallback)
         flutterSurface = null
         channel?.setMethodCallHandler(null)

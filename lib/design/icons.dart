@@ -27,6 +27,8 @@ abstract final class AppIcons {
   static const bookmarkFilled = SolarIconsBold.bookmark;
   static const settings = SolarIconsOutline.settings;
   static const settingsBold = SolarIconsBold.settings;
+  static const supportBold = SolarIconsBold.handHeart;
+  static const saveCodesBold = SolarIconsBold.galleryDownload;
   static const sun = SolarIconsOutline.sun;
   static const moon = SolarIconsOutline.moon;
   static const smartphone = SolarIconsOutline.smartphone;

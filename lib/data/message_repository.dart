@@ -1,19 +1,32 @@
 /// 消息域读操作:提醒与私信
 ///
 /// 提醒(#myprompt)与私信(#pm_ntc)是站点里两套独立体系,这里按用户心智合成一个域。
-/// 提醒仅识别源站整段加粗；私信逐条未读缺少可靠证据，保持未知回退。
 library;
 
+import '../core/app_log.dart';
 import '../core/chh_urls.dart';
 import '../models/models.dart';
 import '../network/chh_client.dart';
 import '../parser/post_form_parser.dart';
 import '../parser/pm_parser.dart';
 import '../parser/notice_parser.dart';
+import 'pm_unread.dart';
 
 class MessageRepository {
   final ChhClient client;
   const MessageRepository(this.client);
+
+  Future<Set<String>?> unreadPmIds() async {
+    Set<String>? ids;
+    try {
+      final payload = await client.readAjaxPayload(ChhUrls.pmUsers());
+      if (payload != null) ids = parseUnreadPmIds(payload);
+    } catch (_) {
+      // The header remains the fallback when transport or parsing fails.
+    }
+    AppLog.i('PM', ids == null ? '读取未读失败' : '读取未读成功 ${ids.length}');
+    return ids;
+  }
 
   /// 提醒列表。category 用当前筛选参数,取不到时解析器回退到屏蔽链接的 type。
   Future<Paged<Notice>> notices({

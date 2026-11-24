@@ -28,6 +28,9 @@ class SheetScaffold extends StatelessWidget {
 
   /// 默认关闭当前路由
   final VoidCallback? onClose;
+  final bool showClose;
+  final Widget? trailing;
+  final double trailingMinWidth;
 
   const SheetScaffold({
     super.key,
@@ -37,6 +40,9 @@ class SheetScaffold extends StatelessWidget {
     required this.body,
     this.footer,
     this.onClose,
+    this.showClose = true,
+    this.trailing,
+    this.trailingMinWidth = 0,
   });
 
   @override
@@ -49,6 +55,9 @@ class SheetScaffold extends StatelessWidget {
         count: count,
         contextLine: contextLine,
         onClose: onClose,
+        showClose: showClose,
+        trailing: trailing,
+        trailingMinWidth: trailingMinWidth,
       ),
       Flexible(child: body),
       ?footer,
@@ -64,6 +73,7 @@ class SheetHeader extends StatelessWidget {
   final String? contextLine;
   final VoidCallback? onClose;
   final String closeTooltip;
+  final bool showClose;
   final Key? grabberKey;
   final Widget? trailing;
   final double trailingMinWidth;
@@ -75,6 +85,7 @@ class SheetHeader extends StatelessWidget {
     this.contextLine,
     this.onClose,
     this.closeTooltip = '关闭',
+    this.showClose = true,
     this.grabberKey,
     this.trailing,
     this.trailingMinWidth = 0,
@@ -142,10 +153,11 @@ class SheetHeader extends StatelessWidget {
                   ),
                 ),
               ),
-              _CloseButton(
-                tooltip: closeTooltip,
-                onTap: onClose ?? () => Navigator.of(context).maybePop(),
-              ),
+              if (showClose)
+                _CloseButton(
+                  tooltip: closeTooltip,
+                  onTap: onClose ?? () => Navigator.of(context).maybePop(),
+                ),
             ],
           ),
         ),

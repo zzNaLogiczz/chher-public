@@ -20,8 +20,12 @@ public final class MessageHeader {
     }
 
     public static MessageHeader parse(String html) {
+        return parse(html, 0);
+    }
+
+    static MessageHeader parse(String html, int memberOffset) {
         Matcher start = pattern("<div\\b[^>]*\\bid\\s*=\\s*['\"]um['\"][^>]*>").matcher(html);
-        if (!start.find()) return null;
+        if (!start.find(memberOffset)) return null;
         Matcher tags = pattern("</?div\\b[^>]*>").matcher(html);
         tags.region(start.end(), html.length());
         int depth = 1;
@@ -38,7 +42,8 @@ public final class MessageHeader {
         Matcher uid = pattern("(?:space-uid-|[?&]uid=)([1-9][0-9]*)(?:[.&]|$)").matcher(href);
         if (!uid.find()) return null;
         Integer notices = count(header, "myprompt");
-        Integer messages = count(header, "pm_ntc");
+        // The Discuz prompt menu can put the badge before the signed-in header.
+        Integer messages = count(html, "pm_ntc");
         if (notices == null || messages == null) return null;
         return new MessageHeader(uid.group(1), notices, messages);
     }
@@ -47,9 +52,23 @@ public final class MessageHeader {
         Matcher link = pattern("<a\\b[^>]*\\bid\\s*=\\s*['\"]" + id + "['\"][^>]*>(.*?)</a>").matcher(header);
         if (!link.find()) return null;
         String body = link.group(1);
-        Matcher count = pattern("\\bclass\\s*=\\s*['\"][^'\"]*\\bprompt_news_([0-9]+)\\b").matcher(body);
-        if (!count.find()) count = pattern("([0-9]+)").matcher(body.replaceAll("<[^>]*>", ""));
-        else return number(count.group(1));
+        if (id.equals("pm_ntc")) {
+            Matcher classes = pattern("<[^>]*?\\sclass\\s*=\\s*(['\"])(.*?)\\1[^>]*>").matcher(body);
+            String digits = null;
+            while (classes.find()) {
+                for (String name : classes.group(2).split("\\s+")) {
+                    if (name.equals("prompt_news")) return 1;
+                    if (digits == null && name.matches("prompt_news_[0-9]+")) {
+                        digits = name.substring("prompt_news_".length());
+                    }
+                }
+            }
+            if (digits != null) return number(digits);
+        } else {
+            Matcher count = pattern("\\bclass\\s*=\\s*['\"][^'\"]*\\bprompt_news_([0-9]+)\\b").matcher(body);
+            if (count.find()) return number(count.group(1));
+        }
+        Matcher count = pattern("([0-9]+)").matcher(body.replaceAll("<[^>]*>", ""));
         if (count.find()) return number(count.group(1));
         return 0;
     }

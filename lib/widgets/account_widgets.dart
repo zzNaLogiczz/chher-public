@@ -14,18 +14,22 @@ import 'avatar_image.dart';
 /// 分组里的身份一行:头像 56、名字、UID,点进个人主页(或登录)
 class AccountIdentityRow extends StatelessWidget {
   final String name;
+  final Widget? title;
   final String? avatarUrl;
   final String? detail;
   final VoidCallback? onTap;
+  final Widget? trailing;
 
   /// 压在漆面顶栏上(我的页身份卡):头像 54、奶白名字、淡朱 UID
   final bool onLac;
   const AccountIdentityRow({
     super.key,
     required this.name,
+    this.title,
     this.avatarUrl,
     this.detail,
     this.onTap,
+    this.trailing,
     this.onLac = false,
   });
 
@@ -45,12 +49,13 @@ class AccountIdentityRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  name,
-                  style: onLac
-                      ? AppType.title1.copyWith(color: t.onLac)
-                      : AppType.title2.copyWith(color: t.text),
-                ),
+                title ??
+                    Text(
+                      name,
+                      style: onLac
+                          ? AppType.title1.copyWith(color: t.onLac)
+                          : AppType.title2.copyWith(color: t.text),
+                    ),
                 if (detail != null)
                   Text(
                     detail!,
@@ -61,14 +66,20 @@ class AccountIdentityRow extends StatelessWidget {
               ],
             ),
           ),
-          if (onTap != null)
+          if (trailing != null)
+            trailing!
+          else if (onTap != null)
             Icon(AppIcons.forward, size: 13, color: onLac ? t.onLac3 : t.text3),
         ],
       ),
     );
     return onTap == null
         ? content
-        : PressHighlight(onTap: onTap, semanticLabel: name, child: content);
+        : PressHighlight(
+            onTap: onTap,
+            semanticLabel: title == null ? name : '主页',
+            child: content,
+          );
   }
 }
 

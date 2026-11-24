@@ -12,6 +12,12 @@ import '../models/models.dart';
 String cleanText(String? raw) =>
     (raw ?? '').replaceAll(RegExp(r'[\s ]+'), ' ').trim();
 
+/// 头像 img 地址:Discuz X5.0 起为懒加载 data-src,旧版为 src。
+String? avatarSrcOf(dom.Element? img) {
+  if (img == null) return null;
+  return img.attributes['src'] ?? img.attributes['data-src'];
+}
+
 /// 克隆后移除若干选择器,再取文本。用于私信预览剔掉操作区。
 String textWithout(dom.Element? el, List<String> dropSelectors) {
   if (el == null) return '';

@@ -18,6 +18,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/space_fixtures.dart';
+
 const _avatar =
     'https://www.chiphell.com/data/avatar/000/08/10/01_avatar_small.jpg';
 
@@ -325,7 +327,7 @@ ${_comment('<a href="space-uid-81001.html">合成甲</a>', cid: 3)}
           await tester.ensureVisible(target);
           await tester.pumpAndSettle();
           await tester.tap(target);
-          await tester.pumpAndSettle();
+          await settleProfile(tester, find.text('合成主页$uid'));
           expect(find.byType(UserDrawer), findsOneWidget);
           expect(tester.widget<UserDrawer>(find.byType(UserDrawer)).uid, uid);
           expect(

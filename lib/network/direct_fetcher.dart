@@ -53,6 +53,7 @@ class DirectFetcher implements ChhFetcher, AjaxFormFetcher, FormFieldsFetcher {
 
   @override
   Future<ChhResponse> getHtml(Uri url, {Map<String, String>? headers}) async {
+    final generation = jar.generation;
     try {
       final h = <String, String>{...?headers};
       _attachCookies(h);
@@ -62,7 +63,7 @@ class DirectFetcher implements ChhFetcher, AjaxFormFetcher, FormFieldsFetcher {
       );
       // 会话 Cookie 就是在取页面时下发的,必须收下,后续提交要用
       final set = r.headers.map['set-cookie'] ?? const <String>[];
-      jar.absorb(set);
+      jar.absorb(set, generation: generation);
       return ChhResponse(r.statusCode ?? 0, r.data ?? '', setCookies: set);
     } on DioException catch (e) {
       return ChhResponse(-1, '', error: _failureReason(e));
@@ -98,6 +99,7 @@ class DirectFetcher implements ChhFetcher, AjaxFormFetcher, FormFieldsFetcher {
     bool ajax = false,
     List<MapEntry<String, String>>? fields,
   }) async {
+    final generation = jar.generation;
     try {
       final h = <String, String>{
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -113,13 +115,13 @@ class DirectFetcher implements ChhFetcher, AjaxFormFetcher, FormFieldsFetcher {
         options: Options(headers: h, followRedirects: false),
       );
       final set = r.headers.map['set-cookie'] ?? const <String>[];
-      jar.absorb(set);
+      jar.absorb(set, generation: generation);
 
       final status = r.statusCode ?? 0;
       if (status >= 300 && status < 400) {
         // A rating may already be committed. A failed landing-page GET must
         // never turn this redirect into a reason to submit through WebView.
-        if (ajax || fields != null) {
+        if (ajax || fields != null || generation != jar.generation) {
           return ChhResponse(status, r.data ?? '', setCookies: set);
         }
         return await _followRedirect(
@@ -127,6 +129,7 @@ class DirectFetcher implements ChhFetcher, AjaxFormFetcher, FormFieldsFetcher {
           r.headers.value('location'),
           set,
           status,
+          generation,
         );
       }
       return ChhResponse(status, r.data ?? '', setCookies: set);
@@ -141,6 +144,7 @@ class DirectFetcher implements ChhFetcher, AjaxFormFetcher, FormFieldsFetcher {
     Map<String, String> fields,
     UploadFile file,
   ) async {
+    final generation = jar.generation;
     try {
       final h = <String, String>{'Referer': '${ChhUrls.base}/'};
       _attachCookies(h);
@@ -164,7 +168,7 @@ class DirectFetcher implements ChhFetcher, AjaxFormFetcher, FormFieldsFetcher {
         ),
       );
       final set = r.headers.map['set-cookie'] ?? const <String>[];
-      jar.absorb(set);
+      jar.absorb(set, generation: generation);
       return ChhResponse(r.statusCode ?? 0, r.data ?? '', setCookies: set);
     } on DioException catch (e) {
       return ChhResponse(-1, '', error: _failureReason(e));
@@ -213,6 +217,7 @@ class DirectFetcher implements ChhFetcher, AjaxFormFetcher, FormFieldsFetcher {
     String? location,
     List<String> set,
     int acceptedStatus,
+    int generation,
   ) async {
     if (location == null || location.isEmpty) {
       // 有跳转但没给地址:已被受理,只是拿不到落地页
@@ -237,7 +242,7 @@ class DirectFetcher implements ChhFetcher, AjaxFormFetcher, FormFieldsFetcher {
       );
     }
     final more = r.headers.map['set-cookie'] ?? const <String>[];
-    jar.absorb(more);
+    jar.absorb(more, generation: generation);
     return ChhResponse(
       r.statusCode ?? 0,
       r.data ?? '',

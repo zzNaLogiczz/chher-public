@@ -1,12 +1,17 @@
 /// 个人中心域读操作:资料、我的帖子、收藏、积分、权限、勋章
 library;
 
+import 'package:flutter/foundation.dart';
+
 import '../core/chh_urls.dart';
 import '../models/models.dart';
 import '../network/chh_client.dart';
 import '../parser/misc_parser.dart';
 import '../parser/space_parser.dart';
 import 'me_profile_cache.dart';
+
+UserProfile _parseProfile(({String html, String uid}) request) =>
+    parseUserProfile(request.html, uid: request.uid);
 
 class SpaceRepository {
   final ChhClient client;
@@ -15,10 +20,8 @@ class SpaceRepository {
   MeProfileCache get meCache => _meCaches[this] ??= MeProfileCache();
 
   Future<UserProfile> profile(String uid, {bool refresh = false}) async {
-    return parseUserProfile(
-      await client.getHtml(ChhUrls.userSpace(uid), refresh: refresh),
-      uid: uid,
-    );
+    final html = await client.getHtml(ChhUrls.userSpace(uid), refresh: refresh);
+    return compute(_parseProfile, (html: html, uid: uid));
   }
 
   /// 我的主题 / 我的回复 / 我的点评 / 好友的帖子

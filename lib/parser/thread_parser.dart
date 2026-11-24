@@ -66,11 +66,10 @@ ThreadDetail parseThreadDocument(
 
     final authorUid = ChhUrls.uidFromUrl(authorLink?.attributes['href'] ?? '');
 
-    final avatarRaw = table.querySelector('div.avatar img')?.attributes['src'];
+    final avatarRaw = avatarSrcOf(table.querySelector('div.avatar img'));
     final avatarUrl = avatarRaw == null ? null : ChhUrls.absolutize(avatarRaw);
 
-    final timeRaw =
-        table
+    final timeRaw = table
             .querySelector('em[id^="authorposton"]')
             ?.text
             .replaceFirst(RegExp(r'^发表于\s*'), '')
@@ -369,9 +368,7 @@ PostRating? _ratingOf(dom.Document doc, int tid, int pid) {
         : cells[0].text.trim();
     if (user.isEmpty) continue;
     final avatarRaw =
-        (cells[0].querySelector('img.user_avatar') ??
-                cells[0].querySelector('img'))
-            ?.attributes['src'];
+        avatarSrcOf(cells[0].querySelector('img.user_avatar') ?? cells[0].querySelector('img'));
     entries.add(
       RatingEntry(
         user: user,
@@ -428,8 +425,7 @@ List<PostComment> _commentsOf(dom.Document doc, int pid) {
     if (link == null) continue;
 
     final avatarRaw =
-        (item.querySelector('img.user_avatar') ?? item.querySelector('img'))
-            ?.attributes['src'];
+        avatarSrcOf(item.querySelector('img.user_avatar') ?? item.querySelector('img'));
     final time = item.querySelectorAll('.xg1').lastOrNull;
     final clone = item.clone(true);
     for (final drop in clone.querySelectorAll(

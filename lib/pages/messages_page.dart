@@ -1,6 +1,7 @@
 /// Source-backed message counters, explicit filters and readable activity rows.
 library;
 
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -84,6 +85,9 @@ class MessagesBody extends StatefulWidget {
 
 class _MessagesBodyState extends State<MessagesBody> {
   final _readNotices = <String>{};
+  final _readPms =
+      <(int, PmFilter, String), ({PmConversation item, int revision})>{};
+  int _pmReadRevision = 0;
   int _section = 0;
   int _view = 0;
   int _pm = 0;
@@ -161,6 +165,8 @@ class _MessagesBodyState extends State<MessagesBody> {
     animation: chhSession,
     builder: (context, _) {
       final onLac = AppTokens.of(context).style == AppearanceStyle.cinnabar;
+      final auth = chhSession.authenticationRevision;
+      final pmFilter = _pm == 0 ? PmFilter.privatePm : PmFilter.announcePm;
       Widget segmented({bool compact = false}) => AppSegmented<int>(
         options: const [
           PickerOption(value: 0, label: '提醒'),
@@ -241,7 +247,9 @@ class _MessagesBodyState extends State<MessagesBody> {
                 chhSession.loggedIn,
               )),
               revision: _pm,
-              updateCount: chhSession.badges.messages,
+              updateCount: pmFilter == PmFilter.privatePm
+                  ? chhSession.badges.messages
+                  : 0,
               groupByDate: false,
               empty: _pm == 0 ? '还没有私人消息' : '暂时没有公共消息',
               identity: (c) => c.id,
@@ -249,14 +257,62 @@ class _MessagesBodyState extends State<MessagesBody> {
               precedingBottomPadding: (_) =>
                   NoticeTokens.conversationPadding.bottom,
               load: (page, {bool refresh = false}) => _repository.conversations(
-                filter: _pm == 0 ? PmFilter.privatePm : PmFilter.announcePm,
+                filter: pmFilter,
                 page: page,
                 refresh: refresh,
               ),
+              onLoading: (page) {
+                final readRevision = _pmReadRevision;
+                return (result) {
+                  final locallyRead = <String>{};
+                  for (final item in result.items) {
+                    final key = (auth, pmFilter, item.id);
+                    final read = _readPms[key];
+                    if (read == null) continue;
+                    if (read.revision > readRevision ||
+                        (item.unread &&
+                            read.item.unread &&
+                            read.item.preview == item.preview &&
+                            read.item.timeRaw == item.timeRaw)) {
+                      locallyRead.add(item.id);
+                      if (item.unread) {
+                        _readPms[key] = (item: item, revision: read.revision);
+                      }
+                    } else {
+                      _readPms.remove(key);
+                    }
+                  }
+                  if (pmFilter != PmFilter.privatePm ||
+                      chhSession.authenticationRevision != auth ||
+                      !chhSession.loggedIn ||
+                      chhSession.currentExpired ||
+                      chhSession.accountOperationInProgress) {
+                    return null;
+                  }
+                  chhSession.updatePmList(
+                    result,
+                    page: page,
+                    locallyRead: locallyRead,
+                  );
+                  return chhSession.badges.messages;
+                };
+              },
               itemBuilder: (c) => _ConversationRow(
                 key: ValueKey(c.id),
                 conversation: c,
                 repository: _repository,
+                read: _readPms.containsKey((auth, pmFilter, c.id)),
+                onRead: () {
+                  setState(() {
+                    _readPms[(auth, pmFilter, c.id)] = (
+                      item: c,
+                      revision: ++_pmReadRevision,
+                    );
+                  });
+                  if (pmFilter == PmFilter.privatePm) {
+                    chhSession.markPmRead(c.id);
+                  }
+                },
               ),
               filter: PmFilterLabel(
                 value: _pm,
@@ -392,10 +448,14 @@ class _NoticeRow extends StatelessWidget {
 class _ConversationRow extends StatelessWidget {
   final PmConversation conversation;
   final MessageRepository repository;
+  final bool read;
+  final VoidCallback onRead;
   const _ConversationRow({
     super.key,
     required this.conversation,
     required this.repository,
+    required this.read,
+    required this.onRead,
   });
   @override
   Widget build(BuildContext context) => NoticeRow(
@@ -408,14 +468,17 @@ class _ConversationRow extends StatelessWidget {
     time: formatDisplayTime(raw: conversation.timeRaw),
     conversation: true,
     isOutgoing: conversation.isOutgoing,
-    unread: conversation.unread,
+    unread: conversation.unread && !read,
     text: conversation.preview,
-    onTap: () => Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) =>
-            PmThreadPage(conversation: conversation, repository: repository),
-      ),
-    ),
+    onTap: () {
+      onRead();
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) =>
+              PmThreadPage(conversation: conversation, repository: repository),
+        ),
+      );
+    },
   );
 }
 
@@ -439,6 +502,7 @@ class _MessageFeed<T> extends StatefulWidget {
     this.compactMisty = false,
     this.groupByDate = true,
     this.updateCount = 0,
+    this.onLoading,
   });
   final Future<Paged<T>> Function(int page, {bool refresh}) load;
   final Future<Paged<T>> Function(Paged<T>)? next;
@@ -451,6 +515,7 @@ class _MessageFeed<T> extends StatefulWidget {
   final ScrollController scroll;
   final bool active;
   final ValueChanged<Future<void> Function()> onRefreshReady;
+  final int? Function(Paged<T> result) Function(int page)? onLoading;
   final TabScrollBuilder? buildScroll;
   final Object revision;
   final bool groupByDate;
@@ -461,7 +526,7 @@ class _MessageFeed<T> extends StatefulWidget {
 }
 
 class _MessageFeedState<T> extends State<_MessageFeed<T>>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late final _arrival = AnimationController(
     vsync: this,
     duration: AppMotion.fade,
@@ -473,6 +538,7 @@ class _MessageFeedState<T> extends State<_MessageFeed<T>>
   Paged<T>? _last, _pending;
   bool _busy = false, _started = false, _hasNext = false, _failedMore = false;
   bool _refreshQueued = false;
+  int? _loadedUpdateCount;
   Object? _error;
   int _generation = 0;
   bool get _atTop =>
@@ -483,6 +549,7 @@ class _MessageFeedState<T> extends State<_MessageFeed<T>>
   void initState() {
     super.initState();
     _arrival;
+    WidgetsBinding.instance.addObserver(this);
     _scroll.addListener(_onScroll);
     widget.onRefreshReady(() => _fetch(refresh: true));
     _fetch(refresh: true);
@@ -491,6 +558,8 @@ class _MessageFeedState<T> extends State<_MessageFeed<T>>
   @override
   void didUpdateWidget(covariant _MessageFeed<T> oldWidget) {
     super.didUpdateWidget(oldWidget);
+    final previousCount = _loadedUpdateCount ?? oldWidget.updateCount;
+    _loadedUpdateCount = null;
     if (oldWidget.revision != widget.revision) {
       _generation++;
       _refreshQueued = false;
@@ -503,13 +572,41 @@ class _MessageFeedState<T> extends State<_MessageFeed<T>>
         _hasNext = false;
       }
       _fetch(refresh: true, revealOnArrival: true);
-    } else if (widget.updateCount > oldWidget.updateCount) {
-      _fetch(refresh: true, deferWhileReading: true);
+    } else {
+      if (widget.updateCount > previousCount) _refreshQueued = true;
+      unawaited(_refreshWhenVisible());
     }
+  }
+
+  Future<void> _refreshWhenVisible() async {
+    final visible =
+        TickerMode.valuesOf(context).enabled &&
+        (ModalRoute.of(context)?.isCurrent ?? true);
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    if (!_refreshQueued ||
+        _busy ||
+        !widget.active ||
+        !visible ||
+        (lifecycle != null && lifecycle != AppLifecycleState.resumed)) {
+      return;
+    }
+    await _fetch(refresh: true, deferWhileReading: true);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    unawaited(_refreshWhenVisible());
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) unawaited(_refreshWhenVisible());
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _scroll.removeListener(_onScroll);
     _arrival.dispose();
     super.dispose();
@@ -586,11 +683,9 @@ class _MessageFeedState<T> extends State<_MessageFeed<T>>
     bool deferWhileReading = false,
     bool revealOnArrival = false,
   }) async {
-    if (_busy) {
-      if (deferWhileReading) _refreshQueued = true;
-      return;
-    }
+    if (_busy) return;
     if (more && !_hasNext) return;
+    if (!more) _refreshQueued = false;
     final generation = _generation;
     setState(() {
       _busy = true;
@@ -598,17 +693,17 @@ class _MessageFeedState<T> extends State<_MessageFeed<T>>
     });
     try {
       final previous = _last;
+      final page = more ? (previous?.page.current ?? 0) + 1 : 1;
+      final onLoaded = widget.onLoading?.call(page);
       final result =
           more &&
               previous != null &&
               previous.nextUrl != null &&
               widget.next != null
           ? await widget.next!(previous)
-          : await widget.load(
-              more ? (previous?.page.current ?? 0) + 1 : 1,
-              refresh: refresh,
-            );
+          : await widget.load(page, refresh: refresh);
       if (!mounted || generation != _generation) return;
+      _loadedUpdateCount = onLoaded?.call(result);
       setState(() {
         if (deferWhileReading &&
             !widget.groupByDate &&
@@ -646,10 +741,7 @@ class _MessageFeedState<T> extends State<_MessageFeed<T>>
           _busy = false;
           _started = true;
         });
-        if (_refreshQueued) {
-          _refreshQueued = false;
-          await _fetch(refresh: true, deferWhileReading: true);
-        }
+        await _refreshWhenVisible();
       }
     }
   }

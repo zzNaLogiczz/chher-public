@@ -2,6 +2,10 @@ import 'package:flutter/widgets.dart';
 
 import 'loading_tokens.dart';
 
+abstract final class ToastColors {
+  static const ink = Color(0xFF1E1E20);
+}
+
 /// Feedback dimensions from the opening-post and reply reference designs.
 abstract final class FeedbackMetrics {
   static const listPressSlop = 8.0;
