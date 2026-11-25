@@ -14,7 +14,9 @@ const _rowHeight = 56.0;
 
 Widget _app(
   Future<void> Function() onRefresh, {
+  Future<void> Function()? onRefreshAtEnd,
   ScrollPhysics physics = const ClampingScrollPhysics(),
+  int itemCount = 40,
 }) => MaterialApp(
   theme: buildAppTheme(Brightness.light),
   home: Scaffold(
@@ -23,10 +25,11 @@ Widget _app(
         height: _viewportHeight,
         child: ChhersRefreshIndicator(
           onRefresh: onRefresh,
+          onRefreshAtEnd: onRefreshAtEnd,
           child: ListView.builder(
             physics: physics,
             itemExtent: _rowHeight,
-            itemCount: 40,
+            itemCount: itemCount,
             itemBuilder: (context, index) => Text('行 $index'),
           ),
         ),
@@ -38,12 +41,16 @@ Widget _app(
 ChhersLoader _indicator(WidgetTester tester) =>
     tester.widget<ChhersLoader>(find.byType(ChhersLoader));
 
-Future<TestGesture> _startDrag(WidgetTester tester) async {
+Future<TestGesture> _startDrag(
+  WidgetTester tester, {
+  bool upward = false,
+}) async {
   final gesture = await tester.startGesture(
     tester.getCenter(find.byType(ListView)),
   );
-  await gesture.moveBy(const Offset(0, kTouchSlop));
-  await gesture.moveBy(const Offset(0, 1));
+  final sign = upward ? -1.0 : 1.0;
+  await gesture.moveBy(Offset(0, sign * kTouchSlop));
+  await gesture.moveBy(Offset(0, sign));
   await tester.pump();
   return gesture;
 }
@@ -138,6 +145,98 @@ void main() {
     expect(calls, 1);
     expect(find.byType(ChhersLoader), findsNothing);
   });
+
+  for (final physics in const [
+    ClampingScrollPhysics(),
+    BouncingScrollPhysics(),
+  ]) {
+    testWidgets('the end refresh is compact with ${physics.runtimeType}', (
+      tester,
+    ) async {
+      var topCalls = 0;
+      var endCalls = 0;
+      final completion = Completer<void>();
+      await tester.pumpWidget(
+        _app(
+          () async => topCalls++,
+          onRefreshAtEnd: () {
+            endCalls++;
+            return completion.future;
+          },
+          physics: physics,
+        ),
+      );
+      final position = tester
+          .state<ScrollableState>(find.byType(Scrollable))
+          .position;
+      position.jumpTo(position.maxScrollExtent - _rowHeight);
+      await tester.pumpAndSettle();
+      final crossing = await _startDrag(tester, upward: true);
+      await crossing.moveBy(const Offset(0, -200));
+      await crossing.up();
+      await tester.pumpAndSettle();
+      expect(endCalls, 0);
+
+      position.jumpTo(position.maxScrollExtent);
+      await tester.pumpAndSettle();
+      final inside = await _startDrag(tester);
+      await inside.moveBy(const Offset(0, 180));
+      await inside.moveBy(const Offset(0, -80));
+      await inside.up();
+      await tester.pumpAndSettle();
+      expect(endCalls, 0);
+
+      position.jumpTo(position.maxScrollExtent);
+      await tester.pumpAndSettle();
+      final lastRow = find.text('行 39');
+      final origin = tester.getTopLeft(lastRow);
+      final pull = await _startDrag(tester, upward: true);
+      await pull.moveBy(const Offset(0, -250));
+      await tester.pump();
+      expect(_indicator(tester).progress, 1);
+      expect(origin.dy - tester.getTopLeft(lastRow).dy, closeTo(56, 1));
+      expect(endCalls, 0);
+      await pull.up();
+      for (var frame = 0; frame < 50 && endCalls == 0; frame++) {
+        await tester.pump(const Duration(milliseconds: 20));
+      }
+      await tester.pump();
+      await tester.pump(AppMotion.scrollChrome.duration);
+      expect(topCalls, 0);
+      expect(endCalls, 1);
+      expect(_indicator(tester).animate, isTrue);
+      expect(origin.dy - tester.getTopLeft(lastRow).dy, closeTo(44, 1));
+
+      completion.complete();
+      await tester.pumpAndSettle();
+      expect(find.byType(ChhersLoader), findsNothing);
+      expect(tester.getTopLeft(lastRow), origin);
+    });
+  }
+
+  testWidgets('a short list selects the refresh edge by drag direction', (
+    tester,
+  ) async {
+    var topCalls = 0;
+    var endCalls = 0;
+    await tester.pumpWidget(
+      _app(
+        () async => topCalls++,
+        onRefreshAtEnd: () async => endCalls++,
+        physics: const AlwaysScrollableScrollPhysics(),
+        itemCount: 1,
+      ),
+    );
+    await tester.drag(find.byType(ListView), const Offset(0, -160));
+    await tester.pumpAndSettle();
+    expect(endCalls, 1);
+    expect(topCalls, 0);
+    await tester.drag(find.byType(ListView), const Offset(0, 160));
+    await tester.pumpAndSettle();
+    expect(topCalls, 1);
+    expect(endCalls, 1);
+  });
+
   for (final disabledTicker in [true, false]) {
     testWidgets(
       'refresh dismisses when ${disabledTicker ? 'TickerMode is off' : 'the app backgrounds'}',

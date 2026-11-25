@@ -7,6 +7,7 @@ library;
 
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
 import '../core/app_log.dart';
@@ -51,6 +52,17 @@ class WebViewFetcher implements ChhFetcher, AjaxFormFetcher, FormFieldsFetcher {
   @override
   String get name => 'webview';
 
+  InAppWebViewSettings _settings({
+    CacheMode cacheMode = CacheMode.LOAD_DEFAULT,
+  }) => InAppWebViewSettings(
+    javaScriptEnabled: true,
+    incognito: false,
+    cacheMode: cacheMode,
+    // 桌面 UA:实测桌面 Chrome UA + 真浏览器 = 直接放行
+    userAgent:
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36',
+  );
+
   Future<InAppWebViewController> _ensure() async {
     if (_disposed) throw StateError('WebViewFetcher disposed');
     final existing = _controller;
@@ -58,13 +70,7 @@ class WebViewFetcher implements ChhFetcher, AjaxFormFetcher, FormFieldsFetcher {
 
     final created = Completer<InAppWebViewController>();
     final headless = HeadlessInAppWebView(
-      initialSettings: InAppWebViewSettings(
-        javaScriptEnabled: true,
-        incognito: false,
-        // 桌面 UA:实测桌面 Chrome UA + 真浏览器 = 直接放行
-        userAgent:
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36',
-      ),
+      initialSettings: _settings(),
       onWebViewCreated: (c) {
         _controller = c;
         if (!created.isCompleted) created.complete(c);
@@ -101,16 +107,43 @@ class WebViewFetcher implements ChhFetcher, AjaxFormFetcher, FormFieldsFetcher {
       _enqueue(
         () => headers?['X-Requested-With'] == 'XMLHttpRequest'
             ? _ajaxRequest(url)
-            : _getHtml(url),
+            : _getHtml(
+                url,
+                revalidate: headers?['Cache-Control'] == 'no-cache',
+              ),
       );
 
-  Future<ChhResponse> _getHtml(Uri url) async {
+  Future<ChhResponse> _getHtml(Uri url, {required bool revalidate}) async {
     final controller = await _ensure();
+    final bypassAndroidCache =
+        revalidate && defaultTargetPlatform == TargetPlatform.android;
+    final request = URLRequest(
+      url: WebUri.uri(url),
+      headers: revalidate ? {'Cache-Control': 'no-cache'} : null,
+      cachePolicy: revalidate
+          ? URLRequestCachePolicy.RELOAD_IGNORING_LOCAL_CACHE_DATA
+          : null,
+    );
+    if (!bypassAndroidCache) return _loadDocument(controller, request);
+    // Android ignores URLRequest.cachePolicy and shares this WebView across reads.
+    await controller.setSettings(
+      settings: _settings(cacheMode: CacheMode.LOAD_NO_CACHE),
+    );
+    try {
+      return await _loadDocument(controller, request);
+    } finally {
+      if (!_disposed) await controller.setSettings(settings: _settings());
+    }
+  }
 
+  Future<ChhResponse> _loadDocument(
+    InAppWebViewController controller,
+    URLRequest request,
+  ) async {
     for (var attempt = 0; attempt < 2; attempt++) {
       _navigationFailed = false;
       _loadCompleter = Completer<void>();
-      await controller.loadUrl(urlRequest: URLRequest(url: WebUri.uri(url)));
+      await controller.loadUrl(urlRequest: request);
       try {
         await _loadCompleter!.future.timeout(const Duration(seconds: 30));
       } on TimeoutException {

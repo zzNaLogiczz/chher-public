@@ -14,14 +14,20 @@ class AppSheetRoute<T> extends ModalSheetRoute<T> {
     required super.barrierColor,
     super.barrierLabel = '关闭',
     this.reduced = false,
+    this.fadeWhenReduced = false,
     this.holdViewInsetsOnExit = false,
   }) : super(
          swipeDismissible: false,
          transitionCurve: Curves.linear,
-         transitionDuration: reduced ? Duration.zero : AppMotion.sheetDuration,
+         transitionDuration: !reduced
+             ? AppMotion.sheetDuration
+             : fadeWhenReduced
+             ? AppMotion.reducedFade
+             : Duration.zero,
        );
 
   final bool reduced;
+  final bool fadeWhenReduced;
   final bool holdViewInsetsOnExit;
   MediaQueryData? _lastViewportMedia;
   double? _dragStart;
@@ -41,6 +47,16 @@ class AppSheetRoute<T> extends ModalSheetRoute<T> {
           controller!.velocity,
           snapToEnd: true,
         );
+
+  @override
+  Widget buildTransitions(
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) => reduced && fadeWhenReduced
+      ? FadeTransition(opacity: animation, child: child)
+      : super.buildTransitions(context, animation, secondaryAnimation, child);
 
   @override
   Widget buildViewport(BuildContext context, Widget child) {
@@ -152,7 +168,10 @@ class AppSheetRoute<T> extends ModalSheetRoute<T> {
 
   @override
   Widget buildModalBarrier() => CustomPaint(
-    painter: _SheetBarrierPainter(sheetVisibility, barrierColor!),
+    painter: _SheetBarrierPainter(
+      reduced && fadeWhenReduced ? animation! : sheetVisibility,
+      barrierColor!,
+    ),
     child: ModalBarrier(
       dismissible: barrierDismissible,
       semanticsLabel: barrierLabel,

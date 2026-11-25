@@ -18,6 +18,7 @@ import '../di.dart';
 import '../controllers/article_reader_controller.dart';
 import 'article_discussion_page.dart';
 import '../data/editorial_cover_cache.dart';
+import '../data/history_index.dart';
 import '../design/tokens.dart';
 import '../design/motion.dart';
 import '../design/system_ui.dart';
@@ -176,6 +177,16 @@ class _ArticlePageState extends State<ArticlePage> {
     final pages = _reader.pages;
     _paperChrome.value =
         _reader.thread != null || (!_hasCover && pages.isEmpty);
+    if (_indexedPages == 0 && pages.isNotEmpty) {
+      final article = pages.first;
+      historyIndex.record(
+        type: HistoryType.article,
+        id: article.aid,
+        title: article.title,
+        column: article.categoryName ?? widget.preview?.categoryName,
+        author: article.author ?? '',
+      );
+    }
     // Loading/error notifications do not change already-indexed content.
     for (var page = _indexedPages; page < pages.length; page++) {
       for (final block in pages[page].content) {
@@ -314,6 +325,7 @@ class _ArticlePageState extends State<ArticlePage> {
                   initialPage: thread.detail?.page.current ?? 1,
                   initialDetail: thread.detail,
                   initialDetailCacheGeneration: thread.cacheGeneration,
+                  initialDetailThreadRevision: thread.threadCacheRevision,
                   landingChrome: _landingChrome,
                   landingTitle: _hasCover ? thread.title : widget.title,
                   landingSkeletonVisible: _landingSkeletonVisible,

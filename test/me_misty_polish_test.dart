@@ -8,10 +8,12 @@ import 'package:chh_app/di.dart';
 import 'package:chh_app/models/models.dart';
 import 'package:chh_app/network/chh_client.dart';
 import 'package:chh_app/network/chh_fetcher.dart';
+import 'package:chh_app/pages/follow_block_page.dart';
 import 'package:chh_app/pages/me_page.dart';
 import 'package:chh_app/pages/settings_page.dart';
 import 'package:chh_app/pages/user_page.dart';
 import 'package:chh_app/parser/header_parser.dart';
+import 'package:chh_app/ui/nav_bar.dart';
 import 'package:chh_app/ui/grouped.dart';
 import 'package:chh_app/ui/press.dart';
 import 'package:chh_app/widgets/account_widgets.dart';
@@ -247,12 +249,27 @@ void main() {
       expect(find.text('登录 CHH'), findsNothing);
       expect(find.byType(LacEntryStrip), findsNothing);
       expect(find.byType(GroupedRow), findsNWidgets(3));
-      expect(find.text('黑名单'), findsOneWidget);
+      final followBlock = find.text('关注及黑名单');
+      expect(followBlock, findsOneWidget);
+      expect(find.text('黑名单'), findsNothing);
       expect(find.text('设置'), findsOneWidget);
       expect(find.text('支持开发'), findsOneWidget);
       expect(_stats, findsNothing);
       expect(_placeholder, findsNothing);
       expect(profiles.requests, isEmpty);
+      await tester.tap(followBlock);
+      await tester.pumpAndSettle();
+      expect(find.byType(FollowBlockPage), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(LargeTitleHeader),
+          matching: find.text('关注及黑名单'),
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('还没有关注任何人'), findsOneWidget);
+      await tester.tap(find.byTooltip('返回'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('登录'));
       await tester.pumpAndSettle();
       expect(find.text('本地登录页'), findsOneWidget);

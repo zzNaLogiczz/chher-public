@@ -29,14 +29,10 @@ SearchResultPage parseSearchResult(String html) {
     final title = titleA.text.replaceAll(RegExp(r'\s+'), ' ').trim();
     if (title.isEmpty) continue;
 
-    var replies = 0;
-    var views = 0;
     final stats = li.querySelector('p.xg1')?.text ?? '';
     final m = RegExp(r'(\d+)\s*个回复\s*-\s*(\d+)\s*次查看').firstMatch(stats);
-    if (m != null) {
-      replies = int.parse(m.group(1)!);
-      views = int.parse(m.group(2)!);
-    }
+    final replies = int.tryParse(m?.group(1) ?? '');
+    final views = int.tryParse(m?.group(2) ?? '') ?? 0;
 
     // 结构:p.xg1(统计)…若干摘要 p…最后一个 p(时间-作者-版块)
     final ps = li.querySelectorAll('p');

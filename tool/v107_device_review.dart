@@ -10,13 +10,13 @@ import 'package:chh_app/di.dart';
 import 'package:chh_app/models/models.dart';
 import 'package:chh_app/models/post_interaction.dart';
 import 'package:chh_app/network/chh_fetcher.dart';
-import 'package:chh_app/pages/blocked_users_page.dart';
+import 'package:chh_app/pages/follow_block_page.dart';
 import 'package:chh_app/pages/thread_detail_page.dart';
 import 'package:chh_app/parser/header_parser.dart';
 import 'package:chh_app/ui/app_button.dart';
 
 const _actor = '999999991';
-final _blocks = UserBlockIndex(null);
+final _blocks = UserBlockIndex.forTesting(null);
 final _interactions = PostInteractionRepository(
   chhClient,
   sessionIdentity: () => _actor,
@@ -70,10 +70,10 @@ class _ReviewHome extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           AppButton(
-            label: '黑名单搜索',
+            label: '关注及黑名单',
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(
-                builder: (_) => BlockedUsersPage(index: _blocks),
+                builder: (_) => FollowBlockPage(blocks: _blocks),
               ),
             ),
           ),

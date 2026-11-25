@@ -4,6 +4,7 @@ library;
 import 'package:flutter/material.dart';
 
 import '../data/space_repository.dart';
+import '../data/user_block_index.dart';
 import '../design/icons.dart';
 import '../design/tokens.dart';
 import '../design/typography.dart';
@@ -15,17 +16,36 @@ Future<void> showUserDrawer(
   BuildContext context,
   String uid, {
   SpaceRepository? repository,
+  UserBlockIndex? blockIndex,
+  BlockedUserSource? blockSource,
+  VoidCallback? onOpenBlockSource,
 }) => pushSideDrawer(
   context,
-  builder: (_) => UserDrawer(uid: uid, repository: repository),
+  builder: (_) => UserDrawer(
+    uid: uid,
+    repository: repository,
+    blockIndex: blockIndex,
+    blockSource: blockSource,
+    onOpenBlockSource: onOpenBlockSource,
+  ),
   barrierLabel: '关闭',
 );
 
 class UserDrawer extends StatefulWidget {
   final String uid;
   final SpaceRepository? repository;
+  final UserBlockIndex? blockIndex;
+  final BlockedUserSource? blockSource;
+  final VoidCallback? onOpenBlockSource;
 
-  const UserDrawer({super.key, required this.uid, this.repository});
+  const UserDrawer({
+    super.key,
+    required this.uid,
+    this.repository,
+    this.blockIndex,
+    this.blockSource,
+    this.onOpenBlockSource,
+  });
 
   @override
   State<UserDrawer> createState() => _UserDrawerState();
@@ -33,6 +53,14 @@ class UserDrawer extends StatefulWidget {
 
 class _UserDrawerState extends State<UserDrawer> {
   String _name = '';
+
+  Future<void> _openBlockSource() async {
+    final open = widget.onOpenBlockSource;
+    final route = ModalRoute.of(context);
+    Navigator.of(context).pop();
+    await route?.completed;
+    open?.call();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -69,6 +97,11 @@ class _UserDrawerState extends State<UserDrawer> {
             child: UserProfileBody(
               uid: widget.uid,
               repository: widget.repository,
+              blockIndex: widget.blockIndex,
+              blockSource: widget.blockSource,
+              onOpenBlockSource: widget.onOpenBlockSource == null
+                  ? null
+                  : _openBlockSource,
               onLoaded: (profile) {
                 if (_name != profile.name) {
                   setState(() => _name = profile.name);

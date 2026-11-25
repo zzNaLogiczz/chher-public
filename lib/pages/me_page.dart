@@ -28,7 +28,8 @@ import '../ui/chrome_button.dart';
 import '../ui/press.dart';
 import '../update/update_controller.dart';
 import 'favorites_page.dart';
-import 'blocked_users_page.dart';
+import 'follow_block_page.dart';
+import 'history_page.dart';
 import 'medals_page.dart';
 import 'my_threads_page.dart';
 import 'credit_log_page.dart';
@@ -961,6 +962,11 @@ class _Entries extends StatelessWidget {
           onTap: () => _push(context, const FavoritesPage()),
         ),
         LacEntryCell(
+          icon: AppIcons.historyBold,
+          label: '浏览历史',
+          onTap: () => _push(context, const HistoryPage()),
+        ),
+        LacEntryCell(
           icon: AppIcons.creditsBold,
           label: '积分记录',
           onTap: () => _push(context, const CreditLogPage()),
@@ -996,9 +1002,9 @@ class _Tools extends StatelessWidget {
             AppClip(
               radius: MeTokens.innerRadius,
               child: GroupedRow(
-                title: '黑名单',
+                title: '关注及黑名单',
                 leading: const IconTile(icon: AppIcons.forbiddenBold),
-                onTap: () => _push(context, const BlockedUsersPage()),
+                onTap: () => _push(context, const FollowBlockPage()),
               ),
             ),
             ListenableBuilder(

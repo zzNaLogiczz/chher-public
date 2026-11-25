@@ -26,6 +26,7 @@ Paged<ThreadSummary> parseTagThreads(String html) {
     if (tid == null || title.isEmpty) continue;
 
     final cells = tr.querySelectorAll('td');
+    final forum = tr.querySelector('a[href*="forum-"], a[href*="fid="]');
     items.add(
       ThreadSummary(
         tid: tid,
@@ -36,6 +37,8 @@ Paged<ThreadSummary> parseTagThreads(String html) {
         ),
         replies: 0,
         views: 0,
+        forumFid: ChhUrls.fidFromUrl(forum?.attributes['href'] ?? ''),
+        forumName: forum?.text.trim(),
         lastPostTimeRaw: cells.isEmpty ? null : cleanText(cells.last.text),
       ),
     );

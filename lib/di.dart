@@ -9,7 +9,10 @@ import 'dart:io';
 
 import 'package:flutter/widgets.dart';
 
+import 'data/follow_index.dart';
+import 'data/follow_poller.dart';
 import 'data/forum_repository.dart';
+import 'data/history_index.dart';
 import 'data/link_preview_repository.dart';
 import 'data/message_repository.dart';
 import 'data/portal_repository.dart';
@@ -45,10 +48,14 @@ final MessageNotifications messageNotifications = MessageNotifications(
 final ForumRepository forumRepo = ForumRepository(
   chhClient,
   session: chhSession,
+  follows: followIndex,
 );
 final PortalRepository portalRepo = PortalRepository(chhClient);
 final MessageRepository messageRepo = MessageRepository(chhClient);
-final SpaceRepository spaceRepo = SpaceRepository(chhClient);
+final SpaceRepository spaceRepo = SpaceRepository(
+  chhClient,
+  follows: followIndex,
+);
 final UserGroupLevels userGroupLevels = UserGroupLevels(chhClient);
 final PollRepository pollRepo = PollRepository(
   chhClient,
@@ -101,7 +108,13 @@ Future<void> setupDependencies() {
   unawaited(_attachMeCache());
   // 已读账本放在 filesDir(系统不得回收),同样异步解析;就绪前的标记留在内存,接线时补写
   unawaited(_attachReadIndex());
-  unawaited(_attachUserBlocks());
+  _followPoller ??= FollowPoller(
+    index: followIndex,
+    fetchThreads: spaceRepo.followedThreads,
+  );
+  chhSession.addListener(_localAccountSessionChanged);
+  _localAccountSessionChanged();
+  unawaited(_attachHistory());
   unawaited(_attachGroupLevels());
   pollStorageReady = _attachPollChoices();
   chhSession.addListener(_favoriteSessionChanged);
@@ -192,10 +205,34 @@ Future<void> _attachMeCache() async {
   }
 }
 
-Future<void> _attachUserBlocks() async {
-  final dir = await AppPaths.instance.subdir('blocks');
+void _localAccountSessionChanged() {
+  final uid = chhSession.loggedIn ? chhSession.badges.uid : null;
+  final revision = chhSession.identityRevision;
+  unawaited(followIndex.setUid(uid, identityRevision: revision));
+  unawaited(userBlockIndex.setUid(uid, identityRevision: revision));
+  _updateFollowPoller();
+}
+
+FollowPoller? _followPoller;
+FollowPoller? get followPoller => _followPoller;
+
+void _updateFollowPoller([AppLifecycleState? state]) {
+  final lifecycle = state ?? WidgetsBinding.instance.lifecycleState;
+  _followPoller?.update(
+    foreground: lifecycle == null || lifecycle == AppLifecycleState.resumed,
+    loggedIn:
+        followIndex.uid != null &&
+        chhSession.loggedIn &&
+        !chhSession.accountOperationInProgress &&
+        !chhSession.currentExpired,
+    sessionRevision: chhSession.identityRevision,
+  );
+}
+
+Future<void> _attachHistory() async {
+  final dir = await AppPaths.instance.subdir('read');
   if (dir != null) {
-    await userBlockIndex.attach(File('${dir.path}/users-v1.json'));
+    await historyIndex.attach(File('${dir.path}/history-v1.json'));
   }
 }
 
@@ -213,13 +250,14 @@ Future<void> _attachGroupLevels() async {
 
 final _lifecycleFlusher = LifecycleFlusher();
 
-/// Flushes the read ledger and the log when the app leaves the foreground.
+/// Flushes pending local writes when the app leaves the foreground.
 /// Also snapshots the active account once per trip to the background.
 class LifecycleFlusher with WidgetsBindingObserver {
   bool _inBackground = false;
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    _updateFollowPoller(state);
     if (state == AppLifecycleState.resumed) {
       _inBackground = false;
       unawaited(accountStore.reload());
@@ -233,6 +271,8 @@ class LifecycleFlusher with WidgetsBindingObserver {
       }
       unawaited(threadReadIndex.flush());
       unawaited(userBlockIndex.flush());
+      unawaited(followIndex.flush());
+      unawaited(historyIndex.flush());
       unawaited(favoriteIndex.flush());
       unawaited(spaceRepo.meCache.flush());
       unawaited(pollRepo.flush());

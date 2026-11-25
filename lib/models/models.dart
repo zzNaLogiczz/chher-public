@@ -42,7 +42,9 @@ class ThreadSummary {
   final String? authorUid;
   final DateTime? createdAt;
   final String? createdAtRaw;
-  final int replies;
+
+  /// 源站明确给出的回复数，缺失时留空供详情判断缓存。
+  final int? observedReplies;
   final int views;
   final String? lastPostUser;
   final String? lastPostTimeRaw;
@@ -56,6 +58,8 @@ class ThreadSummary {
   /// 搜索结果摘要
   final String? snippet;
 
+  int get replies => observedReplies ?? 0;
+
   const ThreadSummary({
     required this.tid,
     required this.title,
@@ -64,7 +68,7 @@ class ThreadSummary {
     this.authorUid,
     this.createdAt,
     this.createdAtRaw,
-    required this.replies,
+    required int? replies,
     required this.views,
     this.lastPostUser,
     this.lastPostTimeRaw,
@@ -73,7 +77,7 @@ class ThreadSummary {
     this.forumName,
     this.forumFid,
     this.snippet,
-  });
+  }) : observedReplies = replies;
 }
 
 class PageInfo {
@@ -425,11 +429,13 @@ class ThreadContent extends PortalContent {
   final String title;
   final ThreadDetail? detail;
   final int? cacheGeneration;
+  final int? threadCacheRevision;
   const ThreadContent(
     this.tid,
     this.title, {
     this.detail,
     this.cacheGeneration,
+    this.threadCacheRevision,
   });
 }
 
@@ -437,6 +443,7 @@ class ArticleDetail {
   final int aid;
   final String title;
   final String? metaRaw;
+  final String? author;
 
   /// 所属栏目名,取自面包屑最深的一级
   final String? categoryName;
@@ -447,6 +454,7 @@ class ArticleDetail {
     required this.aid,
     required this.title,
     this.metaRaw,
+    this.author,
     this.categoryName,
     required this.content,
     required this.page,

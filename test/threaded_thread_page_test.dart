@@ -639,7 +639,11 @@ void main() {
     await tester.pumpAndSettle();
     expect(position.pixels, greaterThan(0));
 
-    Future<void> switchTo(String label, ThreadViewMode mode) async {
+    Future<void> switchTo(
+      String label,
+      ThreadViewMode mode, {
+      bool keepAnchor = true,
+    }) async {
       final before = tester.getTopLeft(heading).dy;
       await tester.tap(
         find.descendant(
@@ -650,7 +654,13 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(tester.getTopLeft(heading).dy, closeTo(before, 1), reason: label);
+      if (keepAnchor) {
+        expect(
+          tester.getTopLeft(heading).dy,
+          closeTo(before, 1),
+          reason: label,
+        );
+      }
       expect(
         tester.widget<CommentModeBar>(find.byType(CommentModeBar)).mode,
         mode,
@@ -659,16 +669,13 @@ void main() {
 
     await switchTo('原楼层', ThreadViewMode.floors);
     expect(card(3), findsWidgets);
-    // 只看楼主内容不足一屏,标题仍停在原处
-    await switchTo('只看楼主', ThreadViewMode.author);
+    // 只看楼主内容较短，标题最多对齐到真实末尾。
+    await switchTo('只看楼主', ThreadViewMode.author, keepAnchor: false);
     expect(card(2), findsNothing);
     expect(card(4), findsWidgets);
     double markerClearance() =>
         tester.getTopLeft(find.byType(ComposeCapsule)).dy -
         tester.getBottomLeft(find.byType(ReadingListEnd)).dy;
-    expect(markerClearance(), greaterThan(24));
-    await tester.drag(scrollable, const Offset(0, -120));
-    await tester.pumpAndSettle();
     expect(markerClearance(), closeTo(24, .01));
     // 退出只看楼主还原已读楼层,不重新读取
     await switchTo('评论', ThreadViewMode.threaded);

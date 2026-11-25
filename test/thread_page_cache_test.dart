@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 class _Fetcher extends ChhFetcher {
   final gets = <Uri>[];
+  final requestHeaders = <Map<String, String>?>[];
   String body = 'cached floors';
   Future<ChhResponse> Function(Uri)? read;
   @override
@@ -15,6 +16,7 @@ class _Fetcher extends ChhFetcher {
   @override
   Future<ChhResponse> getHtml(Uri url, {Map<String, String>? headers}) {
     gets.add(url);
+    requestHeaders.add(headers);
     return read?.call(url) ?? Future.value(ChhResponse(200, body));
   }
 
@@ -112,6 +114,97 @@ void main() {
       expect(fetcher.gets.length, 2);
     },
   );
+
+  test('thread invalidation removes its suffix and aliases only', () async {
+    final fetcher = _Fetcher();
+    final client = ChhClient(
+      fetchers: [fetcher],
+      threadRequestInterval: Duration.zero,
+    );
+    final prefix = ChhUrls.thread(10);
+    final suffix = ChhUrls.thread(10, page: 2);
+    final author = ChhUrls.threadByAuthor(10, '20');
+    final goto = Uri.parse(
+      '${ChhUrls.base}/forum.php?mod=redirect&goto=findpost&ptid=10&pid=20',
+    );
+    final portal = Uri.parse('${ChhUrls.base}/portal.php?mod=view&aid=21');
+    final other = ChhUrls.thread(11);
+    for (final url in [prefix, suffix, author, goto, portal, other]) {
+      await client.getHtml(url);
+    }
+    client.registerThreadAlias(portal, 10, matchingHtml: 'cached floors');
+    expect(
+      client.cachedHtmlSequence(prefix, matchingHtml: 'cached floors'),
+      isNotNull,
+    );
+    expect(client.cachedHtmlSequence(prefix, matchingHtml: 'outdated'), isNull);
+
+    client.invalidateThread(10, fromPage: 2);
+    expect(client.threadCacheRevision(10), greaterThan(0));
+    expect(client.threadCacheRevision(11), 0);
+    expect(client.hasCachedHtml(prefix), isTrue);
+    expect(client.hasCachedHtml(other), isTrue);
+    for (final url in [suffix, author, goto, portal]) {
+      expect(client.hasCachedHtml(url), isFalse);
+    }
+
+    client.invalidateThread(10);
+    expect(client.hasCachedHtml(prefix), isFalse);
+    expect(client.hasCachedHtml(other), isTrue);
+  });
+
+  test('thread invalidation discards old network and queued results', () async {
+    final pending = Completer<ChhResponse>();
+    final fetcher = _Fetcher()..read = (_) => pending.future;
+    final client = ChhClient(
+      fetchers: [fetcher],
+      threadRequestInterval: Duration.zero,
+    );
+    final first = ChhUrls.thread(10);
+    final second = ChhUrls.thread(10, page: 2);
+    final prior = client.getHtml(first);
+    final queued = client.getHtml(second);
+    final cancelled = Future.wait([
+      expectLater(prior, throwsA(isA<ThreadReadCancelled>())),
+      expectLater(queued, throwsA(isA<ThreadReadCancelled>())),
+    ]);
+
+    client.invalidateThread(10);
+    fetcher
+      ..read = null
+      ..body = 'new floors';
+    final fresh = client.getHtml(first, refresh: true);
+    pending.complete(const ChhResponse(200, 'old floors'));
+    await cancelled;
+    expect(await fresh, 'new floors');
+    expect(await client.getHtml(first), 'new floors');
+    expect(fetcher.gets, [first, first]);
+    expect(client.hasCachedHtml(second), isFalse);
+  });
+
+  test('thread refresh waits for a revalidating transport read', () async {
+    final pending = Completer<ChhResponse>();
+    final fetcher = _Fetcher()..read = (_) => pending.future;
+    final client = ChhClient(
+      fetchers: [fetcher],
+      threadRequestInterval: Duration.zero,
+    );
+    final url = ChhUrls.thread(10);
+    final ordinary = client.getHtml(url);
+    final refresh = client.getHtml(url, refresh: true);
+    final sameRefresh = client.getHtml(url, refresh: true);
+    fetcher
+      ..read = null
+      ..body = 'new floors';
+    pending.complete(const ChhResponse(200, 'old floors'));
+
+    expect(await ordinary, 'old floors');
+    expect(await refresh, 'new floors');
+    expect(await sameRefresh, 'new floors');
+    expect(fetcher.gets, [url, url]);
+    expect(fetcher.requestHeaders.first?['Cache-Control'], isNull);
+    expect(fetcher.requestHeaders.last?['Cache-Control'], 'no-cache');
+  });
 
   testWidgets(
     'leaving during cooldown cancels a page before transport starts',

@@ -345,6 +345,7 @@ class _ForumThreadsPageState extends State<ForumThreadsPage>
                   builder: (_) => ThreadDetailPage(
                     tid: thread.tid,
                     seenReplies: thread.replies,
+                    observedReplies: thread.observedReplies,
                     title: thread.title,
                     fid: widget.fid,
                   ),

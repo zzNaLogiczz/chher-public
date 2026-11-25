@@ -4,6 +4,7 @@ import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/design/tokens.dart';
 import 'package:chh_app/di.dart';
 import 'package:chh_app/network/chh_fetcher.dart';
+import 'package:chh_app/pages/history_page.dart';
 import 'package:chh_app/pages/login_page.dart';
 import 'package:chh_app/pages/me_page.dart';
 import 'package:chh_app/pages/my_threads_page.dart';
@@ -20,7 +21,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'support/space_fixtures.dart';
 
-const _labels = ['我的帖子', '我的收藏', '积分记录', '勋章'];
+const _labels = ['我的帖子', '我的收藏', '浏览历史', '积分记录', '勋章'];
 
 class _ThreadsFetcher extends ChhFetcher {
   final requests = <Uri>[];
@@ -133,7 +134,7 @@ void main() {
 
   for (final style in AppearanceStyle.values) {
     for (final brightness in Brightness.values) {
-      for (final scale in [1.3, 2.0]) {
+      for (final scale in [1.0, 1.3, 1.5, 2.0]) {
         testWidgets(
           'shared identity and floating entries fit $style $brightness ${scale}x',
           (tester) async {
@@ -172,14 +173,32 @@ void main() {
             expect(tools.top - rect.bottom, closeTo(MeTokens.cardGap, .01));
             expect(find.byType(Divider), findsNothing);
             final cells = find.byType(LacEntryCell);
-            expect(cells, findsNWidgets(4));
-            final first = tester.getRect(cells.first);
-            final third = tester.getRect(cells.at(2));
-            expect(first.height, greaterThanOrEqualTo(44));
+            expect(
+              tester.widgetList<LacEntryCell>(cells).map((c) => c.label),
+              _labels,
+            );
+            final rects = [
+              for (final cell in cells.evaluate())
+                tester.getRect(find.byWidget(cell.widget)),
+            ];
+            final first = rects.first;
+            expect(rects.map((r) => r.width), everyElement(first.width));
+            expect(
+              rects.map((r) => r.height),
+              everyElement(greaterThanOrEqualTo(44)),
+            );
             if (scale >= 1.5) {
-              expect(third.top, greaterThan(first.top));
+              expect(rects[1].top, first.top);
+              expect(rects[2].top, greaterThan(first.top));
+              expect(rects[3].top, rects[2].top);
+              expect(rects[4].top, greaterThan(rects[2].top));
+              expect([rects[2].left, rects[4].left], everyElement(first.left));
             } else {
-              expect(third.top, first.top);
+              expect(rects.map((r) => r.top), everyElement(first.top));
+              expect(
+                rects.last.right - first.left,
+                closeTo(first.width * 5, .01),
+              );
             }
             for (final label in _labels) {
               expect(
@@ -233,6 +252,26 @@ void main() {
     expect(fetcher.requests, hasLength(1));
     expect(fetcher.requests.single.queryParameters['do'], 'thread');
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('浏览历史 opens the local history page', (tester) async {
+    await tester.pumpWidget(_app());
+    await tester.pumpAndSettle();
+
+    final cell = find.widgetWithText(LacEntryCell, '浏览历史');
+    expect(
+      find.descendant(of: cell, matching: find.byIcon(AppIcons.historyBold)),
+      findsOneWidget,
+    );
+    final node = tester.getSemantics(cell);
+    expect(node.flagsCollection.isButton, isTrue);
+    expect(node.label, '浏览历史');
+    await tester.tap(cell);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(HistoryPage), findsOneWidget);
+    expect(find.text('还没有浏览记录'), findsOneWidget);
+    expect(fetcher.requests, isEmpty);
   });
 
   testWidgets('refresh uses existing header observation through fake transport', (
@@ -393,7 +432,7 @@ void main() {
     expect(fetcher.requests, isEmpty);
   });
 
-  testWidgets('guest lacquer mast hides all four entries', (tester) async {
+  testWidgets('guest lacquer mast hides the entry strip', (tester) async {
     chhSession.loggedIn = false;
     await tester.pumpWidget(_app());
     await tester.pumpAndSettle();
@@ -410,7 +449,7 @@ void main() {
   });
 
   for (final style in AppearanceStyle.values) {
-    testWidgets('fallback keeps matching identity and four entries in $style', (
+    testWidgets('fallback keeps matching identity and entry layout in $style', (
       tester,
     ) async {
       await tester.pumpWidget(
@@ -423,7 +462,7 @@ void main() {
       expect(find.byType(LacquerTabScaffold), findsNothing);
       if (style == AppearanceStyle.misty) {
         expect(find.byType(LacEntryStrip), findsOneWidget);
-        expect(find.byType(LacEntryCell), findsNWidgets(4));
+        expect(find.byType(LacEntryCell), findsNWidgets(5));
         expect(find.byKey(const ValueKey('me-stats')), findsOneWidget);
       } else {
         expect(find.byType(LacEntryStrip), findsNothing);

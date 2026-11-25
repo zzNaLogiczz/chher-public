@@ -260,6 +260,7 @@ class _FeedPageState extends State<FeedPage> {
                           builder: (_) => ThreadDetailPage(
                             tid: item.tid,
                             seenReplies: item.replies,
+                            observedReplies: item.observedReplies,
                             title: item.title,
                             fid: item.forumFid,
                           ),

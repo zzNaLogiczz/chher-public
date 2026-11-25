@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import '../core/accounts.dart';
 import '../core/app_log.dart';
 import '../core/message_notifications.dart';
+import '../data/follow_index.dart';
 import '../di.dart';
 import '../design/tokens.dart';
 import '../network/chh_session.dart';
@@ -241,6 +242,7 @@ class _HomePageState extends State<HomePage> {
                   chhSession,
                   appUpdater,
                   appearance,
+                  followIndex,
                 ]),
                 builder: (context, _) => AppBottomNavigation(
                   current: _dest,
@@ -253,6 +255,8 @@ class _HomePageState extends State<HomePage> {
                         }
                       : null,
                   messagesBadge: chhSession.badges.total,
+                  messagesDot: followIndex.unseenCount > 0,
+                  messagesDotEpoch: followIndex.epoch,
                   // 有新版本,或朱砂红上线尚未引导时:从"我的"→设置→外观一路用红点引过去
                   meDot: appUpdater.hasUpdate || !appearance.styleDotSeen,
                 ),

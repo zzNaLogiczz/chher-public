@@ -346,9 +346,14 @@ void main() {
       await oldStarted.future;
       final originalIdentity = session.identityRevision;
       final originalAuth = session.authenticationRevision;
+      final operationStates = <bool>[];
+      session.addListener(
+        () => operationStates.add(session.accountOperationInProgress),
+      );
       final switching = session.switchAccount(target);
 
       expect(store.switchingUid, target);
+      expect(operationStates.first, isTrue);
       expect(session.identityRevision, greaterThan(originalIdentity));
       expect(await session.switchAccount(previous), AccountSwitchResult.failed);
 
@@ -375,6 +380,7 @@ void main() {
       verificationResponse.complete(_response(_member(target, notices: 4)));
       expect(await switching, AccountSwitchResult.success);
       expect(store.switchingUid, isNull);
+      expect(operationStates.last, isFalse);
       expect(session.badges.notices, 4);
       expect(await client.getHtml(delayed), _member(target));
       expect(vault.methods, ['check', 'save', 'activate', 'save']);

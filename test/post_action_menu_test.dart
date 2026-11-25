@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:chh_app/data/follow_index.dart';
 import 'package:chh_app/data/post_interaction_repository.dart';
 import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/design/tokens.dart';
@@ -60,6 +61,7 @@ Future<void> openMenu(
   Listenable? changes,
   String? Function()? identity,
   int Function()? revision,
+  FollowIndex? follows,
 }) async {
   await tester.pumpWidget(
     MaterialApp(
@@ -83,6 +85,7 @@ Future<void> openMenu(
                 sessionChanges: changes,
                 sessionIdentity: identity,
                 sessionRevision: revision,
+                follows: follows,
               );
               selected?.call(result);
             },
@@ -98,6 +101,48 @@ Future<void> openMenu(
 }
 
 void main() {
+  testWidgets('关注行先于黑名单，切换后关闭菜单并反馈', (tester) async {
+    final index = FollowIndex.forTesting(null);
+    addTearDown(index.dispose);
+    await openMenu(tester, check: () async => form(), follows: index);
+    expect(
+      tester.getTopLeft(find.text('关注')).dy,
+      lessThan(tester.getTopLeft(find.text('加入黑名单')).dy),
+    );
+    await tester.ensureVisible(find.text('关注'));
+    await tester.tap(find.text('关注'));
+    for (var i = 0; i < 50 && find.text('更多操作').evaluate().isNotEmpty; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    await tester.pump();
+    expect(find.text('更多操作'), findsNothing);
+    expect(index.isFollowed('25'), isTrue);
+    expect(find.textContaining('已关注'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 2));
+
+    await tester.tap(find.text('打开'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('取消关注'));
+    await tester.tap(find.text('取消关注'));
+    for (var i = 0; i < 50 && find.text('更多操作').evaluate().isNotEmpty; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    await tester.pump();
+    expect(find.text('更多操作'), findsNothing);
+    expect(index.isFollowed('25'), isFalse);
+    expect(find.text('已取消关注'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('打开'));
+    await tester.pumpAndSettle();
+    expect(find.text('更多操作'), findsOneWidget);
+    await index.setUid('901');
+    await tester.pumpAndSettle();
+    expect(find.text('更多操作'), findsNothing);
+    expect(index.isFollowed('25'), isFalse);
+  });
+
   testWidgets('copy uses the reply text without repeating quoted context', (
     tester,
   ) async {

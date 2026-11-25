@@ -316,11 +316,16 @@ void main() {
         (5, false),
         (4, false),
         (3, false),
-        if (interruption == 'refresh') (5, true),
+        if (interruption == 'refresh') (1, true),
       ]);
       if (interruption != 'dispose') {
         expect(_loadedPosts(tester), 4);
-        expect(_before.hitTestable(), findsOneWidget);
+        if (interruption == 'refresh') {
+          expect(find.text('回复 1'), findsOneWidget);
+          expect(_before, findsNothing);
+        } else {
+          expect(_before.hitTestable(), findsOneWidget);
+        }
         expect(find.byType(ChhersLoader), findsNothing);
       }
       expect(tester.takeException(), isNull);

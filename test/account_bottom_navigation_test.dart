@@ -1,8 +1,10 @@
 import 'package:chh_app/design/motion.dart';
 import 'package:chh_app/design/theme.dart';
+import 'package:chh_app/design/tokens.dart';
 import 'package:chh_app/di.dart';
 import 'package:chh_app/network/chh_fetcher.dart';
 import 'package:chh_app/pages/home_page.dart';
+import 'package:chh_app/ui/chrome_button.dart';
 import 'package:chh_app/widgets/app_shell.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -78,6 +80,48 @@ Finder _bottomLabel(String label) => find.descendant(
 );
 
 void main() {
+  testWidgets('消息强调色圆点由数字角标优先覆盖', (tester) async {
+    Future<void> show({bool dot = false, int count = 0, int epoch = 0}) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildAppTheme(Brightness.light),
+          home: Scaffold(
+            bottomNavigationBar: AppBottomNavigation(
+              current: AppDestination.messages,
+              onNavigate: (_) {},
+              messagesDot: dot,
+              messagesDotEpoch: epoch,
+              messagesBadge: count,
+            ),
+          ),
+        ),
+      );
+    }
+
+    final dot = find.byKey(DotBadge.surfaceKey);
+    final badge = find.byKey(CountBadge.surfaceKey);
+    await show(dot: true);
+    await tester.pumpAndSettle();
+    expect(dot, findsOneWidget);
+    expect(badge, findsNothing);
+    final decoration =
+        tester.widget<DecoratedBox>(dot).decoration as ShapeDecoration;
+    expect(decoration.color, AppTokens.of(tester.element(dot)).accent);
+
+    await show(epoch: 1);
+    await tester.pump();
+    expect(dot, findsNothing);
+
+    await show(dot: true, count: 2, epoch: 1);
+    await tester.pumpAndSettle();
+    expect(dot, findsNothing);
+    expect(badge, findsOneWidget);
+    await show(epoch: 1);
+    await tester.pumpAndSettle();
+    expect(dot, findsNothing);
+    expect(badge, findsNothing);
+  });
+
   testWidgets('guest Me hold leaves the current destination intact', (
     tester,
   ) async {

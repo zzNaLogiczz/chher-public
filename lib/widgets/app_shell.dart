@@ -32,6 +32,8 @@ class AppBottomNavigation extends StatelessWidget {
 
   /// "消息"图标上的未读数,0 时不显示
   final int messagesBadge;
+  final bool messagesDot;
+  final int? messagesDotEpoch;
 
   /// "我的"图标上的提示红点(有新版本)
   final bool meDot;
@@ -41,6 +43,8 @@ class AppBottomNavigation extends StatelessWidget {
     required this.onNavigate,
     this.onMeLongPress,
     this.messagesBadge = 0,
+    this.messagesDot = false,
+    this.messagesDotEpoch,
     this.meDot = false,
   });
   static const destinations = [
@@ -94,6 +98,12 @@ class AppBottomNavigation extends StatelessWidget {
                         Expanded(
                           child: Semantics(
                             selected: i == index,
+                            hint:
+                                destinations[i] == AppDestination.messages &&
+                                    messagesBadge <= 0 &&
+                                    messagesDot
+                                ? '关注的人有新帖'
+                                : null,
                             child: PressScale(
                               onTap: () => onNavigate(destinations[i]),
                               onLongPress: destinations[i] == AppDestination.me
@@ -133,12 +143,39 @@ class AppBottomNavigation extends StatelessWidget {
                                                       ),
                                                     ),
                                                     if (destinations[i] ==
-                                                        AppDestination.messages)
+                                                            AppDestination
+                                                                .messages &&
+                                                        (messagesBadge > 0 ||
+                                                            !messagesDot))
                                                       Positioned(
                                                         top: -6,
                                                         left: 16,
                                                         child: CountBadge(
                                                           count: messagesBadge,
+                                                        ),
+                                                      ),
+                                                    if (destinations[i] ==
+                                                            AppDestination
+                                                                .messages &&
+                                                        messagesBadge <= 0)
+                                                      Positioned(
+                                                        top: -1,
+                                                        right: -3,
+                                                        child: AnimatedSwitcher(
+                                                          key: ValueKey(
+                                                            messagesDotEpoch,
+                                                          ),
+                                                          duration: reduced
+                                                              ? AppMotion
+                                                                    .reducedFade
+                                                              : AppMotion.fade,
+                                                          child: messagesDot
+                                                              ? DotBadge(
+                                                                  visible: true,
+                                                                  color:
+                                                                      t.accent,
+                                                                )
+                                                              : const SizedBox.shrink(),
                                                         ),
                                                       ),
                                                     if (destinations[i] ==

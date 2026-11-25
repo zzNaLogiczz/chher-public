@@ -53,8 +53,9 @@ ThreadListPage parseGuide(String html) {
     }
 
     final numCell = tbody.querySelector('td.num');
-    final replies =
-        int.tryParse(numCell?.querySelector('a')?.text.trim() ?? '') ?? 0;
+    final replies = int.tryParse(
+      numCell?.querySelector('a')?.text.trim() ?? '',
+    );
     final views =
         int.tryParse(numCell?.querySelector('em')?.text.trim() ?? '') ?? 0;
 

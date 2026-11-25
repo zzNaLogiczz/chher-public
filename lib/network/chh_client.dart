@@ -15,11 +15,21 @@ import 'direct_fetcher.dart';
 import 'file_fetcher.dart';
 import 'webview_fetcher.dart';
 
+typedef _ThreadAddress = ({int? tid, int? page});
+
 class _CacheEntry {
+  final DateTime fetchedAt;
   final DateTime expiresAt;
   final String html;
   final int sequence;
-  _CacheEntry(this.html, this.expiresAt, this.sequence);
+  _ThreadAddress? thread;
+  _CacheEntry(
+    this.html,
+    this.fetchedAt,
+    this.expiresAt,
+    this.sequence,
+    this.thread,
+  );
   int get bytes => html.length * 2;
 }
 
@@ -50,7 +60,7 @@ class ChhClient {
   int _freshHeaderRevision = 0;
   int get freshHeaderRevision => _freshHeaderRevision;
   DateTime? get lastFreshHeaderAt => headerFreshness.value;
-  final _inFlight = <(int, String, bool), _ReadFlight>{};
+  final _inFlight = <(int, String, bool, int, bool), _ReadFlight>{};
   int _cacheBytes = 0;
   final _cache = <String, _CacheEntry>{};
   String? _lastFetcherName;
@@ -59,6 +69,7 @@ class ChhClient {
   /// Derived caches must not reuse data across session/write invalidation.
   int get cacheGeneration => _cacheGeneration;
   int _requestSequence = 0;
+  final _threadCacheRevisions = <int, int>{};
   int _lastObservedHeaderSequence = 0;
   Future<void>? _threadTail;
   DateTime? _lastThreadReadAt;
@@ -115,17 +126,77 @@ class ChhClient {
     shouldContinue: shouldContinue,
   );
 
-  bool hasCachedHtml(Uri url) {
+  bool hasCachedHtml(Uri url) => cachedHtmlSequence(url) != null;
+
+  int? cachedHtmlSequence(Uri url, {String? matchingHtml}) {
     _pruneCache();
-    return _cache.containsKey('$url');
+    final entry = _cache['$url'];
+    return matchingHtml == null || entry?.html == matchingHtml
+        ? entry?.sequence
+        : null;
   }
 
-  bool _isThreadPage(Uri url) =>
-      {'www.chiphell.com', 'chiphell.com'}.contains(url.host) &&
-      (RegExp(r'^/thread-\d+-\d+-\d+\.html$').hasMatch(url.path) ||
-          (url.path == '/forum.php' &&
-              (url.queryParameters['mod'] == 'viewthread' ||
-                  url.queryParameters['goto'] == 'findpost')));
+  bool isRecentHtml(Uri url) {
+    final fetchedAt = _cache['$url']?.fetchedAt;
+    return fetchedAt != null && now().difference(fetchedAt) < cacheTtl;
+  }
+
+  int threadCacheRevision(int tid) => _threadCacheRevisions[tid] ?? 0;
+
+  void invalidateThread(int tid, {int fromPage = 1}) {
+    _threadCacheRevisions[tid] = ++_requestSequence;
+    final expired = _cache.entries
+        .where((entry) {
+          final thread = entry.value.thread;
+          return thread != null &&
+              thread.tid == tid &&
+              (thread.page ?? fromPage) >= fromPage;
+        })
+        .map((entry) => entry.key)
+        .toList();
+    for (final key in expired) {
+      _removeCached(key);
+    }
+  }
+
+  void registerThreadAlias(Uri url, int tid, {String? matchingHtml}) {
+    _pruneCache();
+    final entry = _cache['$url'];
+    if (entry == null || (matchingHtml != null && entry.html != matchingHtml)) {
+      return;
+    }
+    if (entry.sequence <= threadCacheRevision(tid)) {
+      _removeCached('$url');
+    } else {
+      entry.thread = (tid: tid, page: null);
+    }
+  }
+
+  static final _threadPath = RegExp(r'^/thread-(\d+)-(\d+)-(\d+)\.html$');
+
+  _ThreadAddress? _threadAddress(Uri url) {
+    if (url.host != 'www.chiphell.com' && url.host != 'chiphell.com') {
+      return null;
+    }
+    if (_threadPath.firstMatch(url.path) case final match?) {
+      return (
+        tid: int.tryParse(match[1]!),
+        page: match[3] == '1' ? int.tryParse(match[2]!) : null,
+      );
+    }
+    if (url.path != '/forum.php') return null;
+    final params = url.queryParameters;
+    final viewThread = params['mod'] == 'viewthread';
+    final redirect =
+        params['goto'] == 'findpost' || params['goto'] == 'lastpost';
+    if (!viewThread && !redirect) return null;
+    return (
+      tid: int.tryParse(params['tid'] ?? params['ptid'] ?? ''),
+      page: viewThread && !redirect && !params.containsKey('authorid')
+          ? int.tryParse(params['page'] ?? '1')
+          : null,
+    );
+  }
 
   /// Discuz interaction forms require an XMLHttpRequest-shaped GET.
   /// Keep its cached response separate from ordinary full-page HTML.
@@ -155,20 +226,27 @@ class ChhClient {
     final generation = _cacheGeneration;
     final key = '${ajax ? 'ajax:' : ''}$url';
     _pruneCache();
-    if (!refresh && _cache.containsKey(key)) {
-      final entry = _cache.remove(key)!;
+    final entry = _cache[key];
+    if (!refresh && entry != null) {
+      _cache.remove(key);
       _cache[key] = entry;
       return Future.value(entry.html);
     }
-    // Refresh skips completed cache, but shares an equivalent live network read.
-    final request = (generation, key, fallback);
+    final directThread = ajax ? null : _threadAddress(url);
+    final thread = directThread ?? entry?.thread;
+    final tid = thread?.tid;
+    final revision = tid == null ? 0 : threadCacheRevision(tid);
+    bool isCurrentThread() =>
+        tid == null || threadCacheRevision(tid) == revision;
+    final refreshThread = refresh && thread != null;
+    final request = (generation, key, fallback, revision, refreshThread);
     final existing = _inFlight[request];
     if (existing != null &&
         existing.sequence >= existing.latestSuccessfulSequence) {
       existing.readers.add(shouldContinue);
       return existing.future;
     }
-    final flight = _ReadFlight(++_requestSequence, _cache[key]?.sequence ?? 0);
+    final flight = _ReadFlight(++_requestSequence, entry?.sequence ?? 0);
     flight.readers.add(shouldContinue);
     _inFlight[request] = flight;
     Future<String> read() => _fetchHtml(
@@ -177,15 +255,20 @@ class ChhClient {
       generation: generation,
       fallback: fallback,
       ajax: ajax,
+      thread: thread,
+      threadTtl: directThread != null,
+      refreshThread: refreshThread,
+      isCurrentThread: isCurrentThread,
       flight: flight,
     );
     flight.future =
-        (!ajax && _isThreadPage(url)
+        (thread != null
                 ? _readThread(
                     read,
                     key: key,
                     generation: generation,
                     refresh: refresh,
+                    isCurrentThread: isCurrentThread,
                     flight: flight,
                   )
                 : read())
@@ -202,6 +285,7 @@ class ChhClient {
     required String key,
     required int generation,
     required bool refresh,
+    required bool Function() isCurrentThread,
     required _ReadFlight flight,
   }) async {
     final previous = _threadTail;
@@ -209,7 +293,9 @@ class ChhClient {
     _threadTail = completed.future;
     var started = false;
     void checkActive() {
-      if (generation != _cacheGeneration || !flight.canContinue) {
+      if (generation != _cacheGeneration ||
+          !isCurrentThread() ||
+          !flight.canContinue) {
         throw const ThreadReadCancelled();
       }
     }
@@ -250,13 +336,24 @@ class ChhClient {
     }
   }
 
-  void _cacheHtml(String key, String html, int sequence) {
+  void _cacheHtml(
+    String key,
+    String html,
+    int sequence, {
+    required _ThreadAddress? thread,
+    required bool threadTtl,
+  }) {
     _pruneCache();
     _removeCached(key);
-    final ttl = !key.startsWith('ajax:') && _isThreadPage(Uri.parse(key))
-        ? const Duration(minutes: 30)
-        : cacheTtl;
-    final entry = _CacheEntry(html, now().add(ttl), sequence);
+    final ttl = threadTtl ? const Duration(minutes: 30) : cacheTtl;
+    final fetchedAt = now();
+    final entry = _CacheEntry(
+      html,
+      fetchedAt,
+      fetchedAt.add(ttl),
+      sequence,
+      thread,
+    );
     // UTF-16 is a conservative payload budget without allocating encoded copies.
     if (maxCacheEntries == 0 || entry.bytes > maxCacheBytes) return;
     _cache[key] = entry;
@@ -272,6 +369,10 @@ class ChhClient {
     required int generation,
     required bool fallback,
     required bool ajax,
+    required _ThreadAddress? thread,
+    required bool threadTtl,
+    required bool refreshThread,
+    required bool Function() isCurrentThread,
     required _ReadFlight flight,
   }) async {
     final sequence = flight.sequence;
@@ -279,7 +380,8 @@ class ChhClient {
     var wafDetected = false;
     for (final f in fallback ? fetchers : fetchers.take(1)) {
       if (!flight.canContinue ||
-          (_isThreadPage(url) && generation != _cacheGeneration)) {
+          !isCurrentThread() ||
+          (thread != null && generation != _cacheGeneration)) {
         throw const ThreadReadCancelled();
       }
       final resp = await f.getHtml(
@@ -287,8 +389,12 @@ class ChhClient {
         headers: {
           'Referer': ChhUrls.base,
           if (ajax) 'X-Requested-With': 'XMLHttpRequest',
+          if (refreshThread) 'Cache-Control': 'no-cache',
         },
       );
+      if (generation == _cacheGeneration && !isCurrentThread()) {
+        throw const ThreadReadCancelled();
+      }
       final rejection = resp.getPageRejection(url, ajax: ajax);
       if (!resp.isBlocked && rejection == null) {
         _lastFetcherName = f.name;
@@ -301,7 +407,13 @@ class ChhClient {
               entry.value.latestSuccessfulSequence = sequence;
             }
           }
-          _cacheHtml(key, resp.body, sequence);
+          _cacheHtml(
+            key,
+            resp.body,
+            sequence,
+            thread: thread,
+            threadTtl: threadTtl,
+          );
         }
         AppLog.i(
           'GET',
@@ -460,6 +572,7 @@ class ChhClient {
 
   void clearCache() {
     _cacheGeneration++;
+    _threadCacheRevisions.clear();
     _cache.clear();
     _cacheBytes = 0;
     _inFlight.clear();

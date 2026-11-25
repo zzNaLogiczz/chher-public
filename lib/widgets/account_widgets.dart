@@ -109,7 +109,8 @@ class LacEntryStrip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
-    final columns = MediaQuery.textScalerOf(context).scale(1) >= 1.5 ? 2 : 4;
+    final largeText = MediaQuery.textScalerOf(context).scale(1) >= 1.5;
+    final columns = largeText ? 2 : (cells.length == 5 ? 5 : 4);
     return DecoratedBox(
       decoration: ShapeDecoration(
         color: t.surface,

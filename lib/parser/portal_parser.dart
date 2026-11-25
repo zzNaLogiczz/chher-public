@@ -84,11 +84,19 @@ ArticleDetail _parseArticle(dom.Document doc, {required int aid}) {
     aid: aid,
     title: title.isEmpty ? '门户文章' : title,
     metaRaw: meta.isEmpty ? null : meta,
+    author: _bylineName(meta, '原作者') ?? _bylineName(meta, '发布者'),
     categoryName: category,
     // 门户文章图是直链 src,parseContentBlocks 的候选链已覆盖
     content: body == null ? const [] : parseContentBlocks(body),
     page: parsePager(doc),
   );
+}
+
+String? _bylineName(String meta, String label) {
+  final name = RegExp(
+    '$label\\s*[:：]\\s*([^|｜]+)',
+  ).firstMatch(meta)?.group(1)?.trim();
+  return name == null || name.isEmpty ? null : name;
 }
 
 /// 文章作者身份:标题下元信息里的发布者(带 uid)与原作者(只有名字)
@@ -107,9 +115,7 @@ ArticleDetail _parseArticle(dom.Document doc, {required int aid}) {
     if (publisher != null && cleanText(publisher.el.text).isNotEmpty)
       cleanText(publisher.el.text),
   };
-  final original = RegExp(
-    r'原作者\s*[:：]\s*([^|｜]+)',
-  ).firstMatch(cleanText(meta.text))?.group(1)?.trim();
-  if (original != null && original.isNotEmpty) names.add(original);
+  final original = _bylineName(cleanText(meta.text), '原作者');
+  if (original != null) names.add(original);
   return (uid: publisher?.uid, names: names);
 }

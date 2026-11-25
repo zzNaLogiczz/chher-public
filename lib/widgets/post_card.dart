@@ -59,6 +59,7 @@ class PostCard extends StatelessWidget {
   final VoidCallback? onReply;
   final VoidCallback? onMore;
   final VoidCallback? onUnlock;
+  final VoidCallback? onOpenProfile;
   final Widget? replyContext;
   final Widget? discussionAction;
   final Widget? pollCard;
@@ -94,6 +95,7 @@ class PostCard extends StatelessWidget {
     this.onReply,
     this.onMore,
     this.onUnlock,
+    this.onOpenProfile,
     this.replyContext,
     this.discussionAction,
     this.pollCard,
@@ -123,6 +125,7 @@ class PostCard extends StatelessWidget {
     this.onReply,
     this.onMore,
     this.onUnlock,
+    this.onOpenProfile,
     this.replyContext,
     this.discussionAction,
     this.pollCard,
@@ -157,6 +160,7 @@ class PostCard extends StatelessWidget {
   }) : _part = _PostPart.block,
        onReply = null,
        onMore = null,
+       onOpenProfile = null,
        replyContext = null,
        discussionAction = null,
        pollCard = null;
@@ -183,6 +187,7 @@ class PostCard extends StatelessWidget {
     this.discussionAction,
     this.pollCard,
   }) : _part = _PostPart.footer,
+       onOpenProfile = null,
        contentBlock = null,
        contentIndex = null,
        gallery = const [],
@@ -409,7 +414,7 @@ class PostCard extends StatelessWidget {
     gid: post.authorGroupId,
     onTap: post.authorUid == null
         ? null
-        : () => showUserDrawer(context, post.authorUid!),
+        : onOpenProfile ?? () => showUserDrawer(context, post.authorUid!),
   );
 
   Widget _ownerBadge(AppTokens t) => Padding(
@@ -503,7 +508,7 @@ class PostCard extends StatelessWidget {
     semanticLabel: '查看${post.author}的主页',
     onTap: post.authorUid == null
         ? null
-        : () => showUserDrawer(context, post.authorUid!),
+        : onOpenProfile ?? () => showUserDrawer(context, post.authorUid!),
     child: child,
   );
 

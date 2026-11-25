@@ -12,11 +12,9 @@ void main() {
       await tester.binding.setSurfaceSize(const Size(390, 844));
       addTearDown(() => tester.binding.setSurfaceSize(null));
       const blockedUid = '999107';
-      await tester.runAsync(
-        () => userBlockIndex.block(uid: blockedUid, name: '已屏蔽作者'),
-      );
-      addTearDown(() async {
-        await tester.runAsync(() => userBlockIndex.unblock(blockedUid));
+      await tester.runAsync(() async {
+        await userBlockIndex.setUid('900');
+        await userBlockIndex.block(uid: blockedUid, name: '已屏蔽作者');
       });
       var nextCalls = 0;
       await tester.pumpWidget(
@@ -69,6 +67,7 @@ void main() {
       expect(find.text('第二页的可见帖子'), findsOneWidget);
       expect(find.text('不可显示的首屏帖子'), findsNothing);
       await tester.pumpWidget(const SizedBox());
+      await userBlockIndex.setUid(null);
     },
   );
 }

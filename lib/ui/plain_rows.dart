@@ -167,6 +167,9 @@ class ThreadRow extends StatelessWidget {
   final ThreadSummary thread;
   final String? eyebrow;
   final String? timeLabel;
+  final String? avatarUrl;
+  final bool followUnseen;
+  final bool authorFirst;
   final bool showCategory;
   final bool forumStyle;
   final String? excerpt;
@@ -183,6 +186,9 @@ class ThreadRow extends StatelessWidget {
     required this.thread,
     this.eyebrow,
     this.timeLabel,
+    this.avatarUrl,
+    this.followUnseen = false,
+    this.authorFirst = false,
     this.showCategory = true,
     this.forumStyle = false,
     this.excerpt,
@@ -235,7 +241,7 @@ class ThreadRow extends StatelessWidget {
         ? AppMotion.reducedFade
         : AppMotion.fade;
     final summary = (excerpt ?? thread.snippet)?.trim();
-    final title = TweenAnimationBuilder<Color?>(
+    final titleText = TweenAnimationBuilder<Color?>(
       tween: ColorTween(end: readTitleColor(t, readState)),
       duration: duration,
       builder: (context, color, _) => _text(
@@ -244,6 +250,23 @@ class ThreadRow extends StatelessWidget {
         accent: t.accent,
       ),
     );
+    final title = followUnseen
+        ? Row(
+            children: [
+              SizedBox.square(
+                dimension: 6,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: t.accent,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(child: titleText),
+            ],
+          )
+        : titleText;
     final snippet = summary == null || summary.isEmpty
         ? null
         : _text(
@@ -268,7 +291,9 @@ class ThreadRow extends StatelessWidget {
           : null,
       onTap: onTap,
       child: Semantics(
-        label: readState is ThreadReadSeen ? '已看' : null,
+        label: followUnseen
+            ? '新帖'
+            : (readState is ThreadReadSeen ? '已看' : null),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -380,9 +405,11 @@ class ThreadRow extends StatelessWidget {
                     child: AvatarImage(
                       key: ValueKey('thread-avatar-${thread.tid}'),
                       name: thread.author,
-                      url: uid != null && RegExp(r'^\d{1,9}$').hasMatch(uid)
-                          ? ChhUrls.avatar(uid)
-                          : null,
+                      url:
+                          avatarUrl ??
+                          (uid != null && RegExp(r'^\d{1,9}$').hasMatch(uid)
+                              ? ChhUrls.avatar(uid)
+                              : null),
                       size: ThreadRowTokens.avatarSize,
                       lazy: true,
                     ),
@@ -395,7 +422,7 @@ class ThreadRow extends StatelessWidget {
                   ),
                   if (hasCategory || hasAuthor) separator,
                 ],
-                if (hasCategory) ...[
+                if (hasCategory && !authorFirst) ...[
                   Flexible(child: _oneLine(label!, style)),
                   if (hasAuthor) separator,
                 ],
@@ -406,6 +433,10 @@ class ThreadRow extends StatelessWidget {
                       style.copyWith(color: t.text2),
                     ),
                   ),
+                if (hasCategory && authorFirst) ...[
+                  if (hasAuthor) separator,
+                  Flexible(child: _oneLine(label!, style)),
+                ],
                 if (hasTime) ...[
                   if (hasIdentity) separator,
                   ConstrainedBox(

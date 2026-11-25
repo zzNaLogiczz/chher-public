@@ -154,6 +154,28 @@ void main() {
     });
   });
 
+  test('帖子列表区分回复数缺失和实际零回复', () {
+    final forum = sample('thread_list_synthetic.html');
+    final guide = sample('guide_synthetic.html');
+    final search = sample('search_synthetic.html');
+    final missing = [
+      parseThreadList(forum.replaceFirst('<a>2</a>', '<a></a>')).threads.first,
+      parseGuide(guide.replaceFirst('<a>3</a>', '<a></a>')).threads.first,
+      parseSearchResult(search.replaceFirst('2 个回复', '回复数缺失')).rows.first,
+    ];
+    final zero = [
+      parseThreadList(forum.replaceFirst('<a>2</a>', '<a>0</a>')).threads.first,
+      parseGuide(guide.replaceFirst('<a>3</a>', '<a>0</a>')).threads.first,
+      parseSearchResult(search.replaceFirst('2 个回复', '0 个回复')).rows.first,
+    ];
+    expect(
+      missing.map((thread) => thread.observedReplies),
+      everyElement(isNull),
+    );
+    expect(zero.map((thread) => thread.observedReplies), everyElement(0));
+    expect(missing.map((thread) => thread.replies), everyElement(0));
+  });
+
   _postExtrasTests();
 }
 

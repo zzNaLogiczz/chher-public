@@ -253,6 +253,9 @@ Future<T?> showAppSheet<T>(
   BuildContext context, {
   required WidgetBuilder builder,
   bool expandable = false,
+  bool fadeWhenReduced = false,
+  bool holdViewInsetsOnExit = false,
+  bool avoidKeyboard = false,
 }) {
   final t = AppTokens.of(context);
   final reduced = MediaQuery.disableAnimationsOf(context);
@@ -264,6 +267,9 @@ Future<T?> showAppSheet<T>(
             ? const SheetSnapGrid(snaps: [SheetOffset(.62), SheetOffset(1)])
             : const SheetSnapGrid.single(snap: SheetOffset(1)),
         physics: AppSheetPhysics.of(context),
+        padding: avoidKeyboard
+            ? EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom)
+            : EdgeInsets.zero,
         decoration: SheetDecorationBuilder(
           size: expandable ? SheetSize.stretch : SheetSize.fit,
           builder: (context, child) => AppSheetSurface(child: child),
@@ -272,6 +278,8 @@ Future<T?> showAppSheet<T>(
       ),
       barrierColor: t.scrim,
       reduced: reduced,
+      fadeWhenReduced: fadeWhenReduced,
+      holdViewInsetsOnExit: holdViewInsetsOnExit,
     ),
   );
 }

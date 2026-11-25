@@ -4,7 +4,9 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../data/follow_index.dart';
 import '../data/post_interaction_repository.dart';
+import '../data/user_block_index.dart';
 import '../design/loading_tokens.dart';
 import '../design/icons.dart';
 import '../design/motion.dart';
@@ -15,9 +17,18 @@ import '../models/post_interaction.dart';
 import '../ui/press.dart';
 import '../ui/feedback.dart';
 import '../ui/sheet_scaffold.dart';
+import '../ui/user_follow_action.dart';
 import 'chhers_loader.dart';
 
-enum PostMenuAction { reply, comment, rating, supplement, login, blockUser }
+enum PostMenuAction {
+  reply,
+  comment,
+  rating,
+  supplement,
+  login,
+  blockUser,
+  toggleFollow,
+}
 
 enum _RatingState { checking, allowed, login, self, denied, exhausted, failed }
 
@@ -32,24 +43,49 @@ Future<PostMenuAction?> showPostActionMenu(
   Listenable? sessionChanges,
   String? Function()? sessionIdentity,
   int Function()? sessionRevision,
-}) => showAppSheet<PostMenuAction>(
-  context,
-  builder: (context) => _PostActionMenu(
-    post: post,
-    opening: opening,
-    loggedIn: loggedIn,
-    blocked: blocked,
-    isSelf: isSelf,
-    checkRating: checkRating,
-    sessionChanges: sessionChanges,
-    sessionIdentity: sessionIdentity,
-    sessionRevision: sessionRevision,
-  ),
-);
+  FollowIndex? follows,
+}) async {
+  final index = follows ?? followIndex;
+  final epoch = index.epoch;
+  final revision = sessionRevision?.call();
+  bool isCurrent() =>
+      epoch == index.epoch && revision == sessionRevision?.call();
+  if (!index.accountReady) await index.load();
+  if (!context.mounted || !isCurrent()) return null;
+  final action = await showAppSheet<PostMenuAction>(
+    context,
+    builder: (context) => _PostActionMenu(
+      post: post,
+      opening: opening,
+      loggedIn: loggedIn,
+      blocked: blocked,
+      isSelf: isSelf,
+      checkRating: checkRating,
+      sessionChanges: sessionChanges,
+      sessionIdentity: sessionIdentity,
+      sessionRevision: sessionRevision,
+      follows: index,
+    ),
+  );
+  if (!isCurrent()) return null;
+  if (action != PostMenuAction.toggleFollow) return action;
+  final uid = UserBlockIndex.normalizeUid(post.authorUid);
+  if (context.mounted && uid != null) {
+    await toggleUserFollow(
+      context,
+      uid: uid,
+      name: post.author,
+      avatarUrl: post.avatarUrl,
+      index: index,
+    );
+  }
+  return null;
+}
 
 class _PostActionMenu extends StatefulWidget {
   final Post post;
   final bool opening, loggedIn, blocked, isSelf;
+  final FollowIndex follows;
   final Future<PostRateForm> Function()? checkRating;
   final Listenable? sessionChanges;
   final String? Function()? sessionIdentity;
@@ -60,6 +96,7 @@ class _PostActionMenu extends StatefulWidget {
     required this.loggedIn,
     required this.blocked,
     required this.isSelf,
+    required this.follows,
     this.checkRating,
     this.sessionChanges,
     this.sessionIdentity,
@@ -74,6 +111,7 @@ class _PostActionMenuState extends State<_PostActionMenu> {
   late _RatingState _rating;
   String? _identity;
   int? _revision;
+  late final int _followEpoch;
   bool _invalidated = false;
   String? _ratingDescription;
 
@@ -82,7 +120,9 @@ class _PostActionMenuState extends State<_PostActionMenu> {
     super.initState();
     _identity = widget.sessionIdentity?.call();
     _revision = widget.sessionRevision?.call();
+    _followEpoch = widget.follows.epoch;
     widget.sessionChanges?.addListener(_sessionChanged);
+    widget.follows.addListener(_sessionChanged);
     _rating = !widget.loggedIn
         ? _RatingState.login
         : widget.isSelf
@@ -94,16 +134,20 @@ class _PostActionMenuState extends State<_PostActionMenu> {
   void _sessionChanged() {
     if (_invalidated) return;
     if (_identity == widget.sessionIdentity?.call() &&
-        _revision == widget.sessionRevision?.call()) {
+        _revision == widget.sessionRevision?.call() &&
+        _followEpoch == widget.follows.epoch) {
       return;
     }
     _invalidated = true;
-    Navigator.of(context).pop();
+    if (ModalRoute.of(context)?.isCurrent == true) {
+      Navigator.of(context).pop();
+    }
   }
 
   @override
   void dispose() {
     widget.sessionChanges?.removeListener(_sessionChanged);
+    widget.follows.removeListener(_sessionChanged);
     super.dispose();
   }
 
@@ -256,6 +300,24 @@ class _PostActionMenuState extends State<_PostActionMenu> {
                 }
               },
             ),
+            if (!widget.isSelf &&
+                !widget.blocked &&
+                UserBlockIndex.normalizeUid(post.authorUid) != null)
+              ListenableBuilder(
+                listenable: widget.follows,
+                builder: (context, _) {
+                  final followed = widget.follows.isFollowed(post.authorUid);
+                  return Semantics(
+                    selected: followed,
+                    child: action(
+                      followed ? '取消关注' : '关注',
+                      followed ? AppIcons.userCheck : AppIcons.userPlus,
+                      PostMenuAction.toggleFollow,
+                      accent: followed,
+                    ),
+                  );
+                },
+              ),
             if (!widget.isSelf && post.authorUid?.isNotEmpty == true)
               action(
                 widget.blocked ? '解除黑名单' : '加入黑名单',

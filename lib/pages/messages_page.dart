@@ -13,9 +13,11 @@ import '../ui/picker.dart';
 import '../design/typography.dart';
 import '../ui/sheet_scaffold.dart';
 import '../ui/plain_rows.dart';
+import '../ui/press.dart';
 import '../ui/feedback.dart';
 
 import '../core/chh_urls.dart';
+import '../data/follow_index.dart';
 import '../data/message_repository.dart';
 import '../di.dart';
 import '../design/list_end_tokens.dart';
@@ -33,6 +35,7 @@ import '../ui/message_filters.dart';
 import '../ui/message_pager.dart';
 import '../design/motion.dart';
 import '../design/notice_tokens.dart';
+import 'follow_feed_page.dart';
 import 'pm_thread_page.dart';
 import 'thread_detail_page.dart';
 
@@ -73,11 +76,13 @@ class MessagesBody extends StatefulWidget {
   /// 一级页形态:分段上漆、列表进纸面;推送路由保持纸面标题行
   final bool tab;
   final MessageRepository? repository;
+  final FollowIndex? follows;
   const MessagesBody({
     super.key,
     this.showTitle = false,
     this.tab = false,
     this.repository,
+    this.follows,
   });
   @override
   State<MessagesBody> createState() => _MessagesBodyState();
@@ -203,6 +208,7 @@ class _MessagesBodyState extends State<MessagesBody> {
                 chhSession.loggedIn,
               )),
               revision: (_view, _type),
+              leading: _FollowNotice(index: widget.follows ?? followIndex),
               empty: _type == null && _view == 0
                   ? '没有提醒'
                   : '没有${_type == null ? noticeViewLabels[_view] : noticeTypes(_view).firstWhere((e) => e.value == _type).label}提醒',
@@ -381,6 +387,189 @@ class _MessagesBodyState extends State<MessagesBody> {
   );
 }
 
+class _FollowNotice extends StatelessWidget {
+  const _FollowNotice({required this.index});
+
+  final FollowIndex index;
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: index,
+    builder: (context, _) {
+      final users = index.all;
+      final reduced = MediaQuery.disableAnimationsOf(context);
+      return AnimatedSwitcher(
+        key: ValueKey(index.epoch),
+        duration: reduced ? AppMotion.reducedFade : AppMotion.fade,
+        switchInCurve: AppMotion.revealCurve,
+        switchOutCurve: AppMotion.contentFadeCurve,
+        transitionBuilder: (child, animation) {
+          final fade = FadeTransition(opacity: animation, child: child);
+          return reduced
+              ? fade
+              : SizeTransition(
+                  sizeFactor: animation,
+                  alignment: Alignment.topCenter,
+                  child: fade,
+                );
+        },
+        child: users.isEmpty ? const SizedBox.shrink() : _card(context, users),
+      );
+    },
+  );
+
+  Widget _card(BuildContext context, List<FollowedUser> users) {
+    final t = AppTokens.of(context);
+    final count = index.unseenCount;
+    final activities = index.activities;
+    final latest = activities.firstOrNull;
+    final line = latest == null
+        ? '关注的人还没有发新帖'
+        : '${latest.thread.author}：${latest.thread.title}';
+    final byUid = {for (final user in users) user.uid: user};
+    final avatarUids = {
+      for (final item in activities)
+        if (item.unseen && byUid.containsKey(item.thread.authorUid))
+          item.thread.authorUid!,
+      if (latest?.thread.authorUid case final uid? when byUid.containsKey(uid))
+        uid,
+      ...byUid.keys,
+    }.take(2);
+    final avatars = [for (final uid in avatarUids) byUid[uid]!];
+    final time = latest == null
+        ? ''
+        : formatDisplayTime(at: latest.at, style: DisplayTimeStyle.list);
+    return Padding(
+      key: const ValueKey('follow-notice'),
+      padding: const EdgeInsets.fromLTRB(
+        MessageListTokens.inset,
+        14,
+        MessageListTokens.inset,
+        0,
+      ),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: t.surface,
+          borderRadius: BorderRadius.circular(MessageListTokens.cardRadius),
+          boxShadow: MessageListTokens.cardShadow(t),
+        ),
+        child: PressHighlight(
+          borderRadius: BorderRadius.circular(MessageListTokens.cardRadius),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => FollowFeedPage(index: index),
+            ),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(10, 12, 12, 12),
+            child: Row(
+              children: [
+                ExcludeSemantics(
+                  child: SizedBox.square(
+                    dimension: 44,
+                    child: avatars.length == 1
+                        ? _avatar(avatars.single, 44)
+                        : Stack(
+                            children: [
+                              _avatar(avatars.first, 32),
+                              Positioned(
+                                right: 0,
+                                bottom: 0,
+                                child: DecoratedBox(
+                                  decoration: ShapeDecoration(
+                                    shape: CircleBorder(
+                                      side: BorderSide(
+                                        color: t.surface,
+                                        width: 2,
+                                        strokeAlign:
+                                            BorderSide.strokeAlignOutside,
+                                      ),
+                                    ),
+                                  ),
+                                  child: _avatar(avatars.last, 32),
+                                ),
+                              ),
+                            ],
+                          ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.baseline,
+                        textBaseline: TextBaseline.alphabetic,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              '关注',
+                              style: AppType.callout.copyWith(
+                                color: t.text,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          if (time.isNotEmpty) ...[
+                            const SizedBox(width: 8),
+                            Flexible(
+                              child: Align(
+                                alignment: Alignment.centerRight,
+                                child: Text(
+                                  time,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: AppType.footnote.copyWith(
+                                    color: t.text3,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              line,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: NoticeTokens.sentence.copyWith(
+                                color: t.text2,
+                              ),
+                            ),
+                          ),
+                          if (count > 0) ...[
+                            const SizedBox(width: 8),
+                            Text(
+                              '+$count',
+                              semanticsLabel: '$count 篇新帖',
+                              style: AppType.filter.copyWith(
+                                color: t.accent,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _avatar(FollowedUser user, double size) =>
+      AvatarImage(name: user.name, url: user.avatar, size: size);
+}
+
 class _NoticeRow extends StatelessWidget {
   final Notice notice;
   final bool read;
@@ -488,6 +677,7 @@ class _MessageFeed<T> extends StatefulWidget {
     super.key,
     required this.load,
     this.next,
+    this.leading,
     required this.itemBuilder,
     required this.identity,
     required this.date,
@@ -512,6 +702,7 @@ class _MessageFeed<T> extends StatefulWidget {
   final double Function(T) precedingBottomPadding;
   final String empty;
   final Widget filter;
+  final Widget? leading;
   final ScrollController scroll;
   final bool active;
   final ValueChanged<Future<void> Function()> onRefreshReady;
@@ -749,6 +940,8 @@ class _MessageFeedState<T> extends State<_MessageFeed<T>>
   @override
   Widget build(BuildContext context) {
     final slivers = [
+      if (widget.leading case final leading?)
+        SliverToBoxAdapter(child: leading),
       ..._slivers(context),
       SliverToBoxAdapter(
         child: SizedBox(

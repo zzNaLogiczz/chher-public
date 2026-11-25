@@ -18,6 +18,8 @@ abstract final class AppIcons {
   static const home = SolarIconsOutline.home2;
   static const forums = SolarIconsOutline.widget_5;
   static const person = SolarIconsOutline.userRounded;
+  static const userPlus = SolarIconsOutline.userPlusRounded;
+  static const userCheck = SolarIconsOutline.userCheckRounded;
   static const success = SolarIconsOutline.checkCircle;
   static const forward = SolarIconsOutline.altArrowRight;
   static const refresh = SolarIconsOutline.refresh;
@@ -25,6 +27,7 @@ abstract final class AppIcons {
   static const articleBold = SolarIconsBold.documentText;
   static const bookmark = SolarIconsOutline.bookmark;
   static const bookmarkFilled = SolarIconsBold.bookmark;
+  static const historyBold = SolarIconsBold.history;
   static const settings = SolarIconsOutline.settings;
   static const settingsBold = SolarIconsBold.settings;
   static const supportBold = SolarIconsBold.handHeart;
@@ -42,6 +45,7 @@ abstract final class AppIcons {
   static const logBold = SolarIconsBold.documentText;
   static const update = SolarIconsOutline.downloadMinimalistic;
   static const compose = SolarIconsOutline.penNewSquare;
+  static const pen = SolarIconsOutline.pen;
   static const lock = SolarIconsOutline.lock;
   static const views = SolarIconsOutline.eye;
   static const filter = SolarIconsOutline.filter;

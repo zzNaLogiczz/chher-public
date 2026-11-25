@@ -232,15 +232,20 @@ class DotBadge extends StatelessWidget {
   static const double size = 8;
   final bool visible;
   final Color? ringColor;
-  const DotBadge({super.key, required this.visible, this.ringColor});
+  final Color? color;
+  const DotBadge({
+    super.key,
+    required this.visible,
+    this.ringColor,
+    this.color,
+  });
 
   @override
-  Widget build(BuildContext context) => BadgeAppearance(
-    visible: visible,
-    child: DecoratedBox(
+  Widget build(BuildContext context) {
+    final dot = DecoratedBox(
       key: surfaceKey,
       decoration: ShapeDecoration(
-        color: AppTokens.of(context).red,
+        color: color ?? AppTokens.of(context).red,
         shape: CircleBorder(
           side: ringColor == null
               ? BorderSide.none
@@ -252,8 +257,15 @@ class DotBadge extends StatelessWidget {
         ),
       ),
       child: const SizedBox.square(dimension: size),
-    ),
-  );
+    );
+    if (color != null && MediaQuery.disableAnimationsOf(context)) {
+      return AnimatedSwitcher(
+        duration: AppMotion.reducedFade,
+        child: visible ? dot : const SizedBox.shrink(),
+      );
+    }
+    return BadgeAppearance(visible: visible, child: dot);
+  }
 }
 
 /// Shared appearance for counters and source-backed unread indicators.

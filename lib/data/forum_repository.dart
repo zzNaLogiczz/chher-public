@@ -1,6 +1,8 @@
 /// 论坛域读操作:版块目录、帖子列表、帖子详情、导读流、搜索、标签
 library;
 
+import 'dart:async';
+
 import 'package:html/parser.dart' as html;
 
 import '../core/chh_urls.dart';
@@ -16,13 +18,22 @@ import '../parser/misc_parser.dart';
 import '../parser/search_result_parser.dart';
 import '../parser/thread_list_parser.dart';
 import '../parser/background_parser.dart';
+import 'follow_index.dart';
 
 class ForumRepository {
   // Keep const repositories and let discarded clients release their parsed pages.
   static final _parsedThreads = Expando<_ParsedThreadPages>();
   final ChhClient client;
   final ChhSession? session;
-  const ForumRepository(this.client, {this.session});
+  final FollowIndex? follows;
+  const ForumRepository(this.client, {this.session, this.follows});
+
+  void _sight(int? epoch, Iterable<ThreadSummary> threads) {
+    final index = follows;
+    if (index != null && index.epoch == epoch) {
+      unawaited(index.sightThreads(threads));
+    }
+  }
 
   String? get cookiePrefix => session?.cookiePrefix;
 
@@ -108,6 +119,7 @@ class ForumRepository {
     String? orderby,
     bool refresh = false,
   }) async {
+    final followEpoch = follows?.epoch;
     final url = ChhUrls.threadListFiltered(
       fid,
       page: page,
@@ -115,7 +127,12 @@ class ForumRepository {
       filter: filter,
       orderby: orderby,
     );
-    return parseThreadList(await client.getHtml(url, refresh: refresh));
+    final result = parseThreadList(
+      await client.getHtml(url, refresh: refresh),
+      forumFid: fid,
+    );
+    _sight(followEpoch, result.threads);
+    return result;
   }
 
   /// 版块的分类标签。与帖子列表同一个页面,这里单独取一次供筛选条使用。
@@ -134,6 +151,96 @@ class ForumRepository {
             ? ChhUrls.thread(tid, page: page)
             : ChhUrls.threadByAuthor(tid, authorUid, page: page),
       );
+
+  /// Only consecutive, unfiltered pages backed by live HTML cache entries
+  /// can be used to decide where an incremental refresh starts.
+  ({int lastPage, bool recent, int? replyCount, int? verifiedCountSequence})?
+  cachedThreadCoverage(int tid, {int? observedReplies}) {
+    final cache = _parsedThreads[client];
+    if (cache == null || cache.generation != client.cacheGeneration) {
+      return null;
+    }
+    ThreadDetail? last;
+    var boundarySequence = 0;
+    final counts = <int, int>{};
+    final postIds = <int>{};
+    var startsWithOpening = false;
+    for (var page = 1; last?.page.hasNext ?? true; page++) {
+      final url = ChhUrls.thread(tid, page: page);
+      final entry = cache.pages[(url, tid, page)];
+      final sequence = client.cachedHtmlSequence(url);
+      if (entry == null || sequence == null || entry.$3 != sequence) break;
+      final detail = entry.$2;
+      if (detail.page.current != page || detail.posts.isEmpty) break;
+      last = detail;
+      boundarySequence = sequence;
+      if (detail.replyCount case final count?) counts[sequence] = count;
+      postIds.addAll(detail.posts.map((post) => post.pid));
+      if (page == 1) {
+        startsWithOpening = detail.posts.any(
+          (post) => post.floorIsKnown && post.floor == 1,
+        );
+      }
+    }
+    if (last == null) return null;
+    final countSequence = counts.keys
+        .where((sequence) => sequence <= boundarySequence)
+        .fold<int>(
+          0,
+          (latest, sequence) => sequence > latest ? sequence : latest,
+        );
+    final reportedCount = counts[countSequence];
+    final loadedReplies = postIds.length - 1;
+    // A tail page may omit statistics. A complete, unfiltered series can
+    // confirm a newer list count or prove that an older total is too low.
+    final confirmedCount =
+        startsWithOpening &&
+        !last.page.hasNext &&
+        (reportedCount != null || observedReplies == loadedReplies) &&
+        loadedReplies > (reportedCount ?? -1);
+    return (
+      lastPage: last.page.current,
+      recent: client.isRecentHtml(ChhUrls.thread(tid, page: last.page.current)),
+      replyCount: confirmedCount ? loadedReplies : reportedCount,
+      verifiedCountSequence: confirmedCount ? boundarySequence : null,
+    );
+  }
+
+  ThreadDetail? cachedThreadPage(int tid, int page) {
+    final cache = _parsedThreads[client];
+    if (cache == null || cache.generation != client.cacheGeneration) {
+      return null;
+    }
+    final url = ChhUrls.thread(tid, page: page);
+    final entry = cache.pages[(url, tid, page)];
+    final sequence = client.cachedHtmlSequence(url);
+    return entry != null && sequence != null && entry.$3 == sequence
+        ? entry.$2
+        : null;
+  }
+
+  int? cachedPageSequence(ThreadDetail page, {String? authorUid}) {
+    final tid = page.tid;
+    final number = page.page.current;
+    final url = authorUid == null
+        ? ChhUrls.thread(tid, page: number)
+        : ChhUrls.threadByAuthor(tid, authorUid, page: number);
+    final cache = _parsedThreads[client];
+    if (cache == null || cache.generation != client.cacheGeneration) {
+      return null;
+    }
+    final entry = cache.pages[(url, tid, number)];
+    return entry != null && identical(entry.$2, page) ? entry.$3 : null;
+  }
+
+  void invalidateThread(int tid, {int fromPage = 1}) {
+    client.invalidateThread(tid, fromPage: fromPage);
+    _parsedThreads[client]?.pages.removeWhere((key, _) {
+      final (url, cachedTid, page) = key;
+      return cachedTid == tid &&
+          (page >= fromPage || url != ChhUrls.thread(tid, page: page));
+    });
+  }
 
   /// 帖子详情。authorUid 非空即「只看作者」,页面结构与常规详情页全同构。
   Future<ThreadDetail> thread(
@@ -180,12 +287,16 @@ class ForumRepository {
     bool Function()? shouldContinue,
   }) async {
     final generation = client.cacheGeneration;
+    final threadRevision = client.threadCacheRevision(tid);
     final source = await client.getHtml(
       url,
       refresh: refresh,
       shouldContinue: shouldContinue,
     );
     if (shouldContinue?.call() == false) throw const ThreadReadCancelled();
+    if (threadRevision != client.threadCacheRevision(tid)) {
+      throw const ThreadReadCancelled();
+    }
     // An old in-flight response must neither read nor replace the new session's cache.
     if (generation != client.cacheGeneration) {
       return parseThreadAsync(source, tid: tid, fallbackPage: fallbackPage);
@@ -195,8 +306,13 @@ class ForumRepository {
       _parsedThreads[client] = cache = _ParsedThreadPages(generation);
     }
     final key = (url, tid, fallbackPage);
-    final previous = cache.pages.remove(key);
-    if (!refresh && previous != null && previous.$1 == source) {
+    final sequence = client.cachedHtmlSequence(url, matchingHtml: source);
+    final previous = cache.pages[key];
+    if (!refresh &&
+        previous != null &&
+        previous.$1 == source &&
+        previous.$3 == sequence) {
+      cache.pages.remove(key);
       cache.pages[key] = previous;
       return previous.$2;
     }
@@ -205,8 +321,12 @@ class ForumRepository {
       tid: tid,
       fallbackPage: fallbackPage,
     );
-    if (generation == client.cacheGeneration) {
-      cache.remember(key, source, detail);
+    if (threadRevision != client.threadCacheRevision(tid)) {
+      throw const ThreadReadCancelled();
+    }
+    if (generation == client.cacheGeneration &&
+        sequence == client.cachedHtmlSequence(url)) {
+      cache.remember(key, source, detail, sequence);
     }
     return detail;
   }
@@ -218,11 +338,14 @@ class ForumRepository {
     int page = 1,
     bool refresh = false,
   }) async {
+    final followEpoch = follows?.epoch;
     final html = await client.getHtml(
       ChhUrls.guide(view: view, type: type, page: page),
       refresh: refresh,
     );
-    return parseGuide(html);
+    final result = parseGuide(html);
+    _sight(followEpoch, result.threads);
+    return result;
   }
 
   /// 搜索。站点先 302 到 searchid 页,由 fetcher 自动跟随。
@@ -230,9 +353,12 @@ class ForumRepository {
     String keyword, {
     bool refresh = false,
   }) async {
-    return parseSearchResult(
+    final followEpoch = follows?.epoch;
+    final result = parseSearchResult(
       await client.getHtml(ChhUrls.search(keyword), refresh: refresh),
     );
+    _sight(followEpoch, result.rows);
+    return result;
   }
 
   /// 翻页必须沿用站点给出的 nextUrl,它带着 searchid 与排序参数
@@ -242,27 +368,38 @@ class ForumRepository {
   }) async {
     final next = prev.nextUrl;
     if (next == null) return prev;
-    return parseSearchResult(
+    final followEpoch = follows?.epoch;
+    final result = parseSearchResult(
       await client.getHtml(Uri.parse(next), refresh: refresh),
     );
+    _sight(followEpoch, result.rows);
+    return result;
   }
 
   Future<Paged<ThreadSummary>> tag(int id, {bool refresh = false}) async {
-    return parseTagThreads(
+    final followEpoch = follows?.epoch;
+    final result = parseTagThreads(
       await client.getHtml(ChhUrls.tag(id), refresh: refresh),
     );
+    _sight(followEpoch, result.items);
+    return result;
   }
 }
 
 class _ParsedThreadPages {
   _ParsedThreadPages(this.generation);
   final int generation;
-  final pages = <(Uri, int, int), (String, ThreadDetail)>{};
+  final pages = <(Uri, int, int), (String, ThreadDetail, int?)>{};
 
-  void remember((Uri, int, int) key, String source, ThreadDetail detail) {
+  void remember(
+    (Uri, int, int) key,
+    String source,
+    ThreadDetail detail,
+    int? sequence,
+  ) {
     if (source.length * 2 > (32 << 20)) return;
     pages.remove(key);
-    pages[key] = (source, detail);
+    pages[key] = (source, detail, sequence);
     var sourceBytes = pages.values.fold(
       0,
       (sum, entry) => sum + entry.$1.length * 2,

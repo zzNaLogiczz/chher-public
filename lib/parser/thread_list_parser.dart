@@ -23,9 +23,21 @@ import '../core/chh_urls.dart';
 import '../models/models.dart';
 import 'dom_utils.dart';
 
-ThreadListPage parseThreadList(String html) {
+ThreadListPage parseThreadList(String html, {int? forumFid}) {
   final doc = html_parser.parse(html);
   throwIfMessagePage(doc);
+  final forumName = forumFid == null
+      ? null
+      : doc
+            .querySelectorAll('#pt a[href]')
+            .reversed
+            .where(
+              (link) =>
+                  ChhUrls.fidFromUrl(link.attributes['href']!) == forumFid,
+            )
+            .firstOrNull
+            ?.text
+            .trim();
   final threads = <ThreadSummary>[];
 
   for (final tbody in doc.querySelectorAll('tbody')) {
@@ -65,8 +77,9 @@ ThreadListPage parseThreadList(String html) {
     }
 
     final numCell = tbody.querySelector('td.num');
-    final replies =
-        int.tryParse(numCell?.querySelector('a')?.text.trim() ?? '') ?? 0;
+    final replies = int.tryParse(
+      numCell?.querySelector('a')?.text.trim() ?? '',
+    );
     final views =
         int.tryParse(numCell?.querySelector('em')?.text.trim() ?? '') ?? 0;
     final hasImages = tbody.querySelector('i.fico-image') != null;
@@ -86,6 +99,8 @@ ThreadListPage parseThreadList(String html) {
         lastPostTimeRaw: lastAt,
         hasImages: hasImages,
         sticky: sticky,
+        forumFid: forumFid,
+        forumName: forumName,
       ),
     );
   }

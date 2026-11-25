@@ -5,6 +5,7 @@ import 'package:chh_app/data/user_block_index.dart';
 import 'package:chh_app/design/shapes.dart';
 import 'package:chh_app/design/tokens.dart';
 import 'package:chh_app/ui/press.dart';
+import 'package:chh_app/ui/user_block_action.dart';
 import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/network/chh_client.dart';
 import 'package:chh_app/models/models.dart';
@@ -63,11 +64,11 @@ void main() {
   for (final style in AppearanceStyle.values) {
     for (final brightness in Brightness.values) {
       testWidgets('黑名单两种状态均为44胶囊 $style $brightness', (tester) async {
-        await tester.runAsync(() => userBlockIndex.unblock('42'));
-        addTearDown(() => tester.runAsync(() => userBlockIndex.unblock('42')));
+        final blocks = UserBlockIndex.forTesting(null);
+        addTearDown(blocks.dispose);
         await tester.pumpWidget(
           _app(
-            UserPage(uid: '42', repository: FixtureSpace()),
+            UserPage(uid: '42', repository: FixtureSpace(), blockIndex: blocks),
             style: style,
             brightness: brightness,
           ),
@@ -94,7 +95,9 @@ void main() {
                       )
                       .decoration
                   as ShapeDecoration;
-          expect(decoration.shape, appShape(AppRadii.full));
+          final shape = decoration.shape as OutlinedBorder;
+          expect(shape, appShape(AppRadii.full).copyWith(side: shape.side));
+          expect(shape.side.width, label == '加入黑名单' ? AppSpace.hairline : 0);
           final rect = Offset.zero & tester.getSize(row);
           final radius = press.borderRadius!
               .toRRect(rect)
@@ -103,7 +106,12 @@ void main() {
           expect(radius, rect.height / 2);
           await tester.tap(row);
           await tester.pumpAndSettle();
-          expect(userBlockIndex.isBlocked('42'), label == '加入黑名单');
+          if (label == '加入黑名单') {
+            await tester.tap(find.widgetWithText(UserBlockSheetButton, label));
+            await tester.pumpAndSettle();
+            expect(blocks.entryFor('42')?.src, isNull);
+          }
+          expect(blocks.isBlocked('42'), label == '加入黑名单');
           await tester.pump(const Duration(seconds: 4));
           await tester.pumpAndSettle();
         }

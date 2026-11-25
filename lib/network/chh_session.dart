@@ -449,6 +449,7 @@ class ChhSession extends ChangeNotifier {
       _holdIdentity = false;
       _accountOperation = false;
       store.setSwitchingUid(null);
+      notifyListeners();
     }
   }
 
@@ -502,6 +503,7 @@ class ChhSession extends ChangeNotifier {
     final store = accounts;
     final phase = _accountLogin;
     if (store == null || phase == null || _accountOperation) return false;
+    final revision = _identityRevision;
     _accountOperation = true;
     _holdIdentity = true;
     try {
@@ -534,6 +536,10 @@ class ChhSession extends ChangeNotifier {
     } finally {
       _holdIdentity = false;
       _accountOperation = false;
+      if (_accountLogin == null &&
+          (phase == _AccountLogin.adopting || revision != _identityRevision)) {
+        notifyListeners();
+      }
     }
   }
 
@@ -570,6 +576,7 @@ class ChhSession extends ChangeNotifier {
     } finally {
       _holdIdentity = false;
       _accountOperation = false;
+      notifyListeners();
     }
   }
 

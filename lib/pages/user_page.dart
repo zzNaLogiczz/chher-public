@@ -6,6 +6,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../core/display_time.dart';
+import '../data/follow_index.dart';
 import '../data/space_repository.dart';
 import '../data/user_group_levels.dart';
 import '../widgets/chhers_loading_transition.dart';
@@ -19,6 +20,7 @@ import '../design/typography.dart';
 import '../di.dart';
 import '../data/user_block_index.dart';
 import '../ui/user_block_action.dart';
+import '../ui/user_follow_action.dart';
 import '../models/models.dart';
 import '../ui/chrome_button.dart';
 import '../ui/grouped.dart';
@@ -36,11 +38,15 @@ class UserPage extends StatefulWidget {
   static const threadsKey = ValueKey('user-threads');
   final SpaceRepository? repository;
   final UserGroupLevels? groupLevels;
+  final UserBlockIndex? blockIndex;
+  final BlockedUserSource? blockSource;
   final String uid;
   const UserPage({
     super.key,
     this.repository,
     this.groupLevels,
+    this.blockIndex,
+    this.blockSource,
     required this.uid,
   });
 
@@ -80,6 +86,8 @@ class _UserPageState extends State<UserPage> {
               uid: widget.uid,
               repository: widget.repository,
               groupLevels: widget.groupLevels,
+              blockIndex: widget.blockIndex,
+              blockSource: widget.blockSource,
               topPadding: chromeHeight + 12,
               refreshEdgeOffset: chromeHeight,
               onLoaded: (profile) {
@@ -120,6 +128,9 @@ class UserProfileBody extends StatefulWidget {
   final double refreshEdgeOffset;
   final ValueChanged<UserProfile>? onLoaded;
   final ValueChanged<double>? onIdentityHeight;
+  final UserBlockIndex? blockIndex;
+  final BlockedUserSource? blockSource;
+  final VoidCallback? onOpenBlockSource;
   const UserProfileBody({
     super.key,
     this.repository,
@@ -129,6 +140,9 @@ class UserProfileBody extends StatefulWidget {
     this.refreshEdgeOffset = 0,
     this.onLoaded,
     this.onIdentityHeight,
+    this.blockIndex,
+    this.blockSource,
+    this.onOpenBlockSource,
   });
 
   @override
@@ -217,6 +231,7 @@ class _UserProfileBodyState extends State<UserProfileBody> {
     if (err != null) return StateView.error(err, onRetry: _reload);
     final profile = snap.data!;
     final details = _details(profile);
+    final blocks = widget.blockIndex ?? userBlockIndex;
     return ChhersRefreshIndicator(
       edgeOffset: widget.refreshEdgeOffset,
       onRefresh: _reload,
@@ -241,65 +256,18 @@ class _UserProfileBodyState extends State<UserProfileBody> {
                     key: UserPage.identityKey,
                     profile: profile,
                     lowerCredits: _lowerCredits,
+                    blocks: blocks,
                   ),
                 ),
               );
             },
           ),
-          if (UserBlockIndex.normalizeUid(profile.uid) !=
-              UserBlockIndex.normalizeUid(chhSession.badges.uid))
-            ListenableBuilder(
-              listenable: userBlockIndex,
-              builder: (context, _) => Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  AppSpace.groupInset,
-                  20,
-                  AppSpace.groupInset,
-                  0,
-                ),
-                child: DecoratedBox(
-                  decoration: ShapeDecoration(
-                    color: AppTokens.of(context).surface,
-                    shape: appShape(AppRadii.full),
-                  ),
-                  child: PressHighlight(
-                    borderRadius: BorderRadius.circular(AppRadii.full),
-                    semanticLabel: userBlockIndex.isBlocked(profile.uid)
-                        ? '解除黑名单'
-                        : '加入黑名单',
-                    onTap: () => toggleUserBlock(
-                      context,
-                      uid: profile.uid,
-                      name: profile.name,
-                      avatarUrl: profile.avatarUrl,
-                    ),
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(
-                        minHeight: AppSizes.singleLineHeight,
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: AppSpace.rowInset,
-                        ),
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                            userBlockIndex.isBlocked(profile.uid)
-                                ? '解除黑名单'
-                                : '加入黑名单',
-                            style: AppType.callout.copyWith(
-                              color: userBlockIndex.isBlocked(profile.uid)
-                                  ? AppTokens.of(context).accent
-                                  : AppTokens.of(context).red,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
+          _ProfileActions(
+            profile: profile,
+            blocks: blocks,
+            blockSource: widget.blockSource,
+            onOpenBlockSource: widget.onOpenBlockSource,
+          ),
           const SizedBox(height: 20),
           _inset(
             _Statistics(
@@ -357,7 +325,13 @@ class _UserProfileBodyState extends State<UserProfileBody> {
 class _IdentityCard extends StatelessWidget {
   final UserProfile profile;
   final int? lowerCredits;
-  const _IdentityCard({super.key, required this.profile, this.lowerCredits});
+  final UserBlockIndex blocks;
+  const _IdentityCard({
+    super.key,
+    required this.profile,
+    this.lowerCredits,
+    required this.blocks,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -398,31 +372,6 @@ class _IdentityCard extends StatelessWidget {
           textAlign: TextAlign.center,
           style: AppType.title1.copyWith(color: t.text),
         ),
-        ListenableBuilder(
-          listenable: userBlockIndex,
-          builder: (context, _) => ExpressiveVisibility(
-            visible: userBlockIndex.isBlocked(profile.uid),
-            child: Padding(
-              padding: const EdgeInsets.only(top: 10),
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: t.warnBg,
-                  borderRadius: BorderRadius.circular(AppRadii.xs),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 4,
-                  ),
-                  child: Text(
-                    '已加入黑名单',
-                    style: AppType.footnote.copyWith(color: t.warn),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
         const SizedBox(height: 10),
         Wrap(
           alignment: WrapAlignment.center,
@@ -449,9 +398,195 @@ class _IdentityCard extends StatelessWidget {
             ],
           ],
         ),
+        ListenableBuilder(
+          listenable: blocks,
+          builder: (context, _) {
+            final entry = blocks.entryFor(profile.uid);
+            final note = entry?.note;
+            return ExpressiveVisibility(
+              key: ValueKey(blocks.epoch),
+              visible: entry != null,
+              child: Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: Column(
+                  children: [
+                    DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: t.warnBg,
+                        borderRadius: BorderRadius.circular(AppRadii.xs),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
+                        child: Text(
+                          '已加入黑名单',
+                          style: AppType.footnote.copyWith(color: t.warn),
+                        ),
+                      ),
+                    ),
+                    if (note != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(
+                          note,
+                          textAlign: TextAlign.center,
+                          style: AppType.subhead.copyWith(color: t.text2),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
       ],
     );
   }
+}
+
+class _ProfileActions extends StatelessWidget {
+  final UserProfile profile;
+  final UserBlockIndex blocks;
+  final BlockedUserSource? blockSource;
+  final VoidCallback? onOpenBlockSource;
+  const _ProfileActions({
+    required this.profile,
+    required this.blocks,
+    this.blockSource,
+    this.onOpenBlockSource,
+  });
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: Listenable.merge([chhSession, followIndex, blocks]),
+    builder: (context, _) {
+      final uid = UserBlockIndex.normalizeUid(profile.uid);
+      if (uid == null ||
+          uid == UserBlockIndex.normalizeUid(chhSession.badges.uid) ||
+          !followIndex.accountReady ||
+          !blocks.accountReady) {
+        return const SizedBox.shrink();
+      }
+      final followEpoch = followIndex.epoch;
+      final blockEpoch = blocks.epoch;
+      bool isCurrent() =>
+          followEpoch == followIndex.epoch && blockEpoch == blocks.epoch;
+      final t = AppTokens.of(context);
+      final blocked = blocks.isBlocked(uid);
+      final followed = followIndex.isFollowed(uid);
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(
+          AppSpace.groupInset,
+          18,
+          AppSpace.groupInset,
+          0,
+        ),
+        child: Wrap(
+          alignment: WrapAlignment.center,
+          spacing: 10,
+          runSpacing: 8,
+          children: [
+            if (!blocked)
+              _ProfilePill(
+                label: followed ? '已关注' : '关注',
+                icon: followed ? AppIcons.userCheck : AppIcons.userPlus,
+                foreground: followed ? t.text2 : t.accent,
+                background: followed ? t.fill : t.accentFill,
+                onTap: () {
+                  if (!isCurrent()) return;
+                  toggleUserFollow(
+                    context,
+                    uid: uid,
+                    name: profile.name,
+                    avatarUrl: profile.avatarUrl,
+                  );
+                },
+              ),
+            _ProfilePill(
+              label: blocked ? '解除黑名单' : '加入黑名单',
+              foreground: blocked
+                  ? t.accent
+                  : (t.isDark ? Radix.red11Dark : Radix.red11Light),
+              background: blocked ? t.fill : null,
+              outlined: !blocked,
+              onTap: () {
+                if (!isCurrent()) return;
+                toggleUserBlock(
+                  context,
+                  uid: uid,
+                  name: profile.name,
+                  avatarUrl: profile.avatarUrl,
+                  index: blocks,
+                  src: blockSource,
+                  onOpenSource: onOpenBlockSource,
+                );
+              },
+            ),
+          ],
+        ),
+      );
+    },
+  );
+}
+
+class _ProfilePill extends StatelessWidget {
+  final String label;
+  final IconData? icon;
+  final Color foreground;
+  final Color? background;
+  final bool outlined;
+  final VoidCallback onTap;
+  const _ProfilePill({
+    required this.label,
+    this.icon,
+    required this.foreground,
+    this.background,
+    this.outlined = false,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) => DecoratedBox(
+    decoration: ShapeDecoration(
+      color: background,
+      shape: appShape(AppRadii.full).copyWith(
+        side: outlined
+            ? BorderSide(color: foreground, width: AppSpace.hairline)
+            : BorderSide.none,
+      ),
+    ),
+    child: PressHighlight(
+      onTap: onTap,
+      semanticLabel: label,
+      borderRadius: BorderRadius.circular(AppRadii.full),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: AppSizes.singleLineHeight),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (icon != null) ...[
+                Icon(icon, size: 18, color: foreground),
+                const SizedBox(width: 6),
+              ],
+              Flexible(
+                child: Text(
+                  label,
+                  style: AppType.subhead.copyWith(
+                    color: foreground,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 class _LevelProgress extends StatelessWidget {

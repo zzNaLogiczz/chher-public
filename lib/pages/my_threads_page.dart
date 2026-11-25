@@ -57,6 +57,7 @@ class _MyThreadsPageState extends State<MyThreadsPage> {
         builder: (context, _) {
           final uid = widget.uid;
           if (uid != null && userBlockIndex.isBlocked(uid)) {
+            final epoch = userBlockIndex.epoch;
             return Center(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -65,8 +66,10 @@ class _MyThreadsPageState extends State<MyThreadsPage> {
                   AppButton(
                     label: '解除黑名单',
                     variant: AppButtonVariant.plain,
-                    onPressed: () =>
-                        toggleUserBlock(context, uid: uid, name: widget.title),
+                    onPressed: () {
+                      if (epoch != userBlockIndex.epoch) return;
+                      toggleUserBlock(context, uid: uid, name: widget.title);
+                    },
                   ),
                 ],
               ),
@@ -136,6 +139,7 @@ class _Row extends StatelessWidget {
           builder: (_) => ThreadDetailPage(
             tid: item.tid,
             seenReplies: item.replies,
+            observedReplies: item.replies,
             fid: item.forumFid,
             title: item.title,
             gotoUrl: snippet?.targetUrl,
