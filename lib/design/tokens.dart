@@ -105,6 +105,13 @@ class AppTokens extends ThemeExtension<AppTokens> {
   final Color accentFill2;
   final Color accentLine;
   final Color onAccent;
+
+  /// 听写渐变与语音胶囊的波形色板。
+  final Color ai1;
+  final Color ai2;
+  final Color ai3;
+  final Color ai4;
+
   final Color glass;
   final Color glassOnImage;
 
@@ -176,6 +183,10 @@ class AppTokens extends ThemeExtension<AppTokens> {
     required this.accentFill2,
     required this.accentLine,
     required this.onAccent,
+    required this.ai1,
+    required this.ai2,
+    required this.ai3,
+    required this.ai4,
     required this.glass,
     required this.glassOnImage,
     required this.frostedMist,
@@ -231,6 +242,10 @@ class AppTokens extends ThemeExtension<AppTokens> {
     accentFill2: Color(0xFFFFD4CC),
     accentLine: Color(0xFFFDB6AB),
     onAccent: Color(0xFFFFFFFF),
+    ai1: Color(0xFFC62F2F),
+    ai2: Color(0xFFE8813A),
+    ai3: Color(0xFFD6457A),
+    ai4: Color(0xFFF2A65A),
     glass: Color.fromRGBO(255, 253, 252, .92),
     glassOnImage: Color.fromRGBO(30, 30, 32, .50),
     frostedMist: Color.fromRGBO(255, 253, 252, .38),
@@ -288,6 +303,10 @@ class AppTokens extends ThemeExtension<AppTokens> {
     accentLine: Color(0xFF843C39),
     // 深色主按钮白字
     onAccent: Color(0xFFFFFFFF),
+    ai1: Color(0xFFD9443F),
+    ai2: Color(0xFFF5A54A),
+    ai3: Color(0xFFE8638E),
+    ai4: Color(0xFFFF9C73),
     glass: Color.fromRGBO(46, 41, 40, .92),
     glassOnImage: Color.fromRGBO(30, 30, 32, .50),
     frostedMist: Color.fromRGBO(10, 8, 8, .30),
@@ -352,6 +371,10 @@ class AppTokens extends ThemeExtension<AppTokens> {
     accentFill2: Color.fromRGBO(13, 116, 206, .12),
     accentLine: Color(0xFFD9D9E0),
     onAccent: Color(0xFFFFFFFF),
+    ai1: Color(0xFF0D74CE),
+    ai2: Color(0xFF2FB8D6),
+    ai3: Color(0xFF8E4EC6),
+    ai4: Color(0xFF5EB1EF),
     glass: Color.fromRGBO(255, 255, 255, .92),
     glassOnImage: Color.fromRGBO(30, 30, 32, .50),
     frostedMist: Color.fromRGBO(255, 255, 255, .38),
@@ -407,6 +430,10 @@ class AppTokens extends ThemeExtension<AppTokens> {
     accentFill2: Color.fromRGBO(112, 184, 255, .16),
     accentLine: Color(0xFF363A3F),
     onAccent: Color(0xFF0B0B0C),
+    ai1: Color(0xFF3B8EEA),
+    ai2: Color(0xFF4CCCE6),
+    ai3: Color(0xFFB57AF0),
+    ai4: Color(0xFF8EC5FF),
     glass: Color.fromRGBO(44, 44, 48, .92),
     glassOnImage: Color.fromRGBO(30, 30, 32, .50),
     frostedMist: Color.fromRGBO(16, 16, 18, .30),
@@ -496,6 +523,10 @@ class AppTokens extends ThemeExtension<AppTokens> {
     end: Alignment.bottomCenter,
     colors: [btnTop, btnBot],
   );
+
+  /// 朱砂发送胶囊沿用按钮渐变，薄暮使用 accent 纯色。
+  LinearGradient? get composerSendGradient =>
+      style == AppearanceStyle.cinnabar ? btnGradient : null;
 
   /// 纸面接缝投影:红调深影,让纸"浮"在漆面上
   List<BoxShadow> get paperShadow => [
@@ -632,6 +663,10 @@ class AppTokens extends ThemeExtension<AppTokens> {
     Color? accentFill2,
     Color? accentLine,
     Color? onAccent,
+    Color? ai1,
+    Color? ai2,
+    Color? ai3,
+    Color? ai4,
     Color? glass,
     Color? glassOnImage,
     Color? frostedMist,
@@ -683,6 +718,10 @@ class AppTokens extends ThemeExtension<AppTokens> {
       accentFill2: accentFill2 ?? this.accentFill2,
       accentLine: accentLine ?? this.accentLine,
       onAccent: onAccent ?? this.onAccent,
+      ai1: ai1 ?? this.ai1,
+      ai2: ai2 ?? this.ai2,
+      ai3: ai3 ?? this.ai3,
+      ai4: ai4 ?? this.ai4,
       glass: glass ?? this.glass,
       glassOnImage: glassOnImage ?? this.glassOnImage,
       frostedMist: frostedMist ?? this.frostedMist,
@@ -742,6 +781,10 @@ class AppTokens extends ThemeExtension<AppTokens> {
       accentFill2: Color.lerp(accentFill2, other.accentFill2, t)!,
       accentLine: Color.lerp(accentLine, other.accentLine, t)!,
       onAccent: Color.lerp(onAccent, other.onAccent, t)!,
+      ai1: Color.lerp(ai1, other.ai1, t)!,
+      ai2: Color.lerp(ai2, other.ai2, t)!,
+      ai3: Color.lerp(ai3, other.ai3, t)!,
+      ai4: Color.lerp(ai4, other.ai4, t)!,
       glass: Color.lerp(glass, other.glass, t)!,
       glassOnImage: Color.lerp(glassOnImage, other.glassOnImage, t)!,
       frostedMist: Color.lerp(frostedMist, other.frostedMist, t)!,

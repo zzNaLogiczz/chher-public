@@ -16,9 +16,9 @@ import '../parser/forum_index_parser.dart';
 import '../parser/guide_parser.dart';
 import '../parser/misc_parser.dart';
 import '../parser/search_result_parser.dart';
-import '../parser/thread_list_parser.dart';
 import '../parser/background_parser.dart';
 import 'follow_index.dart';
+import 'thread_page_reading.dart';
 
 class ForumRepository {
   // Keep const repositories and let discarded clients release their parsed pages.
@@ -51,20 +51,16 @@ class ForumRepository {
 
   Future<bool> verifyForumPassword(int fid, String password) async {
     final url = ChhUrls.threadList(fid);
-    final page = await client.getHtml(url, refresh: true);
-    final doc = html.parse(page);
-    final form = doc.querySelector('form[action*="action=pwverify"]');
+    final form = (await client.getForumList(url, refresh: true)).passwordForm;
     if (form == null) return false;
-    final action = url.resolve(form.attributes['action'] ?? '');
+    final action = url.resolve(form.action);
     // 密码只提交给站点实际给出的同站表单。
     if (action.origin != url.origin ||
         action.queryParameters['fid'] != '$fid') {
       return false;
     }
     final response = await client.postForm(action, {
-      'formhash':
-          form.querySelector('input[name="formhash"]')?.attributes['value'] ??
-          '',
+      'formhash': form.formHash,
       'pw': password,
       'loginsubmit': 'true',
     });
@@ -80,7 +76,7 @@ class ForumRepository {
       return false;
     }
     final prefixes = [
-      RegExp(r"cookiepre\s*=\s*'([^']*)'").firstMatch(page)?.group(1),
+      form.cookiePrefix,
       RegExp(r"cookiepre\s*=\s*'([^']*)'").firstMatch(response.body)?.group(1),
       cookiePrefix,
     ];
@@ -127,21 +123,44 @@ class ForumRepository {
       filter: filter,
       orderby: orderby,
     );
-    final result = parseThreadList(
-      await client.getHtml(url, refresh: refresh),
-      forumFid: fid,
-    );
+    final result = (await client.getForumList(url, refresh: refresh)).list;
     _sight(followEpoch, result.threads);
     return result;
   }
 
-  /// 版块的分类标签。与帖子列表同一个页面,这里单独取一次供筛选条使用。
+  ThreadListPage? cachedThreadList(
+    int fid, {
+    int? typeid,
+    String? filter,
+    String? orderby,
+  }) {
+    final model = client.cachedForumList(
+      ChhUrls.threadListFiltered(
+        fid,
+        typeid: typeid,
+        filter: filter,
+        orderby: orderby,
+      ),
+    );
+    if (model == null) return null;
+    try {
+      final result = model.list;
+      _sight(follows?.epoch, result.threads);
+      return result;
+    } on PageMessage {
+      return null;
+    }
+  }
+
+  List<ThreadType>? cachedThreadTypes(int fid) =>
+      client.cachedForumList(ChhUrls.threadList(fid))?.types;
+
+  /// 版块的分类标签，与默认帖子列表共用响应和解析模型。
   Future<List<ThreadType>> threadTypes(int fid, {bool refresh = false}) async {
-    final html = await client.getHtml(
+    return (await client.getForumList(
       ChhUrls.threadList(fid),
       refresh: refresh,
-    );
-    return parseThreadTypes(html);
+    )).types;
   }
 
   /// 缓存页可直接追加，无需等待下一次预加载时机。
@@ -163,8 +182,7 @@ class ForumRepository {
     ThreadDetail? last;
     var boundarySequence = 0;
     final counts = <int, int>{};
-    final postIds = <int>{};
-    var startsWithOpening = false;
+    final covered = <ThreadDetail>[];
     for (var page = 1; last?.page.hasNext ?? true; page++) {
       final url = ChhUrls.thread(tid, page: page);
       final entry = cache.pages[(url, tid, page)];
@@ -175,12 +193,7 @@ class ForumRepository {
       last = detail;
       boundarySequence = sequence;
       if (detail.replyCount case final count?) counts[sequence] = count;
-      postIds.addAll(detail.posts.map((post) => post.pid));
-      if (page == 1) {
-        startsWithOpening = detail.posts.any(
-          (post) => post.floorIsKnown && post.floor == 1,
-        );
-      }
+      covered.add(detail);
     }
     if (last == null) return null;
     final countSequence = counts.keys
@@ -190,33 +203,68 @@ class ForumRepository {
           (latest, sequence) => sequence > latest ? sequence : latest,
         );
     final reportedCount = counts[countSequence];
-    final loadedReplies = postIds.length - 1;
     // A tail page may omit statistics. A complete, unfiltered series can
     // confirm a newer list count or prove that an older total is too low.
-    final confirmedCount =
-        startsWithOpening &&
-        !last.page.hasNext &&
-        (reportedCount != null || observedReplies == loadedReplies) &&
-        loadedReplies > (reportedCount ?? -1);
+    int? confirmedCount;
+    if (!last.page.hasNext &&
+        (reportedCount != null || observedReplies != null)) {
+      final first = covered.first;
+      final prepared = parsedThreadReading[first];
+      final startsWithOpening = prepared == null
+          ? first.posts.any((post) => post.floorIsKnown && post.floor == 1)
+          : prepared.opening != null;
+      if (startsWithOpening) {
+        final loadedReplies =
+            (covered.length == 1 && prepared != null
+                ? prepared.index.loadedPostCount
+                : {
+                    for (final detail in covered)
+                      ...detail.posts.map((p) => p.pid),
+                  }.length) -
+            1;
+        if ((reportedCount != null || observedReplies == loadedReplies) &&
+            loadedReplies > (reportedCount ?? -1)) {
+          confirmedCount = loadedReplies;
+        }
+      }
+    }
     return (
       lastPage: last.page.current,
       recent: client.isRecentHtml(ChhUrls.thread(tid, page: last.page.current)),
-      replyCount: confirmedCount ? loadedReplies : reportedCount,
-      verifiedCountSequence: confirmedCount ? boundarySequence : null,
+      replyCount: confirmedCount ?? reportedCount,
+      verifiedCountSequence: confirmedCount == null ? null : boundarySequence,
     );
   }
 
-  ThreadDetail? cachedThreadPage(int tid, int page) {
+  ThreadDetail? cachedThreadPage(int tid, int page) =>
+      _cachedThreadAt(ChhUrls.thread(tid, page: page), tid, page);
+
+  /// A synchronous navigation read has the same LRU behavior as [thread].
+  ThreadDetail? cachedThreadForEntry(int tid, int page, {String? goto}) =>
+      _cachedThreadAt(
+        goto == null ? ChhUrls.thread(tid, page: page) : Uri.parse(goto),
+        tid,
+        goto == null ? page : 1,
+        touch: true,
+      );
+
+  ThreadDetail? _cachedThreadAt(
+    Uri url,
+    int tid,
+    int fallbackPage, {
+    bool touch = false,
+  }) {
     final cache = _parsedThreads[client];
     if (cache == null || cache.generation != client.cacheGeneration) {
       return null;
     }
-    final url = ChhUrls.thread(tid, page: page);
-    final entry = cache.pages[(url, tid, page)];
-    final sequence = client.cachedHtmlSequence(url);
-    return entry != null && sequence != null && entry.$3 == sequence
-        ? entry.$2
-        : null;
+    final key = (url, tid, fallbackPage);
+    final entry = cache.pages[key];
+    if (entry == null || entry.$3 != client.cachedHtmlSequence(url, touch: touch)) {
+      return null;
+    }
+    if (touch) cache.pages[key] = cache.pages.remove(key)!;
+    return entry.$2;
   }
 
   int? cachedPageSequence(ThreadDetail page, {String? authorUid}) {
@@ -288,45 +336,48 @@ class ForumRepository {
   }) async {
     final generation = client.cacheGeneration;
     final threadRevision = client.threadCacheRevision(tid);
-    final source = await client.getHtml(
+    final (html: source, :sequence) = await client.getThreadHtml(
       url,
       refresh: refresh,
       shouldContinue: shouldContinue,
     );
-    if (shouldContinue?.call() == false) throw const ThreadReadCancelled();
-    if (threadRevision != client.threadCacheRevision(tid)) {
-      throw const ThreadReadCancelled();
+    void checkActive() {
+      if (shouldContinue?.call() == false ||
+          threadRevision != client.threadCacheRevision(tid)) {
+        throw const ThreadReadCancelled();
+      }
     }
-    // An old in-flight response must neither read nor replace the new session's cache.
-    if (generation != client.cacheGeneration) {
-      return parseThreadAsync(source, tid: tid, fallbackPage: fallbackPage);
-    }
-    var cache = _parsedThreads[client];
-    if (cache == null || cache.generation != generation) {
-      _parsedThreads[client] = cache = _ParsedThreadPages(generation);
+
+    checkActive();
+    // An old in-flight response belongs to its original reader alone.
+    _ParsedThreadPages? cache;
+    if (generation == client.cacheGeneration) {
+      cache = _parsedThreads[client];
+      if (cache == null || cache.generation != generation) {
+        _parsedThreads[client] = cache = _ParsedThreadPages(generation);
+      }
     }
     final key = (url, tid, fallbackPage);
-    final sequence = client.cachedHtmlSequence(url, matchingHtml: source);
-    final previous = cache.pages[key];
-    if (!refresh &&
-        previous != null &&
-        previous.$1 == source &&
-        previous.$3 == sequence) {
-      cache.pages.remove(key);
+    final previous = cache?.pages[key];
+    if (!refresh && previous != null && previous.$3 == sequence) {
+      cache!.pages.remove(key);
       cache.pages[key] = previous;
       return previous.$2;
     }
-    final detail = await parseThreadAsync(
-      source,
-      tid: tid,
-      fallbackPage: fallbackPage,
-    );
-    if (threadRevision != client.threadCacheRevision(tid)) {
-      throw const ThreadReadCancelled();
+    final ThreadDetail detail;
+    try {
+      detail = await parseThreadAsync(
+        source,
+        tid: tid,
+        fallbackPage: fallbackPage,
+        dispatch: client.dispatchParser,
+      );
+    } finally {
+      checkActive();
     }
     if (generation == client.cacheGeneration &&
         sequence == client.cachedHtmlSequence(url)) {
-      cache.remember(key, source, detail, sequence);
+      cache?.remember(key, source, detail, sequence);
     }
     return detail;
   }
@@ -389,13 +440,13 @@ class ForumRepository {
 class _ParsedThreadPages {
   _ParsedThreadPages(this.generation);
   final int generation;
-  final pages = <(Uri, int, int), (String, ThreadDetail, int?)>{};
+  final pages = <(Uri, int, int), (String, ThreadDetail, int)>{};
 
   void remember(
     (Uri, int, int) key,
     String source,
     ThreadDetail detail,
-    int? sequence,
+    int sequence,
   ) {
     if (source.length * 2 > (32 << 20)) return;
     pages.remove(key);

@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Build the universal chhers-preview app on its independent 90.x.y version line."""
+from base64 import b64encode
+from contextlib import ExitStack
 from pathlib import Path
 import datetime
 import hashlib
@@ -9,7 +11,13 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from zipfile import ZipFile
+
+if __package__:
+    from . import update_build_config
+else:
+    import update_build_config
 
 ROOT = Path(__file__).resolve().parent.parent
 PACKAGE = 'com.chhreader.chh_app.preview'
@@ -42,6 +50,46 @@ def verify_launcher_icon(badging, resources):
         raise SystemExit('APK 图标未指向 mipmap/ic_launcher_preview；未复制交付文件')
 
 
+def preview_voice_endpoints(root):
+    config = root / 'config/update.local.json'
+    try:
+        # Without a configured service address, preview builds hide voice input.
+        return update_build_config.validate(config) if config.exists() else ''
+    except (OSError, ValueError):
+        raise SystemExit(update_build_config.INVALID_CONFIG) from None
+
+
+def run_flutter_build(command, root, log_path, voice_endpoints):
+    private_values = ()
+    with ExitStack() as cleanup:
+        if voice_endpoints:
+            # Flutter passes the define to Gradle as Base64.
+            define = f'CHH_VOICE_ENDPOINTS={voice_endpoints}'
+            encoded = b64encode(define.encode('utf-8')).decode('ascii')
+            private_values = (encoded, voice_endpoints, *(
+                endpoint.strip() for endpoint in voice_endpoints.split(',')
+            ))
+            # NamedTemporaryFile creates the file with mode 0600.
+            with tempfile.NamedTemporaryFile(
+                mode='w', encoding='utf-8', prefix='chhers-preview-voice-',
+                suffix='.json', delete=False,
+            ) as config:
+                cleanup.callback(Path(config.name).unlink, missing_ok=True)
+                json.dump({'CHH_VOICE_ENDPOINTS': voice_endpoints}, config)
+            command = [*command, f'--dart-define-from-file={config.name}']
+        with log_path.open('w', encoding='utf-8') as log, subprocess.Popen(
+            command, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            encoding='utf-8', errors='replace',
+        ) as build:
+            for line in build.stdout:
+                for value in private_values:
+                    line = line.replace(value, '[redacted]')
+                log.write(line)
+            returncode = build.wait()
+        if returncode:
+            raise subprocess.CalledProcessError(returncode, command)
+
+
 def main():
     if len(sys.argv) != 2:
         raise SystemExit('用法: python3 tool/build_preview.py 90.0.1')
@@ -70,6 +118,7 @@ def main():
     existing_apk = next(out.glob(f'*-preview-{version}.apk'), None)
     if existing_apk is not None:
         raise SystemExit(f'{existing_apk} 已存在；新的测试交付请递增版本')
+    voice_endpoints = preview_voice_endpoints(ROOT)
     init = Path.home() / '.gradle/init.d/chher-isolated-preview.gradle'
     if init.exists():
         raise SystemExit(f'已有临时构建配置，拒绝覆盖: {init}')
@@ -89,8 +138,7 @@ def main():
             f'--dart-define=app_version={version}',
             f'--dart-define=build_stamp={stamp}',
         ]
-        with (out / 'build.log').open('w') as log:
-            subprocess.run(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, check=True)
+        run_flutter_build(command, ROOT, out / 'build.log', voice_endpoints)
     finally:
         # Only remove this script's exact file, preserving any external edits.
         if init.exists() and init.read_text() == content:

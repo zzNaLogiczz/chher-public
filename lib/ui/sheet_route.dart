@@ -16,6 +16,7 @@ class AppSheetRoute<T> extends ModalSheetRoute<T> {
     this.reduced = false,
     this.fadeWhenReduced = false,
     this.holdViewInsetsOnExit = false,
+    this.docked = false,
   }) : super(
          swipeDismissible: false,
          transitionCurve: Curves.linear,
@@ -29,6 +30,7 @@ class AppSheetRoute<T> extends ModalSheetRoute<T> {
   final bool reduced;
   final bool fadeWhenReduced;
   final bool holdViewInsetsOnExit;
+  final bool docked;
   MediaQueryData? _lastViewportMedia;
   double? _dragStart;
   bool _closingSheet = false;
@@ -60,16 +62,20 @@ class AppSheetRoute<T> extends ModalSheetRoute<T> {
 
   @override
   Widget buildViewport(BuildContext context, Widget child) {
-    final viewport = SheetViewport(
-      padding: EdgeInsets.fromLTRB(
-        AppSheetTokens.inset,
-        MediaQuery.viewPaddingOf(context).top + AppSheetTokens.inset,
-        AppSheetTokens.inset,
-        AppSheetTokens.inset,
-      ),
-      child: child,
-    );
-    if (!holdViewInsetsOnExit) return viewport;
+    Widget viewport(BuildContext context) {
+      final inset = docked ? 0.0 : AppSheetTokens.inset;
+      return SheetViewport(
+        padding: EdgeInsets.fromLTRB(
+          inset,
+          MediaQuery.viewPaddingOf(context).top + AppSheetTokens.inset,
+          inset,
+          docked ? MediaQuery.viewInsetsOf(context).bottom : inset,
+        ),
+        child: child,
+      );
+    }
+
+    if (!holdViewInsetsOnExit) return viewport(context);
     return Builder(
       builder: (context) {
         final media = MediaQuery.of(context);
@@ -82,7 +88,7 @@ class AppSheetRoute<T> extends ModalSheetRoute<T> {
             viewInsets: previous.viewInsets,
             padding: previous.padding,
           ),
-          child: RepaintBoundary(child: viewport),
+          child: RepaintBoundary(child: Builder(builder: viewport)),
         );
       },
     );

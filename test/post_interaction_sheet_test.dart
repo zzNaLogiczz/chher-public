@@ -1,21 +1,28 @@
 import 'dart:async';
 import 'package:chh_app/data/post_interaction_drafts.dart';
 import 'package:chh_app/data/post_interaction_repository.dart';
+import 'package:chh_app/design/composer_tokens.dart';
+import 'package:chh_app/design/sheet_tokens.dart';
 import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/models/models.dart';
 import 'package:chh_app/models/post_interaction.dart';
 import 'package:chh_app/network/chh_client.dart';
 import 'package:chh_app/ui/app_button.dart';
+import 'package:chh_app/widgets/composer/composer_editor.dart';
+import 'package:chh_app/widgets/composer/composer_tool_strip.dart';
 import 'package:chh_app/widgets/post_interaction_sheet.dart';
 import 'package:chh_app/widgets/chhers_loader.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:smooth_sheets/smooth_sheets.dart';
 
+import 'support/composer_voice_fixture.dart';
+
 class _Repository extends PostInteractionRepository {
   _Repository() : super(ChhClient(fetchers: []));
   int sends = 0;
   int ratingReads = 0;
+  final textSubmissions = <(PostInteractionKind, String)>[];
   Future<PostResult> Function()? send;
   Future<void>? load;
   PostInteractionException? loadFailure;
@@ -66,6 +73,7 @@ class _Repository extends PostInteractionRepository {
     required String message,
   }) {
     sends++;
+    textSubmissions.add((PostInteractionKind.supplement, message));
     return send?.call() ??
         Future.value(const PostResult(PostResultKind.failed, '测试失败'));
   }
@@ -111,6 +119,7 @@ class _Repository extends PostInteractionRepository {
     required String message,
   }) {
     sends++;
+    textSubmissions.add((PostInteractionKind.comment, message));
     return send?.call() ??
         Future.value(const PostResult(PostResultKind.failed, '测试失败'));
   }
@@ -143,9 +152,11 @@ Future<void> _open(
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = Size(width, 844);
   tester.view.viewPadding = const FakeViewPadding(top: 24, bottom: 24);
+  tester.view.padding = tester.view.viewPadding;
   addTearDown(tester.view.resetDevicePixelRatio);
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetViewPadding);
+  addTearDown(tester.view.resetPadding);
   addTearDown(tester.view.resetViewInsets);
   await tester.pumpWidget(
     MaterialApp(
@@ -203,6 +214,29 @@ void _expectVisible(WidgetTester tester, Finder finder, {double bottom = 820}) {
 }
 
 void main() {
+  for (final kind in [
+    PostInteractionKind.comment,
+    PostInteractionKind.supplement,
+  ]) {
+    hostDictationKeyboardTests('floor ${kind.name}', (tester) async {
+      await _open(tester, _Repository(), kind: kind, reducedMotion: false);
+      return find.byKey(const ValueKey('interaction-comment'));
+    });
+    testWidgets('dictation inserts and undoes floor ${kind.name}', (
+      tester,
+    ) async {
+      final engine = installVoiceFixture();
+      final repo = _Repository();
+      await _open(tester, repo, kind: kind);
+      await expectHostDictation(
+        tester,
+        engine,
+        find.byKey(const ValueKey('interaction-comment')),
+      );
+      expect(repo.sends, 0);
+    });
+  }
+
   for (final sameSession in [true, false]) {
     testWidgets(
       'prechecked rating form is reused only for the same session: $sameSession',
@@ -265,11 +299,16 @@ void main() {
       expect(repo.sends, 1);
       expect(find.text('测试失败'), findsOneWidget);
       expect(find.text('补充原文'), findsOneWidget);
+      expect(repo.textSubmissions, [(PostInteractionKind.supplement, '补充原文')]);
       repo.send = () async => const PostResult(PostResultKind.success, '已补充');
       await tester.tap(find.byKey(const ValueKey('interaction-send')));
       await tester.pumpAndSettle();
       expect(repo.sends, 2);
       expect(find.byType(PostInteractionSheet), findsNothing);
+      expect(
+        store.get(PostInteractionDraftStore.key('alice', 7, 9, 'supplement')),
+        isNull,
+      );
     },
   );
 
@@ -321,12 +360,37 @@ void main() {
           ),
         );
         if (kind != PostInteractionKind.rating) {
+          final strip = find.byType(ComposerToolStrip);
+          final editor = find.byType(ComposerEditor);
+          final send = find.byKey(const ValueKey('interaction-send'));
+          final surface = find.descendant(
+            of: send,
+            matching: find.byKey(AppButton.surfaceKey),
+          );
           _expectVisible(
             tester,
             find.byKey(const ValueKey('interaction-comment')),
           );
+          _expectVisible(tester, strip);
+          expect(editor, findsOneWidget);
+          expect(
+            tester.widget<AppButton>(send).variant,
+            AppButtonVariant.composerSend,
+          );
+          expect(tester.getSize(strip).height, ComposerTokens.strip);
+          expect(tester.getRect(strip).left, AppSheetTokens.inset);
+          expect(
+            tester.getRect(surface).right,
+            tester.getRect(strip).right - ComposerTokens.stripInset,
+          );
+          expect(
+            tester.getRect(strip).top,
+            greaterThan(tester.getRect(editor).bottom),
+          );
+          expect(find.text('按住说话'), findsNothing);
           _expectVisible(tester, find.text('0 / 200'));
         } else {
+          expect(find.byType(ComposerToolStrip), findsNothing);
           _expectVisible(tester, find.text('邪恶指数'));
           _expectVisible(
             tester,
@@ -385,18 +449,29 @@ void main() {
     tester,
   ) async {
     final repo = _Repository();
+    installVoiceFixture();
     await _open(tester, repo, width: 320, scale: 2);
     tester.view.viewInsets = const FakeViewPadding(bottom: 300);
     await tester.pumpAndSettle();
     final editor = find.byKey(const ValueKey('interaction-comment'));
+    final strip = find.byType(ComposerToolStrip);
+    final send = find.byKey(const ValueKey('interaction-send'));
+    final sendWithKeyboard = tester.getRect(send);
     await tester.tap(editor);
     await tester.pumpAndSettle();
-    _expectVisible(
-      tester,
-      find.byKey(const ValueKey('interaction-send')),
-      bottom: 544,
-    );
     expect(editor.hitTestable(), findsOneWidget);
+    expect(find.bySemanticsLabel('语音输入'), findsOneWidget);
+    await tester.enterText(editor, List.filled(15, '测试输入栏').join('\n'));
+    await tester.pumpAndSettle();
+    expect(tester.getRect(send), sendWithKeyboard);
+    _expectVisible(tester, send, bottom: 544);
+    expect(tester.getRect(strip).bottom, lessThanOrEqualTo(544));
+    await tester.enterText(editor, '');
+    FocusManager.instance.primaryFocus?.unfocus();
+    tester.view.resetViewInsets();
+    await tester.pumpAndSettle();
+    expect(tester.getRect(send).bottom, greaterThan(sendWithKeyboard.bottom));
+    expect(tester.widget<AppButton>(send).onPressed, isNull);
     expect(tester.takeException(), isNull);
     expect(repo.sends, 0);
   });
@@ -436,9 +511,10 @@ void main() {
     tester,
   ) async {
     final repo = _Repository();
+    final store = PostInteractionDraftStore();
     final c = Completer<PostResult>();
     repo.send = () => c.future;
-    await _open(tester, repo);
+    await _open(tester, repo, store: store);
     await tester.enterText(
       find.byKey(const ValueKey('interaction-comment')),
       '保留草稿',
@@ -458,6 +534,19 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('保留草稿'), findsOneWidget);
     expect(find.text('测试失败'), findsOneWidget);
+
+    repo.send = () async => const PostResult(PostResultKind.success, '已点评');
+    await tester.tap(find.byKey(const ValueKey('interaction-send')));
+    await tester.pumpAndSettle();
+    expect(repo.textSubmissions, [
+      (PostInteractionKind.comment, '保留草稿'),
+      (PostInteractionKind.comment, '保留草稿'),
+    ]);
+    expect(find.byType(PostInteractionSheet), findsNothing);
+    expect(
+      store.get(PostInteractionDraftStore.key('alice', 7, 9, 'comment')),
+      isNull,
+    );
   });
   testWidgets('only evil is shown and remaining quota constrains score', (
     tester,
@@ -501,6 +590,8 @@ void main() {
       );
       final repo = _Repository();
       await _open(tester, repo, store: store);
+      final field = find.byKey(const ValueKey('interaction-comment'));
+      expect(tester.widget<TextField>(field).readOnly, isTrue);
       expect(
         tester
             .widget<AppButton>(find.byKey(const ValueKey('interaction-send')))

@@ -13,6 +13,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/inline_forum_parser.dart';
+
 class _Cookies extends PlatformCookieManager {
   _Cookies()
     : super.implementation(const PlatformCookieManagerCreationParams());
@@ -82,6 +84,7 @@ void main() {
     tester,
   ) async {
     final platform = InAppWebViewPlatform.instance;
+    useInlineForumParser(chhClient);
     final fetchers = List<ChhFetcher>.of(chhClient.fetchers);
     InAppWebViewPlatform.instance = _Platform();
     chhClient.fetchers

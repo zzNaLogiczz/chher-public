@@ -602,6 +602,7 @@ class PmMessage {
   final String? authorUid;
   final String timeRaw;
   final String text;
+  final List<InlineNode> nodes;
 
   /// 源站把自己发的消息标成"您"(没有作者链接),据此判为自己
   final bool fromSelf;
@@ -610,6 +611,7 @@ class PmMessage {
     required this.author,
     required this.timeRaw,
     required this.text,
+    this.nodes = const [],
     this.pmid,
     this.authorUid,
     this.fromSelf = false,

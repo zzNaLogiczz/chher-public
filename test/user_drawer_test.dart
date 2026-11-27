@@ -14,6 +14,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'support/space_fixtures.dart';
 
+import 'support/inline_forum_parser.dart';
+
 const _locked = Post(
   pid: 10,
   floor: 1,
@@ -104,6 +106,7 @@ void main() {
 
   for (final target in ['avatar', 'author']) {
     testWidgets('点击$target打开用户抽屉，关闭保留帖子位置且不重读', (tester) async {
+      useInlineForumParser(chhClient);
       final originalFetchers = List<ChhFetcher>.of(chhClient.fetchers);
       chhClient.fetchers
         ..clear()
@@ -185,6 +188,7 @@ void main() {
 
   for (final commentStyle in [false, true]) {
     testWidgets('${commentStyle ? '评论' : '整楼'}样式的主页入口不改变楼层高度', (tester) async {
+      useInlineForumParser(chhClient);
       final originalFetchers = List<ChhFetcher>.of(chhClient.fetchers);
       chhClient.fetchers
         ..clear()

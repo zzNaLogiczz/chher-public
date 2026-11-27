@@ -30,8 +30,8 @@ Future<void> _show(WidgetTester tester, ThreadDetailPage page) async {
       home: page,
     ),
   );
-  await tester.pump();
-  await tester.pump(const Duration(milliseconds: 200));
+  // Progress uses the complete reading projection, which can span idle frames.
+  await tester.pumpAndSettle();
 }
 
 double _progress(WidgetTester tester) =>

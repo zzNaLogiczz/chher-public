@@ -188,6 +188,7 @@ class _LoadingMotionState extends State<_LoadingMotion>
   Timer? _delay;
   bool _ready = false;
   bool _visible = false;
+  bool _visibilityReported = false;
   bool _inViewport = false;
   bool _reduced = false;
   late bool _foreground = _isForeground(WidgetsBinding.instance.lifecycleState);
@@ -204,7 +205,25 @@ class _LoadingMotionState extends State<_LoadingMotion>
         setState(() => _visible = false);
       }
     });
+    _entrance.addListener(_reportVisibility);
     if (widget.active) _wait();
+  }
+
+  void _reportVisibility() {
+    if (_visibilityReported ||
+        !_visible ||
+        _entrance.value == 0 ||
+        widget.onVisible == null) {
+      return;
+    }
+    _visibilityReported = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _visible && _inViewport && _foreground) {
+        widget.onVisible?.call();
+      } else {
+        _visibilityReported = false;
+      }
+    });
   }
 
   void _wait() {
@@ -266,7 +285,7 @@ class _LoadingMotionState extends State<_LoadingMotion>
     }
     if (!_visible) {
       _visible = true;
-      widget.onVisible?.call();
+      _visibilityReported = false;
     }
     if (!_entrance.isAnimating && !_entrance.isCompleted) _entrance.forward();
     if (!_reduced && widget.animate) {

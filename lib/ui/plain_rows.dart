@@ -639,9 +639,10 @@ class PinnedGroupRow extends StatelessWidget {
   final String? firstTitle;
   final bool expanded;
   final VoidCallback onToggle;
+  final bool animateFromExpanded;
 
   /// 卡片内第 i 条置顶帖;只在展开或动画进行中构建
-  final IndexedWidgetBuilder itemBuilder;
+  final IndexedWidgetBuilder? itemBuilder;
 
   const PinnedGroupRow({
     super.key,
@@ -649,61 +650,83 @@ class PinnedGroupRow extends StatelessWidget {
     this.firstTitle,
     required this.expanded,
     required this.onToggle,
-    required this.itemBuilder,
+    required IndexedWidgetBuilder this.itemBuilder,
+    this.animateFromExpanded = false,
   });
+
+  /// The viewport supplies the remembered expanded rows as separate slices.
+  const PinnedGroupRow.header({
+    super.key,
+    required this.count,
+    this.firstTitle,
+    required this.onToggle,
+  }) : expanded = true,
+       itemBuilder = null,
+       animateFromExpanded = false;
 
   @override
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
     final reduced = MediaQuery.disableAnimationsOf(context);
+    final rows = itemBuilder;
+    final radius = BorderRadius.vertical(
+      top: const Radius.circular(ForumTokens.groupRadius),
+      bottom: rows == null
+          ? Radius.zero
+          : const Radius.circular(ForumTokens.groupRadius),
+    );
     return Padding(
-      padding: const EdgeInsets.fromLTRB(
+      padding: EdgeInsets.fromLTRB(
         AppSpace.groupInset,
         2,
         AppSpace.groupInset,
-        6,
+        rows == null ? 0 : 6,
       ),
       child: DecoratedBox(
         decoration: ShapeDecoration(
           color: t.surface,
-          shape: appShape(ForumTokens.groupRadius),
+          shape: appShape(ForumTokens.groupRadius, borderRadius: radius),
         ),
-        child: AppClip(
-          radius: ForumTokens.groupRadius,
+        child: AppClip.borderRadius(
+          borderRadius: radius,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               _header(t, reduced),
               // 高度只作用于卡片内新出现的置顶帖;灰色底随之伸缩,不另画一层
-              SingleMotionBuilder(
-                value: expanded ? 1 : 0,
-                active: !reduced && count <= 24,
-                motion: AppMotion.of(context, AppMotion.reveal),
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(
-                    ForumTokens.groupInset,
-                    0,
-                    ForumTokens.groupInset,
-                    ForumTokens.groupInset,
-                  ),
-                  child: AppClip(
-                    radius: ForumTokens.rowRadius,
-                    child: _rows(t),
-                  ),
-                ),
-                builder: (context, progress, rows) {
-                  final p = progress.clamp(0.0, 1.0);
-                  if (p == 0) return const SizedBox.shrink();
-                  return ClipRect(
-                    child: Align(
-                      alignment: Alignment.topCenter,
-                      heightFactor: p,
-                      child: rows,
+              if (rows != null)
+                SingleMotionBuilder(
+                  value: expanded ? 1 : 0,
+                  from: animateFromExpanded && !reduced && count <= 24
+                      ? 1
+                      : null,
+                  active: !reduced && count <= 24,
+                  motion: AppMotion.of(context, AppMotion.reveal),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                      ForumTokens.groupInset,
+                      0,
+                      ForumTokens.groupInset,
+                      ForumTokens.groupInset,
                     ),
-                  );
-                },
-              ),
+                    child: AppClip(
+                      radius: ForumTokens.rowRadius,
+                      child: _rows(rows),
+                    ),
+                  ),
+                  builder: (context, progress, rows) {
+                    final p = progress.clamp(0.0, 1.0);
+                    if (p == 0) return const SizedBox.shrink();
+                    return ClipRect(
+                      child: Align(
+                        alignment: Alignment.topCenter,
+                        heightFactor: p,
+                        child: rows,
+                      ),
+                    );
+                  },
+                ),
             ],
           ),
         ),
@@ -772,7 +795,7 @@ class PinnedGroupRow extends StatelessWidget {
     ),
   );
 
-  Widget _rows(AppTokens t) => Column(
+  Widget _rows(IndexedWidgetBuilder itemBuilder) => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
       for (var i = 0; i < count; i++)

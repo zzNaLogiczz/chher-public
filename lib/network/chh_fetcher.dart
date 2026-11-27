@@ -1,6 +1,7 @@
 /// 页面获取器抽象:直连 / 隐藏 WebView / 本地文件 三种实现统一接口
 library;
 
+import 'package:html/dom.dart' as dom;
 import 'package:html/parser.dart' as html_parser;
 
 class ChhResponse {
@@ -55,7 +56,11 @@ class ChhResponse {
   bool get isBlocked => status <= 0 || body.isEmpty || hasWafFeatures;
 
   /// Full CHH documents need site structure; AJAX fragments keep their own protocol.
-  String? getPageRejection(Uri url, {bool ajax = false}) {
+  String? getPageRejection(
+    Uri url, {
+    bool ajax = false,
+    dom.Document Function()? document,
+  }) {
     if (!{'www.chiphell.com', 'chiphell.com'}.contains(url.host) ||
         ajax ||
         !RegExp(
@@ -75,7 +80,7 @@ class ChhResponse {
         !RegExp(r'</html\s*>', caseSensitive: false).hasMatch(body)) {
       return challenge ? 'challenge' : null;
     }
-    final doc = html_parser.parse(body);
+    final doc = document?.call() ?? html_parser.parse(body);
     return doc.querySelector(
               '#hd, #wp, #ct, #um, #messagetext, #messagelogin, '
               'form[id^="loginform"], .fl, .bm, #threadlist, #postlist, '

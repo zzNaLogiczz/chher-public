@@ -13,6 +13,8 @@ import 'package:chh_app/widgets/chhers_refresh_indicator.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/inline_forum_parser.dart';
+
 const _thread = ThreadDetail(
   tid: 1125,
   title: '正文里的帖子标题',
@@ -82,6 +84,7 @@ void main() {
   testWidgets(
     'a history row reorders only after its real route reads content',
     (tester) async {
+      useInlineForumParser(chhClient);
       final transports = List<ChhFetcher>.of(chhClient.fetchers);
       chhClient.fetchers
         ..clear()

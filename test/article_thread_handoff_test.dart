@@ -20,6 +20,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'editorial_feature_cover_test.dart' show seedImage;
 
+import 'support/inline_forum_parser.dart';
+
 const _cover = PortalArticle(
   aid: 919001,
   title: '精选卡片',
@@ -65,6 +67,7 @@ Future<GlobalKey<NavigatorState>> _mount(
   if (mainFeature) {
     await tester.runAsync(() => seedImage(_cover.coverUrl!, 400, 600));
   }
+  useInlineForumParser(chhClient);
   final previous = List<ChhFetcher>.of(chhClient.fetchers);
   chhClient.fetchers
     ..clear()

@@ -138,6 +138,10 @@ class UpdateClient {
     throw last ?? const UpdateException(UpdateFailure.network);
   }
 
+  /// Verify and decode a response signed with the update service's keys.
+  Future<Map<String, dynamic>> verifySignedResponse(String body) =>
+      _verify(body);
+
   Future<Map<String, dynamic>> _verify(String body) async {
     try {
       final envelope = jsonDecode(body) as Map<String, dynamic>;

@@ -69,6 +69,13 @@ internal class UpdateBridge(
                     "inspectApk" -> inspectApk(call.argument<String>("path")!!, result)
                     "canInstall" -> result.success(canInstall())
                     "openInstallPermission" -> result.success(openInstallPermission())
+                    "openAppSettings" -> {
+                        activity.startActivity(Intent(
+                            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            Uri.fromParts("package", activity.packageName, null),
+                        ))
+                        result.success(true)
+                    }
                     "install" -> install(call.argument<String>("path")!!, result)
                     else -> result.notImplemented()
                 }

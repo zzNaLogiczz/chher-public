@@ -10,6 +10,8 @@ import 'package:chh_app/widgets/post_card.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/inline_forum_parser.dart';
+
 class _ThreadFixtureFetcher implements ChhFetcher {
   _ThreadFixtureFetcher(this.html);
   final String html;
@@ -103,6 +105,7 @@ void main() {
     late _ThreadFixtureFetcher fixture;
 
     setUp(() {
+      useInlineForumParser(chhClient);
       originalFetchers = List.of(chhClient.fetchers);
       fixture = _ThreadFixtureFetcher(sample);
       chhClient.clearCache();

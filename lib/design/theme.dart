@@ -465,6 +465,9 @@ class _ReadingBackGestureState extends State<_ReadingBackGesture>
         target: forward ? 1 : 0,
         motion: AppMotion.reveal,
         velocity: _routeVelocity,
+        tolerance: forward
+            ? AppMotion.routeEntryTolerance
+            : Tolerance.defaultTolerance,
       );
     }
     _driving = false;

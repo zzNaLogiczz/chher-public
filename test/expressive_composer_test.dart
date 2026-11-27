@@ -1,6 +1,11 @@
 import 'dart:async';
 
 import 'package:chh_app/design/theme.dart';
+import 'package:chh_app/voice/speech_engine.dart';
+import 'package:chh_app/widgets/composer/voice_bar.dart';
+import 'package:chh_app/design/composer_tokens.dart';
+import 'package:chh_app/widgets/composer/composer_panel.dart';
+import 'package:chh_app/widgets/composer/composer_tool_strip.dart';
 import 'package:chh_app/design/tokens.dart';
 import 'package:chh_app/models/models.dart';
 import 'package:chh_app/widgets/article_reply_sheet.dart';
@@ -14,6 +19,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:smooth_sheets/smooth_sheets.dart';
+
+import 'support/composer_voice_fixture.dart';
 
 Future<void> _open(
   WidgetTester tester, {
@@ -49,6 +56,7 @@ Future<void> _open(
                 ? ArticleReplySheet.show(
                     context,
                     onSubmit: onSubmit,
+                    articleTitle: '文章标题',
                     quoteAuthor: quote == null ? null : '读者甲',
                     quoteText: quote,
                     onLogin: login,
@@ -57,6 +65,7 @@ Future<void> _open(
                     context,
                     onSubmit: onSubmit,
                     draftKey: draftKey,
+                    threadTitle: '帖子标题',
                     quoteOf: quote == null ? null : '读者甲',
                     quoteText: quote,
                   ),
@@ -75,6 +84,46 @@ Finder get _send => find.byKey(const ValueKey('composer-send'));
 
 void main() {
   composerRedesignTests();
+  testWidgets('voice service failure keeps speech visible and words undoable', (
+    tester,
+  ) async {
+    final engine = installVoiceFixture();
+    await _open(tester);
+    await tester.tap(find.byType(VoiceBar));
+    await tester.pump();
+    engine.emitText(const SpeechText(finalized: '保留文字', interim: ''));
+    engine.emitError(SpeechErrorKind.service);
+    await tester.pumpAndSettle();
+    expect(find.byType(VoiceBar), findsOneWidget);
+    expect(find.text('语音识别暂不可用'), findsOneWidget);
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).controller!.text,
+      '保留文字',
+    );
+    await tester.tap(find.text('撤销'));
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).controller!.text,
+      isEmpty,
+    );
+
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('打开写作画布'));
+    await tester.pumpAndSettle();
+    expect(find.byType(TextField), findsOneWidget);
+    expect(find.byType(VoiceBar), findsOneWidget);
+    expect(find.text('语音识别暂不可用'), findsNothing);
+  });
+  testWidgets('reply heading uses the square reply arrow', (tester) async {
+    await _open(tester, quote: '引用');
+    final icon = tester.widget<Icon>(find.byIcon(AppIcons.reply));
+    expect(icon.size, 18);
+    expect(
+      icon.color,
+      AppTokens.of(tester.element(find.byType(ComposerPanel))).text3,
+    );
+  });
   for (final sending in [false, true]) {
     testWidgets('IME back closes composer once, busy=$sending', (tester) async {
       debugDefaultTargetPlatformOverride = TargetPlatform.android;
@@ -227,6 +276,13 @@ void main() {
         reducedMotion: true,
         quote: List.filled(20, '这是一段需要折叠的引用内容。').join('\n'),
       );
+      await tester.tap(find.byKey(const ValueKey('composer-context')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('展开'));
+      await tester.pumpAndSettle();
+      expect(find.text('收起'), findsOneWidget);
+      await tester.tap(find.byTooltip('关闭'));
+      await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField), '保留输入内容');
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
@@ -322,6 +378,7 @@ void main() {
       await tester.tap(_send);
       await tester.pump(const Duration(milliseconds: 250));
       expect(find.text('发送中'), findsOneWidget);
+      expect(tester.widget<TextField>(find.byType(TextField)).readOnly, isTrue);
       expect(find.text('已发送'), findsNothing);
       await tester.drag(_handle, const Offset(0, 620));
       await tester.pump(const Duration(milliseconds: 80));
@@ -358,6 +415,14 @@ void main() {
           return const PostResult(PostResultKind.loginRequired, '');
         },
       );
+      expect(
+        tester
+            .widget<Text>(find.byKey(const ValueKey('composer-context')))
+            .maxLines,
+        1,
+      );
+      await tester.tap(find.byKey(const ValueKey('composer-context')));
+      await tester.pumpAndSettle();
       // 四行后通过展开按钮继续阅读
       final expand = find.text('展开');
       expect(expand, findsOneWidget);
@@ -368,6 +433,8 @@ void main() {
       await tester.tap(expand);
       await tester.pumpAndSettle();
       expect(find.text('收起'), findsOneWidget);
+      await tester.tap(find.byTooltip('关闭'));
+      await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField), '登录后继续的草稿');
       await tester.pump();
       await tester.tap(_send);
@@ -396,6 +463,121 @@ void main() {
 }
 
 void composerRedesignTests() {
+  for (final article in [false, true]) {
+    final hostName = article ? 'article comment' : 'reply';
+    hostDictationKeyboardTests(hostName, (tester) async {
+      await _open(tester, article: article);
+      return find.byType(TextField);
+    });
+    testWidgets('dictation inserts and undoes text in $hostName', (
+      tester,
+    ) async {
+      final engine = installVoiceFixture();
+      await _open(
+        tester,
+        article: article,
+        submit: (_) async => throw StateError('Unexpected submission'),
+      );
+      await expectHostDictation(tester, engine, find.byType(TextField));
+    });
+
+    testWidgets(
+      'docked composer measures content and toggles full height (article=$article)',
+      (tester) async {
+        tester.view.viewPadding = const FakeViewPadding(top: 24, bottom: 18);
+        tester.view.padding = const FakeViewPadding(top: 24, bottom: 18);
+        addTearDown(tester.view.reset);
+        installVoiceFixture();
+        await _open(tester, article: article);
+        final panel = find.byType(ComposerPanel);
+        final toolbar = find.byType(ComposerToolStrip);
+        final editor = find.byType(TextField);
+        final compact = tester.getRect(panel);
+        expect(compact.left, 0);
+        expect(compact.right, 390);
+        expect(compact.bottom, 844);
+        expect(tester.getRect(toolbar).bottom, 844 - 18);
+        expect(tester.getSize(toolbar).height, ComposerTokens.strip);
+        expect(compact.height - 18, closeTo(245, 0.5));
+        expect(tester.widget<TextField>(editor).minLines, 1);
+        expect(find.text(article ? '文章标题' : '帖子标题'), findsOneWidget);
+        expect(tester.getCenter(find.text('按住说话')).dx, greaterThan(195));
+
+        final sendRect = tester.getRect(_send);
+        await tester.tap(_handle);
+        await tester.pumpAndSettle();
+        expect(tester.getTopLeft(_handle).dy, 24 + 8);
+        expect(tester.getRect(_send), sendRect);
+        await tester.tap(_handle);
+        // The spring only moves the upper panel, including on overshoot.
+        for (var frame = 0; frame < 30; frame++) {
+          await tester.pump(const Duration(milliseconds: 16));
+          expect(tester.getRect(_send), sendRect);
+        }
+        await tester.pumpAndSettle();
+        expect(tester.getRect(panel), compact);
+
+        await tester.enterText(editor, '第一行\n第二行');
+        await tester.pumpAndSettle();
+        expect(tester.getRect(panel), compact);
+
+        await tester.enterText(editor, List.filled(6, '第几行').join('\n'));
+        await tester.pumpAndSettle();
+        final grown = tester.getRect(panel);
+        expect(grown.height - 18, closeTo(344.6, 3));
+        expect(grown.bottom, compact.bottom);
+
+        await tester.drag(_handle, const Offset(0, -260));
+        await tester.pumpAndSettle();
+        expect(tester.getTopLeft(_handle).dy, 24 + 8);
+        await tester.drag(_handle, const Offset(0, 400));
+        await tester.pumpAndSettle();
+        expect(tester.getRect(panel), grown);
+        await tester.drag(_handle, const Offset(0, 400));
+        await tester.pumpAndSettle();
+        expect(panel, findsNothing);
+      },
+    );
+  }
+
+  testWidgets('content fills available height then scrolls inside the editor', (
+    tester,
+  ) async {
+    await _open(tester, article: true);
+    tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+    await tester.pumpAndSettle();
+    final panel = find.byType(ComposerPanel);
+    final editor = find.byType(TextField);
+    expect(tester.getTopLeft(panel).dy, greaterThan(8));
+    expect(tester.getBottomLeft(panel).dy, 544);
+
+    await tester.enterText(editor, List.filled(60, '超长草稿').join('\n'));
+    await tester.pumpAndSettle();
+    expect(tester.getTopLeft(panel).dy, 8);
+    expect(tester.getBottomLeft(panel).dy, 544);
+    final scrollable = find.descendant(
+      of: editor,
+      matching: find.byType(Scrollable),
+    );
+    final position = tester.state<ScrollableState>(scrollable).position;
+    expect(position.maxScrollExtent, greaterThan(0));
+    position.jumpTo(0);
+    await tester.drag(editor, const Offset(0, -120));
+    await tester.pumpAndSettle();
+    expect(position.pixels, greaterThan(0));
+    expect(tester.getTopLeft(panel).dy, 8);
+
+    await tester.tap(find.text('取消'));
+    await tester.pump();
+    tester.view.resetViewInsets();
+    await tester.pump();
+    expect(tester.getBottomLeft(panel).dy, 544);
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(tester.getBottomLeft(panel).dy, lessThan(650));
+    await tester.pumpAndSettle();
+    expect(panel, findsNothing);
+  });
+
   testWidgets(
     'forum reply has one-line context above the editor and send below',
     (tester) async {
@@ -419,6 +601,43 @@ void composerRedesignTests() {
       expect(find.byType(ComposerSheet), findsNothing);
     },
   );
+  testWidgets('a tall failure notice scrolls above the docked send control', (
+    tester,
+  ) async {
+    final message = List.filled(25, '发送失败，请稍后再试。').join('\n');
+    await _open(
+      tester,
+      article: true,
+      textScale: 1.8,
+      submit: (_) async => PostResult(PostResultKind.failed, message),
+    );
+    tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), '保留的评论草稿');
+    await tester.pump();
+    final sendRect = tester.getRect(_send);
+    await tester.tap(_send);
+    await tester.pumpAndSettle();
+
+    expect(find.text(message), findsOneWidget);
+    expect(find.text('重试发送'), findsOneWidget);
+    final retryRect = tester.getRect(_send);
+    expect(retryRect.right, sendRect.right);
+    expect(retryRect.bottom, sendRect.bottom);
+    expect(retryRect.width, greaterThan(sendRect.width));
+    final notice = find.ancestor(
+      of: find.text(message),
+      matching: find.byType(SingleChildScrollView),
+    );
+    final position = tester
+        .state<ScrollableState>(
+          find.descendant(of: notice, matching: find.byType(Scrollable)),
+        )
+        .position;
+    expect(position.maxScrollExtent, greaterThan(0));
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('send stays visible above the keyboard', (tester) async {
     await _open(tester);
     tester.view.viewInsets = const FakeViewPadding(bottom: 300);

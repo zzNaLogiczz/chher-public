@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -8,8 +9,12 @@ import 'pages/interaction_review_page.dart';
 import 'pages/thread_review_page.dart';
 import 'di.dart';
 import 'core/frame_metrics.dart';
+import 'core/app_log.dart';
+import 'core/process_text_warmup.dart';
+import 'core/startup_idle.dart';
 import 'core/touch_sampling.dart';
 import 'data/editorial_cover_cache.dart';
+import 'parser/parser_worker.dart';
 
 Future<void> main() async {
   HttpOverrides.global = ChhHttpOverrides();
@@ -36,4 +41,17 @@ Future<void> main() async {
         ? const InteractionReviewApp()
         : const ChhApp(),
   );
+  if (!review && !threadReview) {
+    unawaited(warmPlatformTextActions());
+    unawaited(_warmParser());
+  }
+}
+
+Future<void> _warmParser() async {
+  await waitForStartupIdle();
+  try {
+    await prewarmParserWorker();
+  } catch (error) {
+    AppLog.w('BOOT', '解析预热失败 ${error.runtimeType}');
+  }
 }

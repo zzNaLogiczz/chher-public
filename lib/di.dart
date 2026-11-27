@@ -7,6 +7,8 @@ library;
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
 import 'data/follow_index.dart';
@@ -35,6 +37,13 @@ import 'data/image_disk_cache.dart';
 import 'data/thread_read_index.dart';
 import 'data/favorite_repository.dart';
 import 'data/user_group_levels.dart';
+import 'update/update_endpoints.dart';
+import 'update/update_platform.dart';
+import 'voice/audio_capture.dart';
+import 'voice/speech_engine.dart';
+import 'voice/tencent_asr_engine.dart';
+import 'voice/voice_availability.dart';
+import 'voice/voice_service_client.dart';
 
 final ChhClient chhClient = ChhClient.createDefault();
 final AccountStore accountStore = AccountStore();
@@ -80,6 +89,98 @@ final FavoriteRepository favoriteRepo = FavoriteRepository(
   favoriteIndex,
 );
 
+const _voicePlatformChannel = MethodChannel('chh/update');
+final _voiceAvailability = loadVoiceService().then((service) {
+  if (service == null) return null;
+  _voiceTickets = service;
+  return VoiceAvailability(service: service);
+});
+late final VoiceServiceClient _voiceTickets;
+final _configuredVoiceSigner = LocalVoiceSigner.tryCreate();
+
+@visibleForTesting
+LocalVoiceSigner? localVoiceSignerForTesting;
+
+LocalVoiceSigner? get _localVoiceSigner =>
+    localVoiceSignerForTesting ?? _configuredVoiceSigner;
+
+typedef VoiceOverrides = ({
+  Future<SpeechAvailability> Function() query,
+  SpeechEngine Function(SpeechEngineKind) create,
+});
+VoiceOverrides? _voiceOverrides;
+
+@visibleForTesting
+set voiceOverridesForTesting(VoiceOverrides? overrides) {
+  _voiceOverrides = overrides;
+}
+
+@visibleForTesting
+Future<VoiceServiceClient?> loadVoiceService({
+  bool isRelease = kReleaseMode,
+}) async {
+  Map<String, dynamic>? app;
+  try {
+    app = await _voicePlatformChannel.invokeMapMethod<String, dynamic>(
+      'appInfo',
+    );
+  } on PlatformException {
+    // App identity and storage are unavailable.
+  } on MissingPluginException {
+    // The update bridge is absent on some platforms.
+  }
+  final filesDir = app?['filesDir'];
+  if (filesDir is! String || filesDir.isEmpty) return null;
+  final channel = resolveUpdateChannel(
+    packageName: app?['packageName'] as String?,
+    isRelease: isRelease,
+    injectedEndpoints: injectedUpdateEndpoints,
+    storedEndpoints: const [],
+  );
+  return VoiceServiceClient(
+    filesDir: filesDir,
+    isOfficial: channel.isOfficial,
+    updateEndpoints: channel.endpoints,
+    // The updater owns the install-status callback.
+    platform: ChannelUpdatePlatform(listenForInstallStatus: false),
+  );
+}
+
+Future<SpeechAvailability> queryVoiceAvailability() async {
+  final overrides = _voiceOverrides;
+  if (overrides != null) return overrides.query();
+  if (_localVoiceSigner != null) {
+    return const SpeechAvailability(SpeechEngineKind.tencent);
+  }
+  return await (await _voiceAvailability)?.query() ??
+      const SpeechAvailability(SpeechEngineKind.none);
+}
+
+SpeechEngine createSpeechEngine(
+  SpeechEngineKind kind, {
+  AudioCapture? audio,
+  VoiceSocketConnector? connect,
+}) =>
+    _voiceOverrides?.create(kind) ??
+    switch (kind) {
+      SpeechEngineKind.tencent => TencentAsrEngine(
+        tickets: _localVoiceSigner ?? _voiceTickets,
+        audio: audio ?? RecordAudioCapture(),
+        connect: connect,
+      ),
+      SpeechEngineKind.none => throw StateError('Voice input is unavailable'),
+    };
+
+Future<void> openVoiceSettings() async {
+  try {
+    await _voicePlatformChannel.invokeMethod<bool>('openAppSettings');
+  } on PlatformException {
+    // Keep the permission error visible if system settings cannot open.
+  } on MissingPluginException {
+    // No app settings bridge on desktop and other development hosts.
+  }
+}
+
 /// 正文站内卡片的标题与时间;全局一份,翻页、换楼层都能复用缓存
 final LinkPreviewRepository linkPreviewRepo = LinkPreviewRepository.live(
   chhClient,
@@ -97,7 +198,7 @@ Future<void> setupDependencies() {
   WidgetsBinding.instance.addObserver(_lifecycleFlusher);
   accountStore.start();
   // 让会话顺带观察每次页面响应,从页头取账号与未读计数,不额外发请求
-  chhClient.htmlObserver = chhSession.observeHtml;
+  chhClient.headerObserver = chhSession.observeHeader;
   messageNotifications.start();
   AppLog.i('BOOT', '页头观察已接线');
   // 日志目录靠平台通道异步解析,不能 await 阻塞冷启动;就绪前的日志留在内存缓冲,接线时补写

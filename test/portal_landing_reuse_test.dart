@@ -14,6 +14,8 @@ import 'package:chh_app/parser/thread_parser.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/inline_forum_parser.dart';
+
 class _Fetcher extends ChhFetcher {
   final urls = <Uri>[];
   final source = File('test_data/thread_synthetic.html').readAsStringSync();
@@ -80,6 +82,7 @@ void main() {
       (tester) async {
         final fetcher = _Fetcher();
         final client = ChhClient(
+          dispatchParser: parseForumInline,
           fetchers: [fetcher],
           threadRequestInterval: Duration.zero,
         );

@@ -11,6 +11,8 @@ import 'package:chh_app/widgets/site_link_card.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/inline_forum_parser.dart';
+
 class _PreviewFetcher extends ChhFetcher {
   final requested = <int>[];
   final unexpected = <Uri>[];
@@ -104,6 +106,7 @@ void main() {
   late List<ChhFetcher> original;
   late _PreviewFetcher fake;
   setUp(() {
+    useInlineForumParser(chhClient);
     original = List.of(chhClient.fetchers);
     fake = _PreviewFetcher();
     chhClient.fetchers

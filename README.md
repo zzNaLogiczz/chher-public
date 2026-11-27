@@ -9,7 +9,7 @@
 <p align="center">一个用 Flutter 构建的非官方 Android 客户端，把帖子、评测和讨论带进原生界面。</p>
 
 <p align="center">
-  <a href="pubspec.yaml"><img src="https://img.shields.io/badge/version-1.0.18-646464?labelColor=60646c" alt="Version 1.0.18" /></a>
+  <a href="pubspec.yaml"><img src="https://img.shields.io/badge/version-1.0.19-646464?labelColor=60646c" alt="Version 1.0.19" /></a>
   <a href="https://flutter.dev/"><img src="https://img.shields.io/badge/Flutter-3.44.2-0d74ce?logo=flutter&amp;labelColor=60646c" alt="Flutter 3.44.2" /></a>
   <a href="https://dart.dev/"><img src="https://img.shields.io/badge/Dart-3.12.2-0d74ce?logo=dart&amp;labelColor=60646c" alt="Dart 3.12.2" /></a>
   <a href="https://developer.android.com/about/versions/pie"><img src="https://img.shields.io/badge/Android-9.0%2B-218358?logo=android&amp;logoColor=ffffff&amp;labelColor=60646c" alt="Android 9.0+" /></a>
@@ -74,18 +74,38 @@ cp android/key.properties.example android/key.properties
 在 `android/key.properties` 中填写 keystore 路径、别名和密码，然后构建：
 
 ```sh
-tool/build_release.sh 1.0.18             # 生成包含全部支持架构的通用包
+tool/build_release.sh 1.0.19             # 生成包含全部支持架构的通用包
 ```
 
-安装包位于 `build/release/1.0.18/chher-1.0.18.apk`，同时包含 ARM64、ARMv7 和 x86_64。新旧客户端统一获取通用包，无需按原安装包类型分组。
+安装包位于 `build/release/1.0.19/chher-1.0.19.apk`，同时包含 ARM64、ARMv7 和 x86_64。新旧客户端统一获取通用包，无需按原安装包类型分组。
 
-原生库采用压缩打包，调试符号单独保存在同目录的 `symbols/` 中，维护者应保留它们以便解析崩溃日志。版本号 `1.0.18` 对应 versionCode `10018`，不要使用会增加版本号偏移的 `--split-per-abi`。
+原生库采用压缩打包，调试符号单独保存在同目录的 `symbols/` 中，维护者应保留它们以便解析崩溃日志。版本号 `1.0.19` 对应 versionCode `10019`，不要使用会增加版本号偏移的 `--split-per-abi`。
 
-默认构建不连接更新服务器，也不显示检查更新入口。需要自己的更新服务时，将 `config/update.example.json` 复制为 `config/update.local.json`，在 `CHH_UPDATE_ENDPOINTS` 中填写 http(s) 服务根地址，多个地址用逗号分隔。正式构建脚本自动读取本地配置；配置缺失或地址为空时关闭更新，格式无效时停止构建。`flutter run` 和测试包脚本不自动读取此文件。自建服务还需使用自己的响应签名密钥，并对应修改 `lib/update/update_endpoints.dart` 的验签公钥。
+默认构建不连接更新服务器，也不显示检查更新入口。需要自己的更新服务时，将 `config/update.example.json` 复制为 `config/update.local.json`，在 `CHH_UPDATE_ENDPOINTS` 中填写 http(s) 服务根地址，多个地址用逗号分隔。正式构建脚本自动读取本地配置。配置缺失或地址为空时关闭更新，格式无效时停止构建。`flutter run` 不自动读取此文件。自建服务还需使用自己的响应签名密钥，并对应修改 `lib/update/update_endpoints.dart` 的验签公钥。
 
 `config/*.local.json` 已被 Git 忽略，不得作为资源文件加入 `pubspec.yaml`。公开仓库只保留空白示例；构建日志不要输出配置内容。地址启用后会编译进 APK，安装包中的地址仍可被提取，本地配置用于避免公开源码泄露，并不提供安装包内的地址保密。
 
 自行签名的包不能覆盖维护者签名的版本。分发衍生版本时，请使用自己的应用标识、签名及更新服务，并遵守项目许可。
+
+### 语音输入（可选）
+
+开通腾讯云「实时语音识别」后，复制配置示例。
+
+```sh
+cp config/voice.example.json config/voice.local.json
+```
+
+腾讯云「账号信息」页分别列有「账号 ID」和 **APPID**。将 **APPID** 填入 `CHH_VOICE_APP_ID`，再将 API 密钥的 SecretId 和 SecretKey 填入 `CHH_VOICE_SECRET_ID` 和 `CHH_VOICE_SECRET_KEY`。`CHH_VOICE_ENGINE` 可留空，默认使用 `16k_zh_en_2.0`。
+
+`tool/build_release.sh` 自动读取语音配置。各类构建都在本机密钥和语音服务地址均未配置时隐藏语音输入。已配置更新服务时，正式构建脚本会拒绝内置语音密钥，识别地址由服务器签发。
+
+用 `flutter run` 启用本机签名时，显式传入配置文件。
+
+```sh
+flutter run --dart-define-from-file=config/voice.local.json
+```
+
+密钥会编进安装包，可被提取。只在自用构建中使用密钥，请勿分发含密钥的安装包。建议使用仅授权 `QcloudASRFullAccess` 的子用户密钥，只购买资源包，保持后付费关闭。
 
 </details>
 
@@ -121,6 +141,8 @@ flutter test
 Chhers 是个人维护的非官方项目，与 Chiphell 官方没有隶属或背书关系。站点内容直接由客户端访问，登录使用原站网页，发帖与上传仍遵循原站的账号权限和规则。源站页面结构变化可能影响解析兼容性。
 
 登录状态保存在设备本地。启用本地构建配置后，应用更新由配置的独立服务提供；检查更新时会发送应用版本、CPU 架构和本地生成的安装标识，用于版本匹配与更新统计。
+
+使用语音输入时，录音直接发往腾讯云语音识别。由更新服务签发识别地址的构建会先向该服务申请一次性识别地址，并附带本地安装标识用于用量限制。
 
 ## 支持开发
 
@@ -158,5 +180,7 @@ python3 tool/build_preview.py 90.0.1
 ```
 
 产物：`build/preview/90.0.1/chhers-preview-90.0.1.apk`。脚本使用正常 `lib/main.dart`，保留完整功能，默认构建包含 ARM32、ARM64 和 x86_64 的通用 APK，并核对各架构的应用及 Flutter 引擎库；应用内版本与 Android 版本一致，`90.0.1` 对应 versionCode `900001`。后续每次新的测试交付传入下一个版本，已有交付不覆盖。
+
+测试包的语音识别使用 `config/update.local.json` 中的服务地址。文件缺失或地址为空时，不显示语音输入。测试包不检查更新。
 
 测试包与正式 App 独立安装，使用同一测试包签名覆盖时保留测试数据。不要同时运行正式与测试构建。没有用户明确指令，不提交或推送代码，不发布安装包或更新清单。

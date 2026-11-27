@@ -97,6 +97,15 @@ class UserBlockIndex extends AccountLocalIndex<UserBlockIndexState> {
   UserBlockIndex.forTesting(File? file)
     : super(filename: 'users-v1.json', fixture: UserBlockIndexState(file));
 
+  int _visibilityRevision = 0;
+  int get visibilityRevision => _visibilityRevision;
+
+  @override
+  void notifyListeners() {
+    _visibilityRevision++;
+    super.notifyListeners();
+  }
+
   @override
   UserBlockIndexState createState(File? file) => UserBlockIndexState(file);
 
@@ -117,6 +126,7 @@ class UserBlockIndex extends AccountLocalIndex<UserBlockIndexState> {
 
   bool isBlocked(String? uid) => entryFor(uid) != null;
   BlockedUser? entryFor(String? uid) => activeState?.entries[normalizeUid(uid)];
+  Iterable<String> get blockedUids => activeState?.entries.keys ?? const [];
   List<BlockedUser> get entries => List.unmodifiable(
     (activeState?.entries.values.toList() ?? [])
       ..sort((a, b) => b.blockedAt.compareTo(a.blockedAt)),

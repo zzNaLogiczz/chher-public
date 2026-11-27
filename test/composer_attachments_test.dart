@@ -9,14 +9,20 @@ import 'package:chh_app/pages/new_thread_page.dart';
 import 'package:chh_app/parser/upload_parser.dart';
 import 'package:chh_app/ui/app_button.dart';
 import 'package:chh_app/widgets/attachment_bar.dart';
+import 'package:chh_app/widgets/composer/composer_tool_strip.dart';
 import 'package:chh_app/widgets/expressive_composer.dart';
+import 'package:chh_app/ui/press.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// 不产生真实文件:缩略图路径为空,图片栏显示占位
 class _Platform implements ImagePlatform {
+  final List<String> selected;
+
+  const _Platform({this.selected = const []});
+
   @override
-  Future<List<String>> pick(int max) async => const [];
+  Future<List<String>> pick(int max) async => selected.take(max).toList();
 
   @override
   Future<SourceImage> open(String uri) async => const SourceImage(
@@ -51,7 +57,7 @@ void main() {
     final gate = Completer<UploadOutcome>();
     final images = AttachmentController(
       loadContext: () async => const UploadContext(uid: '1', hash: 'h'),
-      pipeline: ImagePipeline(_Platform()),
+      pipeline: const ImagePipeline(_Platform(selected: ['content://photo'])),
       upload: (context, image) => gate.future,
     );
     addTearDown(images.dispose);
@@ -62,7 +68,7 @@ void main() {
         home: Scaffold(
           body: ExpressiveComposer(
             title: '写回复',
-            modeLabel: '社区讨论',
+            showReplyIcon: true,
             hintText: '回复内容',
             attachments: images,
             onSubmit: (text) async {
@@ -77,10 +83,15 @@ void main() {
     AppButton send() =>
         tester.widget<AppButton>(find.byKey(const ValueKey('composer-send')));
 
-    expect(find.byKey(const ValueKey('attachment-add')), findsOneWidget);
+    final add = find.descendant(
+      of: find.byType(ComposerToolStrip),
+      matching: find.byKey(const ValueKey('attachment-add')),
+    );
+    expect(add, findsOneWidget);
+    expect(tester.getSize(find.byType(AttachmentBar)).height, 0);
     expect(send().onPressed, isNull);
 
-    images.add(['content://photo']);
+    await tester.tap(add);
     await tester.pump();
     await tester.pump();
     expect(find.byKey(const ValueKey('attachment-0')), findsOneWidget);
@@ -107,10 +118,10 @@ void main() {
       addTearDown(tester.view.reset);
     }
 
-    AttachmentController images() {
+    AttachmentController images({Future<UploadContext?> Function()? load}) {
       final c = AttachmentController(
-        loadContext: () async => null,
-        pipeline: ImagePipeline(_Platform()),
+        loadContext: load ?? () async => null,
+        pipeline: const ImagePipeline(_Platform()),
         upload: (context, image) async => const UploadSucceeded('1'),
       );
       addTearDown(c.dispose);
@@ -119,15 +130,22 @@ void main() {
 
     testWidgets('回复框', (tester) async {
       withKeyboard(tester);
+      var uploadContextRequests = 0;
+      final attachments = images(
+        load: () async {
+          uploadContextRequests++;
+          return null;
+        },
+      )..add(['content://photo']);
       await tester.pumpWidget(
         MaterialApp(
           theme: buildAppTheme(Brightness.light),
           home: Scaffold(
             body: ExpressiveComposer(
               title: '写回复',
-              modeLabel: '社区讨论',
+              showReplyIcon: true,
               hintText: '回复内容',
-              attachments: images(),
+              attachments: attachments,
               onSubmit: (_) async =>
                   const PostResult(PostResultKind.success, ''),
             ),
@@ -135,10 +153,39 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      final tray = find.byType(AttachmentBar);
+      final strip = find.byType(ComposerToolStrip);
+      expect(tester.getBottomLeft(tray).dy, tester.getTopLeft(strip).dy);
       expect(
-        tester.getBottomLeft(find.byType(AttachmentBar)).dy,
-        844 - keyboard,
+        tester.getTopLeft(tray).dy,
+        greaterThanOrEqualTo(tester.getBottomLeft(find.byType(TextField)).dy),
       );
+      expect(tester.getBottomLeft(strip).dy, 844 - keyboard);
+      final thumb = find.descendant(
+        of: find.byKey(const ValueKey('attachment-0')),
+        matching: find.byType(ClipRRect),
+      );
+      expect(tester.getSize(thumb), const Size.square(58));
+      expect(find.textContaining('点图片重试，或移除后再发送'), findsOneWidget);
+      await tester.tap(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is PressScale && widget.semanticLabel == '重试上传这张图片',
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(uploadContextRequests, 2);
+
+      // The visual badge overhangs the image but remains tappable.
+      await tester.tap(
+        find.byWidgetPredicate(
+          (widget) => widget is PressScale && widget.semanticLabel == '移除图片',
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(attachments.items, isEmpty);
+      expect(tester.getSize(tray).height, 0);
+      expect(tester.getBottomLeft(strip).dy, 844 - keyboard);
     });
 
     testWidgets('发主题', (tester) async {

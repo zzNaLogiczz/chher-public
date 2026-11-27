@@ -471,6 +471,7 @@ class _ArticleDiscussionPageState extends State<ArticleDiscussionPage>
       context,
       initialText: _drafts[draftKey] ?? '',
       onDraftChanged: (text) => _drafts[draftKey] = text,
+      articleTitle: normalizeDisplayText(widget.title),
       quoteAuthor: target?.author,
       quoteText: target?.text,
       onLogin: _login,

@@ -2,6 +2,8 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
+import '../data/browse_thread_layout.dart';
 import '../data/user_block_index.dart';
 import '../ui/app_button.dart';
 
@@ -21,9 +23,12 @@ import 'password_sheet.dart';
 import 'chhers_refresh_indicator.dart';
 import 'state_view.dart';
 import 'expressive_controls.dart';
+import 'route_entry_gate.dart';
 
 class BrowseThreadList extends StatefulWidget {
   final PageLoader<ThreadSummary> loader;
+  final Paged<ThreadSummary>? Function()? cachedFirstPage;
+  final RouteEntryGate? entryGate;
   final Widget Function(BuildContext context, ThreadSummary thread) itemBuilder;
   final Widget? header;
 
@@ -32,6 +37,9 @@ class BrowseThreadList extends StatefulWidget {
   final bool groupCards;
   final Widget? sectionAction;
   final String? Function(ThreadSummary thread)? sectionLabel;
+
+  /// Equal values identify the same section labels for a cached model.
+  final Object? sectionLayoutKey;
   final String emptyMessage;
   final Future<bool> Function(int fid)? onPassword;
 
@@ -45,11 +53,14 @@ class BrowseThreadList extends StatefulWidget {
     super.key,
     required this.loader,
     required this.itemBuilder,
+    this.cachedFirstPage,
+    this.entryGate,
     this.header,
     this.queryKey,
     this.groupCards = false,
     this.sectionAction,
     this.sectionLabel,
+    this.sectionLayoutKey,
     this.emptyMessage = '这里还没有帖子',
     this.onPassword,
     this.collapsePinned = false,
@@ -60,16 +71,35 @@ class BrowseThreadList extends StatefulWidget {
   State<BrowseThreadList> createState() => _BrowseThreadListState();
 }
 
-class _BrowseThreadListState extends State<BrowseThreadList> {
+class _BrowseThreadListState extends State<BrowseThreadList>
+    with SingleTickerProviderStateMixin {
   /// 会话内记住各版块置顶组是否展开
   static final _pinnedMemory = <Object, bool>{};
 
-  final _items = <ThreadSummary>[];
+  late BrowseThreadLayout _layout;
+  bool _viewportOnly = true;
+  int? _firstRowLimit;
+  final _skeletonKey = GlobalKey();
+  bool _skeletonVisible = false;
+  Rect? _skeletonExitBounds;
+  AnimationController? _skeletonExit;
   late bool _pinnedExpanded =
       _pinnedMemory[widget.pinnedMemoryKey ?? Object()] ?? false;
+  late bool _splitPinned = _pinnedExpanded;
+  bool _closingSplitPins = false;
+  final _pinnedRowKeys = <int, GlobalKey>{};
 
   void _togglePinned() {
-    setState(() => _pinnedExpanded = !_pinnedExpanded);
+    setState(() {
+      _closingSplitPins = _splitPinned;
+      _splitPinned = false;
+      _pinnedExpanded = !_pinnedExpanded;
+    });
+    if (_closingSplitPins) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _closingSplitPins = false;
+      });
+    }
     final key = widget.pinnedMemoryKey;
     if (key != null) _pinnedMemory[key] = _pinnedExpanded;
   }
@@ -90,6 +120,12 @@ class _BrowseThreadListState extends State<BrowseThreadList> {
   @override
   void didUpdateWidget(covariant BrowseThreadList oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.collapsePinned != widget.collapsePinned ||
+        oldWidget.groupCards != widget.groupCards ||
+        (oldWidget.header == null) != (widget.header == null) ||
+        (oldWidget.sectionAction == null) != (widget.sectionAction == null)) {
+      _layout = _prepareLayout(_layout.source);
+    }
     if (oldWidget.queryKey != widget.queryKey) _load(1);
   }
 
@@ -108,24 +144,78 @@ class _BrowseThreadListState extends State<BrowseThreadList> {
   }
 
   void _blocksChanged() {
-    if (mounted) setState(() {});
+    if (mounted) setState(() => _layout = _prepareLayout(_layout.source));
   }
 
-  List<ThreadSummary> get _visibleItems => _items
-      .where((item) => !userBlockIndex.isBlocked(item.authorUid))
-      .toList();
+  BrowseThreadLayout _prepareLayout(
+    List<ThreadSummary> source, {
+    bool firstPage = false,
+    Object? cacheKey,
+  }) => BrowseThreadLayout(
+    source,
+    options: (
+      collapsePinned: widget.collapsePinned,
+      groupCards: widget.groupCards,
+      hasHeader: widget.header != null,
+      hasAction: widget.sectionAction != null,
+    ),
+    firstPage: firstPage,
+    cacheKey: cacheKey,
+    sectionLabel: _committedSectionLabel,
+  );
 
   @override
   void initState() {
     super.initState();
     userBlockIndex.addListener(_blocksChanged);
-    _load(1);
+    if (widget.cachedFirstPage?.call() case final cached?) {
+      _commit(
+        cached,
+        1,
+        widget.queryKey,
+        widget.sectionLabel,
+        widget.sectionLayoutKey,
+        widget.itemBuilder,
+      );
+      _first = false;
+    } else {
+      _layout = _prepareLayout(const []);
+      _load(1);
+    }
   }
 
   @override
   void dispose() {
     userBlockIndex.removeListener(_blocksChanged);
+    _skeletonExit?.dispose();
     super.dispose();
+  }
+
+  void _retainVisibleSkeleton() {
+    if (!_first || !_skeletonVisible || widget.entryGate == null) return;
+    final skeleton = _skeletonKey.currentContext?.findRenderObject();
+    final viewport = context.findRenderObject();
+    if (skeleton is! RenderBox ||
+        viewport is! RenderBox ||
+        !skeleton.hasSize ||
+        !viewport.hasSize) {
+      return;
+    }
+    final bounds =
+        skeleton.localToGlobal(Offset.zero, ancestor: viewport) & skeleton.size;
+    if (!bounds.overlaps(Offset.zero & viewport.size)) return;
+    _skeletonExitBounds = bounds;
+    _skeletonExit =
+        AnimationController(
+          vsync: this,
+          duration: AppMotion.loadingOut,
+          value: 1,
+        )..addStatusListener((status) {
+          if (status == AnimationStatus.dismissed) {
+            setState(() => _skeletonExitBounds = null);
+          }
+        });
+    _skeletonExit!.reverse(from: 15 / 16);
   }
 
   Future<void> _load(int page, {bool refresh = false}) async {
@@ -133,58 +223,119 @@ class _BrowseThreadListState extends State<BrowseThreadList> {
     final generation = page == 1 ? ++_generation : _generation;
     final queryKey = widget.queryKey;
     final sectionLabel = widget.sectionLabel;
+    final sectionLayoutKey = widget.sectionLayoutKey;
     final itemBuilder = widget.itemBuilder;
     setState(() {
       _loading = true;
       _error = null;
       _failedPage = null;
     });
+    var cancelled = false;
     try {
       final response = await widget.loader(page, refresh: refresh);
       if (!mounted || generation != _generation) return;
+      if (widget.entryGate?.wait case final wait?) {
+        cancelled = !await wait;
+        if (cancelled || !mounted || generation != _generation) return;
+      }
       final resetScroll =
           page == 1 && !_first && _committedQueryKey != queryKey;
-      setState(() {
-        if (page > 1 && response.page.current != page) {
-          _hasNext = false;
-          return;
-        }
-        if (page == 1) {
-          if (_first || _committedQueryKey != queryKey) _contentRevision++;
-          _items.clear();
-          _committedQueryKey = queryKey;
-          _committedSectionLabel = sectionLabel;
-          _committedBuilder = itemBuilder;
-        }
-        final known = _items.map((e) => e.tid).toSet();
-        final added = response.items.where((e) => known.add(e.tid)).toList();
-        _items.addAll(added);
-        if (page > 1 && added.isEmpty) {
-          _hasNext = false;
-          return;
-        }
-        _page = response.page.current;
-        _hasNext = response.page.hasNext;
-      });
+      _retainVisibleSkeleton();
+      setState(
+        () => _commit(
+          response,
+          page,
+          queryKey,
+          sectionLabel,
+          sectionLayoutKey,
+          itemBuilder,
+        ),
+      );
       if (resetScroll) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted && generation == _generation) _scrollToStart();
         });
       }
     } catch (error) {
-      if (mounted && generation == _generation) {
+      if (!cancelled && mounted && generation == _generation) {
         setState(() {
           _error = error;
           _failedPage = page;
         });
       }
     } finally {
-      if (mounted && generation == _generation) {
+      if (!cancelled && mounted && generation == _generation) {
         setState(() {
           _loading = false;
           _first = false;
         });
       }
+    }
+  }
+
+  void _commit(
+    Paged<ThreadSummary> response,
+    int page,
+    Object? queryKey,
+    String? Function(ThreadSummary)? sectionLabel,
+    Object? sectionLayoutKey,
+    Widget Function(BuildContext, ThreadSummary) itemBuilder,
+  ) {
+    if (page > 1 && response.page.current != page) {
+      _hasNext = false;
+      return;
+    }
+    if (page == 1) {
+      if (_first || _committedQueryKey != queryKey) _contentRevision++;
+      _committedQueryKey = queryKey;
+      _committedSectionLabel = sectionLabel;
+      _committedBuilder = itemBuilder;
+      _layout = _prepareLayout(
+        response.items,
+        firstPage: true,
+        cacheKey: sectionLayoutKey,
+      );
+    } else {
+      final current = _layout.source;
+      final known = current.map((item) => item.tid).toSet();
+      final joined = [
+        ...current,
+        ...response.items.where((item) => known.add(item.tid)),
+      ];
+      if (joined.length == current.length) {
+        _hasNext = false;
+        return;
+      }
+      _layout = _prepareLayout(joined);
+    }
+    _page = response.page.current;
+    _hasNext = response.page.hasNext;
+    if (page == 1 && _viewportOnly && _layout.items.isNotEmpty) {
+      if (_first && _loading && widget.entryGate != null && !_splitPinned) {
+        // Leave room for the sort and pinned entries and the first thread.
+        _firstRowLimit = 3;
+      }
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        if (!mounted) return;
+        // Cached rows already paint during entry. Restore overscan after entry.
+        if (widget.entryGate?.wait case final wait?) {
+          if (!await wait || !mounted) return;
+        }
+        if (widget.entryGate != null) {
+          // Give the visible rows their first fade frames before adding overscan.
+          final binding = WidgetsBinding.instance;
+          if (_firstRowLimit != null) {
+            setState(() => _firstRowLimit = 7);
+            await binding.endOfFrame;
+            if (!mounted) return;
+            setState(() => _firstRowLimit = null);
+          }
+          await binding.endOfFrame;
+          await binding.endOfFrame;
+          if (!mounted) return;
+        }
+        setState(() => _viewportOnly = false);
+      });
     }
   }
 
@@ -227,71 +378,31 @@ class _BrowseThreadListState extends State<BrowseThreadList> {
 
   @override
   Widget build(BuildContext context) {
-    final items = _visibleItems;
-    final awaitingReplacement = _committedQueryKey != widget.queryKey;
-    final itemBuilder = awaitingReplacement
+    final layout = _layout;
+    final items = layout.items;
+    final slots = layout.slots;
+    final pinned = layout.pinned;
+    final itemBuilder = _committedQueryKey != widget.queryKey
         ? _committedBuilder ?? widget.itemBuilder
         : widget.itemBuilder;
-    final sectionLabel = awaitingReplacement
-        ? _committedSectionLabel
-        : widget.sectionLabel;
-    var pinned = 0;
-    if (widget.collapsePinned) {
-      while (pinned < items.length && items[pinned].sticky) {
-        pinned++;
-      }
-    }
-    final slots = <({int index, String? section})>[];
-    if (pinned > 0) slots.add((index: -1, section: null));
-    String? previousSection;
-    var hasSectionAction = false;
-    for (var i = pinned; i < items.length; i++) {
-      final section = sectionLabel?.call(items[i]);
-      if (section != previousSection || (i == pinned && section != null)) {
-        slots.add((index: i, section: section ?? ''));
-        hasSectionAction = true;
-      }
-      previousSection = section;
-      slots.add((index: i, section: null));
-    }
-    if (!hasSectionAction && widget.sectionAction != null) {
-      slots.insert(pinned > 0 ? 1 : 0, (index: -2, section: ''));
-    }
-    final firstSection = slots.indexWhere((slot) => slot.section != null);
     final visibleCount = slots.length;
-    final lastSlot = slots.lastOrNull;
-    final footerInCard =
-        widget.groupCards &&
-        lastSlot != null &&
-        lastSlot.index >= 0 &&
-        lastSlot.section == null;
+    final splitPinned = _splitPinned && pinned > 0;
+    final keys = splitPinned ? layout.expanded : layout.collapsed;
+    final rowLimit = _firstRowLimit;
+    final rowCount = rowLimit == null || splitPinned
+        ? keys.rows.length
+        : keys.rows.length.clamp(0, rowLimit + (widget.header == null ? 0 : 1));
+    final footerInCard = layout.footerInCard;
     final error = _error;
-    const sortKey = ValueKey('browse-sort-section');
-    final childKeys = <Key>[
-      if (widget.header != null) const ValueKey('browse-header'),
-      if (items.isEmpty) ...[
-        if (widget.sectionAction != null) sortKey,
-        const ValueKey('browse-empty'),
-      ] else ...[
-        for (final (slot, entry) in slots.indexed)
-          if (entry.index == -1)
-            const ValueKey('browse-pinned')
-          else if (entry.section != null)
-            slot == firstSection && widget.sectionAction != null
-                ? sortKey
-                : ValueKey(('browse-section', entry.section, entry.index))
-          else
-            ValueKey('browse-thread-${items[entry.index].tid}'),
-        const ValueKey('browse-footer'),
-      ],
-    ];
-    return ExpressivePageReveal(
+    final list = ExpressivePageReveal(
       active: true,
+      startOnFirstFrame: widget.entryGate != null && _contentRevision == 1,
       revision: _contentRevision,
       child: ChhersRefreshIndicator(
         onRefresh: () => _load(1, refresh: true),
         child: BrowsePaginationObserver(
-          enabled: _hasNext && !_loading && _error == null,
+          enabled:
+              _hasNext && !_loading && rowLimit == null && _error == null,
           onLoadMore: () => _load(_page + 1),
           child: ListView.builder(
             key: const PageStorageKey('browse-scroll'),
@@ -303,44 +414,63 @@ class _BrowseThreadListState extends State<BrowseThreadList> {
                   MediaQuery.paddingOf(context).bottom +
                   ListEndTokens.navigationGap,
             ),
-            itemCount:
-                (widget.header == null ? 0 : 1) +
-                (items.isEmpty
-                    ? (widget.sectionAction == null ? 1 : 2)
-                    : visibleCount + 1),
+            scrollCacheExtent: _viewportOnly
+                ? const ScrollCacheExtent.pixels(0)
+                : null,
+            itemCount: rowCount,
             findChildIndexCallback: (key) {
-              final index = childKeys.indexOf(key);
-              return index < 0 ? null : index;
+              final index = keys.indexes[key];
+              return index != null && index < rowCount ? index : null;
             },
             itemBuilder: (context, rawIndex) => KeyedSubtree(
-              key: childKeys[rawIndex],
+              key: keys.rows[rawIndex],
               child: Builder(
                 builder: (context) {
                   if (widget.header != null && rawIndex == 0) {
                     return widget.header!;
                   }
-                  final slot = rawIndex - (widget.header == null ? 0 : 1);
+                  final row = rawIndex - (widget.header == null ? 0 : 1);
+                  if (splitPinned && row > 0 && row <= pinned) {
+                    return _pinnedSlice(
+                      context,
+                      first: row == 1,
+                      last: row == pinned,
+                      child: Builder(
+                        builder: (context) =>
+                            _pinnedItem(context, items[row - 1], itemBuilder),
+                      ),
+                    );
+                  }
+                  final slot = splitPinned && row > 0 ? row - pinned : row;
                   if (items.isEmpty &&
                       widget.sectionAction != null &&
                       slot == 0) {
                     return _section(context, '', widget.sectionAction);
                   }
-                  // 置顶组:第 0 格是卡片,展开时置顶帖排在卡片内
-                  if (pinned > 0 && slot == 0 && items.isNotEmpty) {
+                  if (pinned > 0 && slot == 0) {
+                    if (splitPinned) {
+                      return PinnedGroupRow.header(
+                        count: pinned,
+                        firstTitle: items.first.title,
+                        onToggle: _togglePinned,
+                      );
+                    }
                     return PinnedGroupRow(
                       count: pinned,
                       firstTitle: items.first.title,
                       expanded: _pinnedExpanded,
+                      animateFromExpanded: _closingSplitPins,
                       onToggle: _togglePinned,
                       itemBuilder: (context, i) =>
-                          itemBuilder(context, items[i]),
+                          _pinnedItem(context, items[i], itemBuilder),
                     );
                   }
                   if (_first) {
-                    // 首屏用静态骨架,不跑闪光动画
-                    return const SizedBox(
+                    return SizedBox(
                       height: 300,
-                      child: SkeletonList(rows: 3),
+                      child: widget.entryGate == null
+                          ? const SkeletonList(rows: 3)
+                          : _entrySkeleton(),
                     );
                   }
                   if (items.isEmpty && error != null) {
@@ -364,7 +494,7 @@ class _BrowseThreadListState extends State<BrowseThreadList> {
                   if (items.isEmpty) {
                     return SizedBox(
                       height: 300,
-                      child: _items.isNotEmpty
+                      child: layout.source.isNotEmpty
                           ? Column(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
@@ -426,7 +556,7 @@ class _BrowseThreadListState extends State<BrowseThreadList> {
                     return _section(
                       context,
                       section,
-                      slot == firstSection ? widget.sectionAction : null,
+                      slot == layout.firstSection ? widget.sectionAction : null,
                     );
                   }
                   final thread = items[entry.index];
@@ -450,6 +580,88 @@ class _BrowseThreadListState extends State<BrowseThreadList> {
                         : itemBuilder(context, thread),
                   );
                 },
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    if (widget.entryGate == null) return list;
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        list,
+        if (_skeletonExitBounds case final bounds?)
+          Positioned.fromRect(
+            rect: bounds,
+            child: ExcludeSemantics(
+              child: IgnorePointer(
+                child: FadeTransition(
+                  opacity: _skeletonExit!,
+                  child: _entrySkeleton(),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _entrySkeleton() => SkeletonList(
+    key: _skeletonKey,
+    rows: 3,
+    onVisible: () => _skeletonVisible = true,
+  );
+
+  Widget _pinnedItem(
+    BuildContext context,
+    ThreadSummary thread,
+    Widget Function(BuildContext, ThreadSummary) builder,
+  ) => KeyedSubtree(
+    key: _pinnedRowKeys.putIfAbsent(thread.tid, GlobalKey.new),
+    child: builder(context, thread),
+  );
+
+  Widget _pinnedSlice(
+    BuildContext context, {
+    required bool first,
+    required bool last,
+    required Widget child,
+  }) {
+    const outer = Radius.circular(ForumTokens.groupRadius);
+    const inner = Radius.circular(ForumTokens.rowRadius);
+    final edge = BorderRadius.vertical(bottom: last ? outer : Radius.zero);
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        AppSpace.groupInset,
+        0,
+        AppSpace.groupInset,
+        last ? 6 : 0,
+      ),
+      child: DecoratedBox(
+        decoration: ShapeDecoration(
+          color: AppTokens.of(context).surface,
+          shape: appShape(ForumTokens.groupRadius, borderRadius: edge),
+        ),
+        child: AppClip.borderRadius(
+          borderRadius: edge,
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(
+              ForumTokens.groupInset,
+              0,
+              ForumTokens.groupInset,
+              last ? ForumTokens.groupInset : 0,
+            ),
+            child: AppClip.borderRadius(
+              borderRadius: BorderRadius.vertical(
+                top: first ? inner : Radius.zero,
+                bottom: last ? inner : Radius.zero,
+              ),
+              child: PlainRowScope(
+                inset: 12,
+                separator: false,
+                impliesSticky: true,
+                child: child,
               ),
             ),
           ),
@@ -499,29 +711,37 @@ class ForumThreadCardSlice extends StatelessWidget {
   final Widget child;
   @override
   Widget build(BuildContext context) {
-    final radius = BorderRadius.vertical(
-      top: first ? const Radius.circular(ForumTokens.groupRadius) : Radius.zero,
-      bottom: last
-          ? const Radius.circular(ForumTokens.groupRadius)
-          : Radius.zero,
+    final surface = AppTokens.of(context).surface;
+    final inset = Padding(
+      padding: EdgeInsets.fromLTRB(
+        ForumTokens.groupInset,
+        first ? ForumTokens.groupInset : 0,
+        ForumTokens.groupInset,
+        last ? ForumTokens.groupInset : 0,
+      ),
+      child: child,
     );
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: AppSpace.groupInset),
-      child: DecoratedBox(
-        decoration: ShapeDecoration(
-          color: AppTokens.of(context).surface,
-          shape: appShape(ForumTokens.groupRadius, borderRadius: radius),
-        ),
-        child: Padding(
-          padding: EdgeInsets.fromLTRB(
-            ForumTokens.groupInset,
-            first ? ForumTokens.groupInset : 0,
-            ForumTokens.groupInset,
-            last ? ForumTokens.groupInset : 0,
-          ),
-          child: child,
-        ),
-      ),
+      child: !first && !last
+          ? ColoredBox(color: surface, child: inset)
+          : DecoratedBox(
+              decoration: ShapeDecoration(
+                color: surface,
+                shape: appShape(
+                  ForumTokens.groupRadius,
+                  borderRadius: BorderRadius.vertical(
+                    top: first
+                        ? const Radius.circular(ForumTokens.groupRadius)
+                        : Radius.zero,
+                    bottom: last
+                        ? const Radius.circular(ForumTokens.groupRadius)
+                        : Radius.zero,
+                  ),
+                ),
+              ),
+              child: inset,
+            ),
     );
   }
 }

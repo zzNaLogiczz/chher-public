@@ -28,11 +28,13 @@ enum UpdatePhase {
   failed,
 }
 
-final UpdateController appUpdater = UpdateController();
+final UpdateController appUpdater = defaultTargetPlatform == TargetPlatform.iOS
+    ? UpdateController._disabled()
+    : UpdateController();
 
 class UpdateController extends ChangeNotifier {
-  final UpdatePlatform _platform;
-  final UpdateClient _client;
+  final UpdatePlatform? _platform;
+  late final UpdateClient _client;
   final List<String> _injectedEndpoints;
   final bool _isRelease;
   final DateTime Function() _now;
@@ -54,19 +56,23 @@ class UpdateController extends ChangeNotifier {
          storeFor,
        );
 
+  UpdateController._disabled()
+    : this._(null, null, const [], kReleaseMode, null, null);
+
   UpdateController._(
-    UpdatePlatform platform,
+    UpdatePlatform? platform,
     UpdateClient? client,
     List<String>? injectedEndpoints,
     bool isRelease,
     DateTime Function()? now,
     UpdateStore Function(AppIdentity identity)? storeFor,
   ) : _platform = platform,
-      _client = client ?? UpdateClient(platform: platform),
       _injectedEndpoints = injectedEndpoints ?? injectedUpdateEndpoints,
       _isRelease = isRelease,
       _now = now ?? DateTime.now,
-      _storeFor = storeFor ?? ((id) => UpdateStore.inDirectory(id.filesDir));
+      _storeFor = storeFor ?? ((id) => UpdateStore.inDirectory(id.filesDir)) {
+    if (platform != null) _client = client ?? UpdateClient(platform: platform);
+  }
 
   UpdatePhase phase = UpdatePhase.idle;
   UpdateRelease? release;
@@ -85,7 +91,7 @@ class UpdateController extends ChangeNotifier {
   StreamSubscription<InstallStatus>? _installSub;
   String? _justUpdatedFrom;
 
-  /// 拿不到本机信息(非 Android、通道未注册)时整个功能静默停用
+  /// 没有更新平台或拿不到本机信息时，整个功能静默停用。
   bool get available => identity != null && _loaded && endpoints.isNotEmpty;
   bool _loaded = false;
 
@@ -104,9 +110,12 @@ class UpdateController extends ChangeNotifier {
   }
 
   Future<void> _init() async {
-    if (normalizeEndpoints(_injectedEndpoints).isEmpty) return;
+    final platform = _platform;
+    if (platform == null || normalizeEndpoints(_injectedEndpoints).isEmpty) {
+      return;
+    }
     try {
-      identity = await _platform.identity();
+      identity = await platform.identity();
     } catch (error) {
       AppLog.w('UPDATE', '更新不可用 ${error.runtimeType}');
       return;
@@ -304,16 +313,17 @@ class UpdateController extends ChangeNotifier {
   /// 核对安装包后交给系统安装器;没有安装权限时停下来等用户开启
   Future<void> install() async {
     await _ready;
-    if (!available) return;
+    final platform = _platform;
+    if (!available || platform == null) return;
     final target = release;
     final apk = _apk;
     if (target == null || apk == null) return;
-    if (!await _platform.canInstall()) {
+    if (!await platform.canInstall()) {
       _set(UpdatePhase.needsPermission);
       return;
     }
     _set(UpdatePhase.verifying);
-    final inspection = await _platform.inspectApk(apk.path);
+    final inspection = await platform.inspectApk(apk.path);
     final id = identity!;
     final problem = inspection.sha256 != target.sha256
         ? UpdateFailure.integrity
@@ -331,9 +341,9 @@ class UpdateController extends ChangeNotifier {
       _set(UpdatePhase.failed);
       return;
     }
-    _installSub ??= _platform.installStatus.listen(_onInstallStatus);
+    _installSub ??= platform.installStatus.listen(_onInstallStatus);
     _set(UpdatePhase.installing);
-    if (!await _platform.install(apk.path)) {
+    if (!await platform.install(apk.path)) {
       failure = UpdateFailure.install;
       _set(UpdatePhase.failed);
     }
@@ -349,11 +359,11 @@ class UpdateController extends ChangeNotifier {
   /// 用户从“允许安装未知应用”设置页返回后调用
   Future<void> resumeAfterPermission() async {
     if (!available || phase != UpdatePhase.needsPermission) return;
-    if (await _platform.canInstall()) await install();
+    if (await _platform?.canInstall() == true) await install();
   }
 
   Future<void> openInstallPermission() async {
-    if (available) await _platform.openInstallPermission();
+    if (available) await _platform?.openInstallPermission();
   }
 
   /// 失败后重试:安装包已下好就直接安装,否则继续下载

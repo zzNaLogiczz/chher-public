@@ -16,6 +16,10 @@ import '../models/models.dart';
 import '../models/post_interaction.dart';
 import '../ui/app_button.dart';
 import '../ui/editor_touch.dart';
+import 'composer/composer_dictation_binding.dart';
+import 'composer/composer_editor.dart';
+import 'composer/composer_tool_strip.dart';
+import 'composer/smiley_editing_controller.dart';
 import 'expressive_composer.dart';
 import 'chhers_loader.dart';
 
@@ -81,10 +85,11 @@ class PostInteractionSheet extends StatefulWidget {
 
 class _PostInteractionSheetState extends State<PostInteractionSheet> {
   final _sheet = SheetController();
-  final _text = TextEditingController();
+  final _text = SmileyEditingController();
   final _reason = TextEditingController();
   final _score = TextEditingController();
   final _focus = FocusNode();
+  ComposerDictationBinding? _dictation;
   PostInteractionDraftStore get _drafts =>
       widget.drafts ?? postInteractionDrafts;
   late final String? _actor;
@@ -127,7 +132,13 @@ class _PostInteractionSheetState extends State<PostInteractionSheet> {
   RateScoreType? get _evil => _rating?.evilScoreType;
   int? get _scoreValue => int.tryParse(_score.text.trim());
   bool get _canSend {
-    if (_loading || _busy || _uncertain || !_sameActor) return false;
+    if (_loading ||
+        _busy ||
+        _uncertain ||
+        !_sameActor ||
+        _dictation?.active == true) {
+      return false;
+    }
     if (_textAction) {
       return _formReady &&
           _text.text.trim().isNotEmpty &&
@@ -162,6 +173,12 @@ class _PostInteractionSheetState extends State<PostInteractionSheet> {
     _focus.addListener(_focusChanged);
     widget.sessionChanges?.addListener(_sessionChanged);
     _text.addListener(_edited);
+    if (_textAction) {
+      _dictation = ComposerDictationBinding(
+        editor: _text,
+        onChanged: () => setState(() {}),
+      );
+    }
     _reason.addListener(_edited);
     _score.addListener(_edited);
     _load();
@@ -182,6 +199,9 @@ class _PostInteractionSheetState extends State<PostInteractionSheet> {
   void _sessionChanged() {
     if (_sameActor || !mounted) return;
     _epoch++;
+    if (_dictation case final dictation? when dictation.active) {
+      dictation.controller.cancel();
+    }
     _focus.unfocus();
     setState(() {
       _busy = false;
@@ -301,6 +321,7 @@ class _PostInteractionSheetState extends State<PostInteractionSheet> {
 
   Future<void> _send() async {
     if (!_canSend) return;
+    _dictation?.controller.dismissReview();
     final epoch = _epoch;
     _focus.unfocus();
     setState(() => _busy = true);
@@ -401,6 +422,7 @@ class _PostInteractionSheetState extends State<PostInteractionSheet> {
   @override
   void dispose() {
     widget.sessionChanges?.removeListener(_sessionChanged);
+    _dictation?.dispose();
     _text.dispose();
     _reason.dispose();
     _score.dispose();
@@ -414,6 +436,9 @@ class _PostInteractionSheetState extends State<PostInteractionSheet> {
     final t = AppTokens.of(context);
     final embedded =
         context.findAncestorWidgetOfExactType<SheetViewport>() != null;
+    final voiceActive = _dictation?.active == true;
+    final voiceEnabled =
+        !_loading && _formReady && !_busy && !_uncertain && _sameActor;
     final content = PopScope(
       canPop: !_busy && !_checking,
       child: SheetKeyboardDismissible(
@@ -426,7 +451,7 @@ class _PostInteractionSheetState extends State<PostInteractionSheet> {
           // Keep the form usable before and after its asynchronous load.
           initialOffset: const SheetOffset(1),
           snapGrid: const SheetSnapGrid.single(snap: SheetOffset(1)),
-          dragConfiguration: _busy || _checking
+          dragConfiguration: _busy || _checking || voiceActive
               ? SheetDragConfiguration.disabled
               : const SheetDragConfiguration(),
           padding: EdgeInsets.only(
@@ -439,6 +464,27 @@ class _PostInteractionSheetState extends State<PostInteractionSheet> {
           child: SheetContentScaffold(
             backgroundColor: t.surface,
             topBar: _header(t),
+            bottomBarVisibility: const BottomBarVisibility.natural(
+              ignoreBottomInset: true,
+            ),
+            bottomBar: _textAction
+                ? SafeArea(
+                    top: false,
+                    bottom: MediaQuery.viewInsetsOf(context).bottom == 0,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (_dictation case final dictation?)
+                          dictation.status(enabled: voiceEnabled),
+                        ComposerToolStrip(
+                          voice: _dictation?.bar(enabled: voiceEnabled),
+                          voiceActive: _dictation?.barExpanded == true,
+                          send: _sendButton(),
+                        ),
+                      ],
+                    ),
+                  )
+                : null,
             body: SizedBox.expand(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
@@ -497,59 +543,72 @@ class _PostInteractionSheetState extends State<PostInteractionSheet> {
         ),
       ),
     );
-    if (embedded) return content;
+    if (embedded) {
+      return _dictation?.scope(content, enabled: voiceEnabled) ?? content;
+    }
     return SheetViewport(
       padding: EdgeInsets.only(top: MediaQuery.viewPaddingOf(context).top + 8),
-      child: content,
+      child: _dictation?.scope(content, enabled: voiceEnabled) ?? content,
     );
   }
 
-  Widget _header(AppTokens t) => Column(
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      SizedBox(
-        height: 21,
-        child: Center(
-          child: Container(
-            width: 36,
-            height: 5,
-            decoration: BoxDecoration(
-              color: t.fill2,
-              borderRadius: BorderRadius.circular(AppRadii.bar),
+  Widget _sendButton() => AppButton(
+    key: const ValueKey('interaction-send'),
+    label: _busy ? '发送中' : '发送',
+    variant: _textAction
+        ? AppButtonVariant.composerSend
+        : AppButtonVariant.primary,
+    small: true,
+    state: _busy ? AppButtonState.busy : AppButtonState.idle,
+    onPressed: _canSend ? _send : null,
+  );
+
+  Widget _header(AppTokens t) {
+    final cancel = AppButton(
+      label: '取消',
+      variant: AppButtonVariant.quiet,
+      onPressed: _busy || _checking ? null : () => Navigator.of(context).pop(),
+    );
+    final title = Text(
+      _title,
+      textAlign: TextAlign.center,
+      style: AppType.headline.copyWith(color: t.text),
+    );
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          height: 21,
+          child: Center(
+            child: Container(
+              width: 36,
+              height: 5,
+              decoration: BoxDecoration(
+                color: t.fill2,
+                borderRadius: BorderRadius.circular(AppRadii.bar),
+              ),
             ),
           ),
         ),
-      ),
-      Padding(
-        padding: const EdgeInsets.fromLTRB(8, 0, 12, 10),
-        child: Row(
-          children: [
-            AppButton(
-              label: '取消',
-              variant: AppButtonVariant.quiet,
-              onPressed: _busy || _checking
-                  ? null
-                  : () => Navigator.of(context).pop(),
-            ),
-            Expanded(
-              child: Text(
-                _title,
-                textAlign: TextAlign.center,
-                style: AppType.headline.copyWith(color: t.text),
-              ),
-            ),
-            AppButton(
-              key: const ValueKey('interaction-send'),
-              label: _busy ? '发送中' : '发送',
-              small: true,
-              state: _busy ? AppButtonState.busy : AppButtonState.idle,
-              onPressed: _canSend ? _send : null,
-            ),
-          ],
+        Padding(
+          padding: const EdgeInsets.fromLTRB(8, 0, 12, 10),
+          child: _textAction
+              ? SizedBox(
+                  height: AppSpace.titleRow,
+                  child: NavigationToolbar(leading: cancel, middle: title),
+                )
+              : Row(
+                  children: [
+                    cancel,
+                    Expanded(child: title),
+                    _sendButton(),
+                  ],
+                ),
         ),
-      ),
-    ],
-  );
+      ],
+    );
+  }
+
   Widget _message(AppTokens t, String text) => Padding(
     padding: const EdgeInsets.only(bottom: 12),
     child: Semantics(
@@ -560,26 +619,15 @@ class _PostInteractionSheetState extends State<PostInteractionSheet> {
   Widget _commentEditor(AppTokens t) => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
-      EditorTouchGuard(
+      ComposerEditor(
+        fieldKey: const ValueKey('interaction-comment'),
+        horizontalInset: 0,
+        controller: _text,
+        dictation: _dictation?.controller,
         focusNode: _focus,
-        enabled: !_busy && !_uncertain,
+        readOnly: _busy || _uncertain,
         notifyOnUserEntry: true,
-        builder: (context, focus, onTap) => TextField(
-          key: const ValueKey('interaction-comment'),
-          controller: _text,
-          focusNode: focus,
-          onTapAlwaysCalled: true,
-          onTap: onTap,
-          readOnly: _busy || _uncertain,
-          minLines: 5,
-          maxLines: null,
-          style: AppType.body.copyWith(color: t.text),
-          decoration: InputDecoration(
-            hintText: _isSupplement ? '补充内容' : '写下简短的点评',
-            border: InputBorder.none,
-            filled: false,
-          ),
-        ),
+        hintText: _isSupplement ? '补充内容' : '写下简短的点评',
       ),
       if (_textMax != null)
         Align(

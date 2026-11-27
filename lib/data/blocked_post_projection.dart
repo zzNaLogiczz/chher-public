@@ -13,7 +13,7 @@ Post projectBlockedPost(
     for (final block in blocks)
       if (block is QuoteBlock && !block.isNotice)
         if (block.reference?.tid == tid &&
-            isBlocked(knownPosts[block.reference?.pid]?.authorUid))
+            isBlocked(knownPosts[block.reference!.pid]?.authorUid))
           const QuoteBlock([TextBlock('引用已屏蔽楼层')])
         else
           QuoteBlock(

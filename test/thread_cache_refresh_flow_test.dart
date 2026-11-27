@@ -11,6 +11,8 @@ import 'package:chh_app/widgets/chhers_loader.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/inline_forum_parser.dart';
+
 const _tid = 123;
 
 class _Forum extends ChhFetcher {
@@ -23,7 +25,11 @@ class _Forum extends ChhFetcher {
   Completer<void>? tailResponse;
   final requests = <int>[];
   late final repository = ForumRepository(
-    ChhClient(fetchers: [this], threadRequestInterval: Duration.zero),
+    ChhClient(
+      fetchers: [this],
+      threadRequestInterval: Duration.zero,
+      dispatchParser: parseForumInline,
+    ),
   );
 
   @override

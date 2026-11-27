@@ -225,6 +225,46 @@ void main() {
       expect(msg.fromSelf, isTrue);
       expect(msg.authorUid, '1001');
       expect(msg.text, contains('某人'));
+      expect(msg.nodes, isEmpty);
+    });
+
+    test('私信保留纯表情和混排节点，忽略普通图片与操作区', () {
+      final messages = parsePmThread(
+        _page('''
+<div id="pm_ul">
+  <dl id="pmlist_1"><dd class="ptm">
+    <span class="xw1">您</span>&nbsp;<br>
+    <img src="https://www.chiphell.com/static/image/smiley/default/smile.gif">
+    <span class="xg1">2026-11-26 12:00</span>
+  </dd></dl>
+  <dl id="pmlist_2"><dd class="ptm">
+    <a class="xw1" href="space-uid-2.html">对方</a>
+    测试&nbsp; <a href="space-uid-5.html">链接</a>
+    <span><img src="static/image/smiley/diy/fd.gif" smilieid="390"></span>
+    正文 <img src="image.jpg">
+    <span class="o"><img src="static/image/smiley/default/sad.gif">删除</span>
+  </dd></dl>
+  <dl id="pmlist_3"><dd class="ptm"><img src="image.jpg"></dd></dl>
+</div>'''),
+      );
+
+      expect(messages.map((message) => message.pmid), ['1', '2']);
+      expect(messages.first.fromSelf, isTrue);
+      expect(messages.first.text, isEmpty);
+      expect(
+        (messages.first.nodes.single as InlineSmiley).url,
+        'https://www.chiphell.com/static/image/smiley/default/smile.gif',
+      );
+      expect(messages.last.text, '测试 链接 正文');
+      expect(messages.last.nodes, [
+        isA<InlineText>().having((node) => node.text, 'text', '测试 链接 '),
+        isA<InlineSmiley>().having(
+          (node) => node.url,
+          'url',
+          'https://www.chiphell.com/static/image/smiley/diy/fd.gif',
+        ),
+        isA<InlineText>().having((node) => node.text, 'text', ' 正文'),
+      ]);
     });
 
     test('span.xw1 不是"您"时不判为自己', () {

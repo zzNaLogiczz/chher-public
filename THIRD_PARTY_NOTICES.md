@@ -10,6 +10,7 @@
 | --- | --- | --- | --- |
 | Flutter SDK | 3.44.2 | BSD-3-Clause | The Flutter Authors；[原文](https://github.com/flutter/flutter/blob/3.44.2/LICENSE) |
 | cupertino_icons | 1.0.9 | MIT | Vladimir Kharlampidi；[原文](https://pub.dev/packages/cupertino_icons/versions/1.0.9/license) |
+| crypto | 3.0.7 | BSD-3-Clause | the Dart project authors；[原文](https://pub.dev/packages/crypto/versions/3.0.7/license) |
 | dio | 5.11.1 | MIT | Wen Du、The CFUG Team；[原文](https://pub.dev/packages/dio/versions/5.11.1/license) |
 | html | 0.15.7 | MIT | HTML 解析器原作者、Mozilla Foundation、Google LLC 等，完整名单见[原文](https://pub.dev/packages/html/versions/0.15.7/license) |
 | flutter_inappwebview | 6.1.5 | Apache-2.0 | 上游项目及贡献者；[原文](https://pub.dev/packages/flutter_inappwebview/versions/6.1.5/license) |

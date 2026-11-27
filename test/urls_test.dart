@@ -12,24 +12,21 @@ import 'package:chh_app/core/chh_urls.dart';
 import 'package:chh_app/data/forum_repository.dart';
 import 'package:chh_app/models/thread_sort.dart';
 import 'package:chh_app/network/chh_client.dart';
+import 'package:chh_app/network/chh_fetcher.dart';
 
-class _RecordingClient extends ChhClient {
-  _RecordingClient(this.html) : super(fetchers: []);
+class _RecordingFetcher extends ChhFetcher {
+  _RecordingFetcher(this.html);
 
   final String html;
   Uri? requestedUrl;
-  bool? requestedRefresh;
 
   @override
-  Future<String> getHtml(
-    Uri url, {
-    bool refresh = false,
-    bool fallback = true,
-    bool Function()? shouldContinue,
-  }) async {
+  String get name => 'fixture';
+
+  @override
+  Future<ChhResponse> getHtml(Uri url, {Map<String, String>? headers}) async {
     requestedUrl = url;
-    requestedRefresh = refresh;
-    return html;
+    return ChhResponse(200, html);
   }
 }
 
@@ -144,24 +141,31 @@ void main() {
     for (final sort in ThreadSort.values) {
       for (final typeid in [null, 1010]) {
         test('${sort.name}, typeid=$typeid 保留排序、页码和刷新参数', () async {
-          final client = _RecordingClient(html);
+          final fetcher = _RecordingFetcher(html);
+          final client = ChhClient(fetchers: [fetcher]);
           final repository = ForumRepository(client);
-          final result = await repository.threadList(
-            290,
-            page: 2,
-            typeid: typeid,
-            filter: sort.filter,
-            orderby: sort.orderby,
-            refresh: true,
-          );
-          final params = client.requestedUrl!.queryParameters;
+          Future<void> load({bool refresh = false}) async {
+            final result = await repository.threadList(
+              290,
+              page: 2,
+              typeid: typeid,
+              filter: sort.filter,
+              orderby: sort.orderby,
+              refresh: refresh,
+            );
+            expect(result.threads, isNotEmpty);
+          }
+
+          await load();
+          final params = fetcher.requestedUrl!.queryParameters;
           expect(params['fid'], '290');
           expect(params['page'], '2');
           expect(params['filter'], typeid == null ? sort.filter : 'typeid');
           expect(params['typeid'], typeid?.toString());
           expect(params['orderby'], sort.orderby);
-          expect(client.requestedRefresh, isTrue);
-          expect(result.threads, isNotEmpty);
+          fetcher.requestedUrl = null;
+          await load(refresh: true);
+          expect(fetcher.requestedUrl, isNotNull);
         });
       }
     }

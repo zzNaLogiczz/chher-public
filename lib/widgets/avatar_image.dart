@@ -223,7 +223,7 @@ class _AvatarImageState extends State<AvatarImage> {
               ),
       ),
     );
-    if (widget.lazy && !_visible) {
+    if (widget.lazy && !_visible && _url != null) {
       return _VisibleAvatar(
         onVisible: () {
           if (mounted && !_visible) {

@@ -22,6 +22,7 @@ abstract final class AppIcons {
   static const userCheck = SolarIconsOutline.userCheckRounded;
   static const success = SolarIconsOutline.checkCircle;
   static const forward = SolarIconsOutline.altArrowRight;
+  static const undo = SolarIconsOutline.undoLeft;
   static const refresh = SolarIconsOutline.refresh;
   static const article = SolarIconsOutline.documentText;
   static const articleBold = SolarIconsBold.documentText;
@@ -52,6 +53,8 @@ abstract final class AppIcons {
   static const copy = SolarIconsOutline.copy;
   static const tag = SolarIconsOutline.hashtag;
   static const image = SolarIconsOutline.gallery;
+  static const smile = SolarIconsOutline.smileCircle;
+  static const backspace = SolarIconsOutline.backspace;
   static const imageBold = SolarIconsBold.gallery;
   static const info = SolarIconsOutline.infoCircle;
   static const infoBold = SolarIconsBold.infoCircle;
@@ -61,6 +64,7 @@ abstract final class AppIcons {
   static const forbiddenBold = SolarIconsBold.forbiddenCircle;
   static const verified = SolarIconsOutline.shieldCheck;
   static const up = SolarIconsOutline.doubleAltArrowUp;
+  static const voicePull = SolarIconsOutline.altArrowUp;
   static const down = SolarIconsOutline.altArrowDown;
   static const inbox = SolarIconsOutline.inbox;
   static const export = SolarIconsOutline.export;

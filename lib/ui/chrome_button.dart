@@ -396,12 +396,40 @@ class _CountBadgeState extends State<CountBadge>
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
     final alert = widget.tone == BadgeTone.alert;
+    const lineHeightEm = 1.2;
     final style = AppType.caption.copyWith(
       fontWeight: FontWeight.w700,
-      height: 1.2,
+      height: lineHeightEm,
+      leadingDistribution: TextLeadingDistribution.even,
       color: widget.textColor ?? (alert ? t.onAccent : t.bg),
     );
-    Widget number(int value) => Text('$value', style: style);
+    final fontSize = MediaQuery.textScalerOf(
+      context,
+    ).scale(AppType.sizeCaption);
+    final lineHeight = fontSize * lineHeightEm;
+    Widget number(int value) {
+      final label = '$value';
+      // The glyph for 1 leaves more blank space at its trailing edge.
+      final inset =
+          (label.endsWith('1') ? .075 : 0) - (label.startsWith('1') ? .02 : 0);
+      return Center(
+        widthFactor: 1,
+        heightFactor: 1,
+        child: SizedBox(
+          height: lineHeight,
+          child: Baseline(
+            // Align the numeral ink center with the center of its rolling slot.
+            baseline: lineHeight / 2 + fontSize * .36,
+            baselineType: TextBaseline.alphabetic,
+            child: Transform.translate(
+              offset: Offset(inset * fontSize, 0),
+              child: Text(label, style: style, maxLines: 1, softWrap: false),
+            ),
+          ),
+        ),
+      );
+    }
+
     return BadgeAppearance(
       visible: widget.count > 0,
       child: DecoratedBox(

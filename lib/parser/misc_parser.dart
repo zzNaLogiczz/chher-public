@@ -4,6 +4,7 @@
 /// 共用 dom_utils 的表格与分页工具。
 library;
 
+import 'package:html/dom.dart' as dom;
 import 'package:html/parser.dart' as html_parser;
 
 import '../core/chh_urls.dart';
@@ -48,8 +49,10 @@ Paged<ThreadSummary> parseTagThreads(String html) {
 }
 
 /// 版块内分类筛选:ul#thread_types li,当前选中项带 .xw1.a
-List<ThreadType> parseThreadTypes(String html) {
-  final doc = html_parser.parse(html);
+List<ThreadType> parseThreadTypes(String html) =>
+    parseThreadTypesDocument(html_parser.parse(html));
+
+List<ThreadType> parseThreadTypesDocument(dom.Document doc) {
   final out = <ThreadType>[];
 
   for (final li in doc.querySelectorAll('ul#thread_types li')) {

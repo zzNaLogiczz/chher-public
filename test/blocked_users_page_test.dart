@@ -11,6 +11,8 @@ import 'package:chh_app/network/chh_fetcher.dart';
 import 'package:chh_app/pages/follow_block_page.dart';
 import 'package:chh_app/pages/thread_detail_page.dart';
 
+import 'support/inline_forum_parser.dart';
+
 const _source = BlockedUserSource(
   tid: 2345,
   pid: 234567,
@@ -275,6 +277,7 @@ void main() {
       excerpt: '最后一楼的摘录',
     );
     await index.block(uid: '1009', name: '示例回复者8', src: source);
+    useInlineForumParser(chhClient);
     final oldFetchers = List<ChhFetcher>.of(chhClient.fetchers);
     final fake = _BlockedSourceFetcher(
       File('test_data/thread_synthetic.html').readAsStringSync(),

@@ -241,16 +241,18 @@ class _NavOverlayState extends State<NavOverlay>
                       return Opacity(
                         key: NavOverlay.inlineTitleKey,
                         opacity: v,
-                        child: Text(
-                          widget.inlineTitle,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: AppType.headline.copyWith(
-                            color: widget.onLac
-                                ? Color.lerp(tt.onLac, tt.text, v)!
-                                : tt.text,
-                          ),
-                        ),
+                        child: v == 0 || widget.inlineTitle.isEmpty
+                            ? const SizedBox.shrink()
+                            : Text(
+                                widget.inlineTitle,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: AppType.headline.copyWith(
+                                  color: widget.onLac
+                                      ? Color.lerp(tt.onLac, tt.text, v)!
+                                      : tt.text,
+                                ),
+                              ),
                       );
                     },
                   ),

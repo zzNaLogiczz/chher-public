@@ -1,6 +1,4 @@
-/// 编辑器底部的图片横栏:左边添加按钮,右边缩略图
-///
-/// 放在编辑区之外、贴着可视区域底部:键盘弹起时随之上移,写字时随手就能加图。
+/// Images below the editor. Standalone editors also show the add control here.
 library;
 
 import 'dart:io';
@@ -8,6 +6,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../attachments/attachment_controller.dart';
+import '../design/composer_tokens.dart';
 import '../design/loading_tokens.dart';
 import '../design/icons.dart';
 import '../design/tokens.dart';
@@ -18,11 +17,13 @@ import 'chhers_loader.dart';
 class AttachmentBar extends StatelessWidget {
   final AttachmentController controller;
   final bool enabled;
+  final bool showAdd;
 
   const AttachmentBar({
     super.key,
     required this.controller,
     this.enabled = true,
+    this.showAdd = true,
   });
 
   static const _thumb = 44.0;
@@ -35,6 +36,9 @@ class AttachmentBar extends StatelessWidget {
       listenable: controller,
       builder: (context, _) {
         final items = controller.items;
+        if (!showAdd && items.isEmpty) return const SizedBox.shrink();
+        final size = showAdd ? _thumb : ComposerTokens.thumbnailSize;
+        const trayPadding = ComposerTokens.trayPadding;
         final failed = items
             .where((i) => i.state == AttachmentState.failed)
             .firstOrNull;
@@ -42,14 +46,24 @@ class AttachmentBar extends StatelessWidget {
         return DecoratedBox(
           decoration: BoxDecoration(color: t.surface),
           child: SafeArea(
+            left: showAdd,
             top: false,
+            right: showAdd,
+            bottom: showAdd,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 if (failed != null)
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                    padding: showAdd
+                        ? const EdgeInsets.fromLTRB(16, 8, 16, 0)
+                        : const EdgeInsets.fromLTRB(
+                            ComposerTokens.editorInset,
+                            ComposerTokens.stripInset,
+                            ComposerTokens.editorInset,
+                            0,
+                          ),
                     child: Semantics(
                       liveRegion: true,
                       child: Text(
@@ -61,44 +75,55 @@ class AttachmentBar extends StatelessWidget {
                     ),
                   ),
                 SizedBox(
-                  height: _height,
+                  height: showAdd ? _height : size + trayPadding.vertical,
                   child: Row(
                     children: [
-                      const SizedBox(width: 12),
-                      PressScale(
-                        key: const ValueKey('attachment-add'),
-                        semanticLabel: controller.remaining > 0
-                            ? '添加图片'
-                            : '最多 ${controller.limit} 张图片',
-                        onTap: canAdd ? controller.pick : null,
-                        child: Container(
-                          width: _thumb,
-                          height: _thumb,
-                          decoration: BoxDecoration(
-                            color: t.fill,
-                            borderRadius: BorderRadius.circular(AppRadii.sm),
-                          ),
-                          child: Icon(
-                            AppIcons.image,
-                            size: 22,
-                            color: canAdd ? t.text2 : t.text3,
+                      if (showAdd) ...[
+                        const SizedBox(width: 12),
+                        PressScale(
+                          key: const ValueKey('attachment-add'),
+                          semanticLabel: controller.remaining > 0
+                              ? '添加图片'
+                              : '最多 ${controller.limit} 张图片',
+                          onTap: canAdd ? controller.pick : null,
+                          child: Container(
+                            width: _thumb,
+                            height: _thumb,
+                            decoration: BoxDecoration(
+                              color: t.fill,
+                              borderRadius: BorderRadius.circular(AppRadii.sm),
+                            ),
+                            child: Icon(
+                              AppIcons.image,
+                              size: 22,
+                              color: canAdd ? t.text2 : t.text3,
+                            ),
                           ),
                         ),
-                      ),
+                      ],
                       Expanded(
                         child: ListView.separated(
                           scrollDirection: Axis.horizontal,
                           // 移除按钮伸出缩略图一角,不能被裁掉
                           clipBehavior: Clip.none,
-                          padding: const EdgeInsets.fromLTRB(12, 8, 16, 8),
+                          padding: showAdd
+                              ? const EdgeInsets.fromLTRB(12, 8, 16, 8)
+                              : trayPadding.copyWith(
+                                  top: 0,
+                                  right:
+                                      trayPadding.right -
+                                      ComposerTokens.thumbnailGap,
+                                ),
                           itemCount: items.length,
-                          separatorBuilder: (_, _) => const SizedBox(width: 10),
+                          separatorBuilder: (_, _) =>
+                              SizedBox(width: showAdd ? 10 : 0),
                           itemBuilder: (context, index) {
                             final item = items[index];
                             return _Thumb(
                               key: ValueKey('attachment-${item.id}'),
                               item: item,
                               enabled: enabled,
+                              docked: !showAdd,
                               onRetry: () => controller.retry(item.id),
                               onRemove: () => controller.remove(item.id),
                             );
@@ -107,7 +132,9 @@ class AttachmentBar extends StatelessWidget {
                       ),
                       if (items.isNotEmpty)
                         Padding(
-                          padding: const EdgeInsets.only(right: 16),
+                          padding: EdgeInsets.only(
+                            right: showAdd ? 16 : ComposerTokens.editorInset,
+                          ),
                           child: Text(
                             '${items.length}/${controller.limit}',
                             style: AppType.caption.copyWith(color: t.text3),
@@ -128,6 +155,7 @@ class AttachmentBar extends StatelessWidget {
 class _Thumb extends StatelessWidget {
   final ComposeImage item;
   final bool enabled;
+  final bool docked;
   final VoidCallback onRetry;
   final VoidCallback onRemove;
 
@@ -135,6 +163,7 @@ class _Thumb extends StatelessWidget {
     super.key,
     required this.item,
     required this.enabled,
+    required this.docked,
     required this.onRetry,
     required this.onRemove,
   });
@@ -145,19 +174,24 @@ class _Thumb extends StatelessWidget {
     final dpr = MediaQuery.devicePixelRatioOf(context);
     final failed = item.state == AttachmentState.failed;
     final path = item.path;
-    const size = AttachmentBar._thumb;
+    final size = docked ? ComposerTokens.thumbnailSize : AttachmentBar._thumb;
     return SizedBox(
-      width: size,
+      // Include the badge's overhang in the hit-test bounds of the item.
+      width: size + (docked ? ComposerTokens.thumbnailGap : 0),
       height: size,
       child: Stack(
         clipBehavior: Clip.none,
         children: [
           Positioned.fill(
+            top: docked ? ComposerTokens.trayPadding.top : 0,
+            right: docked ? ComposerTokens.thumbnailGap : 0,
             child: PressScale(
               semanticLabel: failed ? '重试上传这张图片' : '图片',
               onTap: failed && enabled ? onRetry : null,
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(AppRadii.xs),
+                borderRadius: BorderRadius.circular(
+                  docked ? ComposerTokens.thumbnailRadius : AppRadii.xs,
+                ),
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
@@ -198,8 +232,8 @@ class _Thumb extends StatelessWidget {
           ),
           // 视觉上是角上的小圆点,点击区域放大到 28
           Positioned(
-            top: -12,
-            right: -12,
+            top: docked ? 0 : -12,
+            right: docked ? 1 : -12,
             child: PressScale(
               semanticLabel: '移除图片',
               onTap: enabled ? onRemove : null,
@@ -210,11 +244,27 @@ class _Thumb extends StatelessWidget {
                   child: DecoratedBox(
                     decoration: ShapeDecoration(
                       color: t.text,
-                      shape: const CircleBorder(),
+                      shape: CircleBorder(
+                        side: docked
+                            ? BorderSide(
+                                color: t.surface,
+                                width: ComposerTokens.thumbnailRemoveBorder,
+                              )
+                            : BorderSide.none,
+                      ),
                     ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(2),
-                      child: Icon(AppIcons.dismiss, size: 12, color: t.surface),
+                    child: SizedBox.square(
+                      dimension: docked
+                          ? ComposerTokens.thumbnailRemoveSize
+                          : null,
+                      child: Padding(
+                        padding: const EdgeInsets.all(2),
+                        child: Icon(
+                          AppIcons.dismiss,
+                          size: 12,
+                          color: t.surface,
+                        ),
+                      ),
                     ),
                   ),
                 ),

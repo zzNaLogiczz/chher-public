@@ -1,29 +1,37 @@
-/// Shared editorial writing canvas backed by smooth_sheets, Solar Bold and Motor.
+/// Shared reply and comment editor, including draft and submission state.
 library;
 
 import 'dart:async';
+import '../data/smiley_store.dart';
+import '../design/composer_tokens.dart';
 import '../design/motion.dart';
+import '../design/sheet_tokens.dart';
 import '../ui/sheet_scaffold.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
-import '../ui/editor_touch.dart';
 import 'package:smooth_sheets/smooth_sheets.dart';
 import 'package:solar_icons/solar_icons.dart';
 
 import '../design/tokens.dart';
 import 'package:flutter/services.dart';
-import '../design/typography.dart';
 import '../ui/quote.dart';
 import '../ui/app_button.dart';
 import '../models/models.dart';
 import '../attachments/attachment_controller.dart';
 import '../pages/web_post_page.dart';
 import 'attachment_bar.dart';
+import 'composer/composer_dictation_binding.dart';
+import 'composer/composer_editor.dart';
+import 'composer/composer_panel.dart';
+import 'composer/composer_tool_strip.dart';
+import 'composer/composer_emoji_input.dart';
+import 'composer/smiley_editing_controller.dart';
 
 Future<PostResult?> showExpressiveComposerRoute(
   BuildContext context, {
   required WidgetBuilder builder,
+  bool docked = false,
 }) {
   final t = AppTokens.of(context);
   return Navigator.of(context).push(
@@ -33,6 +41,7 @@ Future<PostResult?> showExpressiveComposerRoute(
       barrierLabel: '关闭编辑',
       reduced: MediaQuery.disableAnimationsOf(context),
       holdViewInsetsOnExit: true,
+      docked: docked,
     ),
   );
 }
@@ -41,12 +50,13 @@ enum _ComposePhase { idle, sending, success, failure }
 
 class ExpressiveComposer extends StatefulWidget {
   final String title;
-  final String modeLabel;
   final String hintText;
   final String initialText;
-  final String? quoteLabel;
-  final String? quoteText;
-  final bool compactReply;
+  final bool expandableQuote;
+  final String? contextLine;
+  final bool showReplyIcon;
+  final bool emojiAvailable;
+  final SmileyStore? smilies;
   final String unknownActionLabel;
   final Future<PostResult> Function(String) onSubmit;
   final ValueChanged<String>? onDraftChanged;
@@ -58,13 +68,14 @@ class ExpressiveComposer extends StatefulWidget {
   const ExpressiveComposer({
     super.key,
     required this.title,
-    required this.modeLabel,
     required this.hintText,
     required this.onSubmit,
     this.initialText = '',
-    this.quoteLabel,
-    this.quoteText,
-    this.compactReply = false,
+    this.expandableQuote = false,
+    this.contextLine,
+    this.showReplyIcon = false,
+    this.emojiAvailable = true,
+    this.smilies,
     this.unknownActionLabel = '返回阅读确认',
     this.onDraftChanged,
     this.onLogin,
@@ -77,11 +88,11 @@ class ExpressiveComposer extends StatefulWidget {
 
 class _ExpressiveComposerState extends State<ExpressiveComposer>
     with SingleTickerProviderStateMixin {
-  final _sheet = SheetController();
   final _focus = FocusNode();
   final _hasText = ValueNotifier<bool>(false);
-  final _expanded = ValueNotifier<bool>(false);
-  late final _input = TextEditingController(text: widget.initialText);
+  late final _input = SmileyEditingController(text: widget.initialText);
+  ComposerEmojiInput? _emoji;
+  late final ComposerDictationBinding _dictation;
   late String _lastText = widget.initialText;
   _ComposePhase _phase = _ComposePhase.idle;
   PostResult? _failure;
@@ -92,7 +103,6 @@ class _ExpressiveComposerState extends State<ExpressiveComposer>
   bool get _android =>
       !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
   bool _keyboardVisible = false;
-  double _fullExtent = 1;
 
   /// 成功后对勾的停留:用动画计时而不是裸定时器,停留期间按帧推进
   late final AnimationController _successHold;
@@ -115,32 +125,33 @@ class _ExpressiveComposerState extends State<ExpressiveComposer>
     _successHold = AnimationController(vsync: this);
     _hasText.value = _input.text.trim().isNotEmpty;
     _input.addListener(_textChanged);
-    _sheet.addListener(_sheetChanged);
+    _dictation = ComposerDictationBinding(
+      editor: _input,
+      onChanged: () => setState(() {}),
+    );
     _focus.addListener(_syncCurrentNativeBack);
+    if (widget.emojiAvailable) {
+      _emoji = ComposerEmojiInput(
+        input: _input,
+        focus: _focus,
+        store: widget.smilies ?? smileyStore,
+        onChanged: _emojiChanged,
+      );
+    }
   }
+
+  void _emojiChanged() => setState(() {});
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final media = MediaQuery.of(context);
-    _fullExtent = (media.size.height - media.viewPadding.top - 8).clamp(
-      1.0,
-      double.infinity,
-    );
-    final visible = media.viewInsets.bottom > 0;
-    if (visible && !_keyboardVisible) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && ModalRoute.of(context)?.isCurrent == true) {
-          _moveSheet(expand: true);
-        }
-      });
-    }
-    _keyboardVisible = visible;
+    _keyboardVisible = MediaQuery.viewInsetsOf(context).bottom > 0;
+    _emoji?.updateMedia(context);
   }
 
   void _syncCurrentNativeBack() {
     _syncNativeBack(
-      (_focus.hasFocus || _keyboardVisible) &&
+      (_focus.hasFocus || _keyboardVisible || _emoji?.isOpen == true) &&
           ModalRoute.isCurrentOf(context) == true,
     );
   }
@@ -156,7 +167,11 @@ class _ExpressiveComposerState extends State<ExpressiveComposer>
             identical(_nativeBackOwner, this) &&
             ModalRoute.of(context)?.isCurrent == true &&
             !_busy) {
-          await Navigator.of(context).maybePop();
+          if (_emoji?.isOpen == true) {
+            _emoji!.dismiss();
+          } else {
+            await Navigator.of(context).maybePop();
+          }
         }
       });
     } else {
@@ -183,24 +198,6 @@ class _ExpressiveComposerState extends State<ExpressiveComposer>
     if (_hasText.value != filled) _hasText.value = filled;
   }
 
-  void _sheetChanged() {
-    final expanded = (_sheet.value ?? 0) > _fullExtent * .84;
-    if (_expanded.value != expanded) _expanded.value = expanded;
-  }
-
-  void _moveSheet({required bool expand}) {
-    if (_busy || !_sheet.hasClient) return;
-    if (!expand) _focus.unfocus();
-    _sheet.animateTo(
-      SheetOffset(expand ? 1 : .62),
-      duration: MediaQuery.disableAnimationsOf(context)
-          ? AppMotion.immediateSheet
-          : AppMotion.revealDuration,
-      // smooth_sheets applies this curve twice; sheet overshoot exceeds its domain.
-      curve: AppMotion.revealCurve,
-    );
-  }
-
   void _close([PostResult? result]) {
     if (_busy || ModalRoute.of(context)?.isCurrent != true) return;
     Navigator.of(context).pop(result);
@@ -208,7 +205,8 @@ class _ExpressiveComposerState extends State<ExpressiveComposer>
 
   Future<void> _send() async {
     final text = _input.text.trim();
-    if (_busy || _uncertain || !_canSend) return;
+    if (_busy || _dictation.active || _uncertain || !_canSend) return;
+    _dictation.controller.dismissReview();
     setState(() {
       _phase = _ComposePhase.sending;
       _failure = null;
@@ -263,11 +261,11 @@ class _ExpressiveComposerState extends State<ExpressiveComposer>
     _syncNativeBack(false);
     _focus.removeListener(_syncCurrentNativeBack);
     _successHold.dispose();
+    _emoji?.dispose();
+    _dictation.dispose();
     _input.dispose();
     _focus.dispose();
     _hasText.dispose();
-    _expanded.dispose();
-    _sheet.dispose();
     super.dispose();
   }
 
@@ -277,314 +275,181 @@ class _ExpressiveComposerState extends State<ExpressiveComposer>
     final t = AppTokens.of(context);
     final hasViewport =
         context.findAncestorWidgetOfExactType<SheetViewport>() != null;
+    final emoji = _emoji;
+    final panel = ComposerPanel(
+      title: widget.title,
+      showReplyIcon: widget.showReplyIcon,
+      contextLine: widget.contextLine,
+      onOpenContext: !_busy && widget.expandableQuote ? _openContext : null,
+      onClose: _busy ? null : _close,
+      inputDocked: emoji?.reservesSpace ?? false,
+      editor: ComposerEditor(
+        fieldKey: const ValueKey('composer-canvas'),
+        controller: _input,
+        dictation: _dictation.controller,
+        focusNode: _focus,
+        hintText: widget.hintText,
+        notifyOnUserEntry: true,
+        autofocus: true,
+        readOnly: _busy,
+        onTap: _dictation.active ? null : emoji?.showKeyboard,
+        textCapitalization: TextCapitalization.sentences,
+      ),
+      attachments: widget.attachments == null
+          ? null
+          : AttachmentBar(
+              controller: widget.attachments!,
+              enabled: !_busy && !_dictation.active,
+              showAdd: false,
+            ),
+      status: _footer(t),
+      voiceStatus: _dictation.status(enabled: !_busy),
+      dictation: _dictation.controller,
+      toolbar: _toolStrip(),
+    );
     final sheet = PopScope<PostResult>(
-      canPop: !_busy,
+      canPop: !_busy && emoji?.isOpen != true,
       onPopInvokedWithResult: (didPop, _) {
-        if (didPop) _syncNativeBack(false);
+        if (didPop) {
+          _syncNativeBack(false);
+        } else if (!_busy && emoji?.isOpen == true) {
+          emoji!.dismiss();
+        }
       },
-      child: SheetKeyboardDismissible(
-        dismissBehavior: const SheetKeyboardDismissBehavior.onDragDown(
-          isContentScrollAware: false,
-        ),
-        child: Sheet(
-          controller: _sheet,
-          physics: AppSheetPhysics.of(context, controller: _sheet),
-          initialOffset: SheetOffset(hasViewport ? .62 : 1),
-          snapGrid: const SheetSnapGrid(
-            snaps: [SheetOffset(.62), SheetOffset(1)],
-          ),
-          dragConfiguration: _busy
-              ? SheetDragConfiguration.disabled
-              : const SheetDragConfiguration(),
-          scrollConfiguration: _busy
-              ? SheetScrollConfiguration.disabled
-              : const SheetScrollConfiguration(),
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.viewInsetsOf(context).bottom,
-          ),
-          decoration: SheetDecorationBuilder(
-            size: SheetSize.stretch,
-            builder: (context, child) => AppSheetSurface(child: child),
-          ),
-          child: SheetContentScaffold(
-            backgroundColor: t.surface,
-            topBar: _header(t),
-            bottomBarVisibility: const BottomBarVisibility.always(
-              ignoreBottomInset: true,
-            ),
-            // 图片横栏贴在可视区域底部:sheet 让出键盘高度,横栏随键盘上移
-            bottomBar: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                if (widget.compactReply)
-                  SafeArea(
-                    top: false,
-                    bottom: widget.attachments == null,
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(24, 8, 24, 12),
-                      child: Align(
-                        alignment: Alignment.centerRight,
-                        child: _sendButton(),
-                      ),
-                    ),
-                  ),
-                _footer(t),
-                if (widget.attachments != null)
-                  AttachmentBar(
-                    controller: widget.attachments!,
-                    enabled: !_busy,
-                  ),
-              ],
-            ),
-            body: SizedBox.expand(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(24, 8, 24, 28),
-                child: Column(
+      child: Sheet(
+        dragConfiguration: SheetDragConfiguration.disabled,
+        child: _dictation.scope(
+          enabled: !_busy,
+          emoji == null
+              ? panel
+              : Column(
+                  mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    if (!widget.compactReply &&
-                        (widget.quoteLabel != null ||
-                            (widget.quoteText?.isNotEmpty ?? false)))
-                      QuoteView(
-                        author: widget.quoteLabel ?? '引用内容',
-                        text: widget.quoteText ?? '',
-                      ),
-                    const SizedBox(height: 8),
-                    EditorTouchGuard(
-                      focusNode: _focus,
-                      enabled: !_busy,
-                      notifyOnUserEntry: true,
-                      builder: (context, editorFocus, onEditorTap) => TextField(
-                        focusNode: editorFocus,
-                        onTapAlwaysCalled: true,
-                        onTap: onEditorTap,
-                        key: const ValueKey('composer-canvas'),
-                        controller: _input,
-
-                        autofocus: true,
-                        readOnly: _busy,
-                        minLines: 5,
-                        maxLines: null,
-                        textCapitalization: TextCapitalization.sentences,
-                        style: TextStyle(
-                          fontSize: AppType.sizeBody,
-                          height: 1.8,
-                          color: t.text,
-                          letterSpacing: 0,
-                        ),
-                        decoration: InputDecoration(
-                          hintText: widget.hintText,
-                          hintStyle: TextStyle(
-                            color: t.text3,
-                            fontSize: AppType.sizeBody,
-                          ),
-                          filled: false,
-                          border: InputBorder.none,
-                          enabledBorder: InputBorder.none,
-                          focusedBorder: InputBorder.none,
-                          contentPadding: const EdgeInsets.symmetric(
-                            vertical: 8,
-                          ),
-                        ),
-                      ),
-                    ),
+                    Flexible(child: panel),
+                    emoji.dock(context, enabled: !_busy && !_dictation.active),
                   ],
                 ),
-              ),
-            ),
-          ),
         ),
       ),
     );
     if (hasViewport) return sheet;
-    // Public constructors are also embeddable in a page/preview, not only a modal.
+    // A Scaffold embedding this editor already consumes the keyboard inset.
+    final media = MediaQuery.of(context);
     return SheetViewport(
-      padding: EdgeInsets.only(top: MediaQuery.viewPaddingOf(context).top + 8),
+      padding: EdgeInsets.only(
+        top: media.viewPadding.top + AppSheetTokens.inset,
+        bottom: media.viewInsets.bottom,
+      ),
       child: sheet,
     );
   }
 
-  /// 头部一行:左取消、中间标题、右发送。键盘弹出时发送始终在视线内(规格 §6.11)
-  Widget _header(AppTokens t) => Column(
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      Semantics(
-        label: '拖动展开或收起编辑',
-        child: SizedBox(
-          key: const ValueKey('composer-drag-handle'),
-          height: 21,
-          width: double.infinity,
-          child: Center(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: t.fill2,
-                borderRadius: BorderRadius.circular(AppRadii.bar),
-              ),
-              child: const SizedBox(width: 36, height: 5),
-            ),
+  void _openContext() {
+    showAppSheet<void>(
+      context,
+      builder: (_) => SheetScaffold(
+        title: '引用评论',
+        body: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(
+            horizontal: ComposerTokens.editorInset,
           ),
+          child: QuoteView(author: widget.title, text: widget.contextLine!),
         ),
       ),
-      if (widget.compactReply)
-        Padding(
-          padding: const EdgeInsets.fromLTRB(24, 0, 12, 8),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
-                children: [
-                  Icon(SolarIconsBold.reply, size: 18, color: t.text3),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      widget.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppType.headline.copyWith(color: t.text),
-                    ),
-                  ),
-                  AppButton(
-                    label: '取消',
-                    variant: AppButtonVariant.quiet,
-                    onPressed: _busy ? null : () => _close(),
-                  ),
-                ],
+    );
+  }
+
+  Widget _toolStrip() => ListenableBuilder(
+    listenable: Listenable.merge([_hasText, ?widget.attachments]),
+    builder: (context, _) {
+      final images = widget.attachments;
+      return ComposerToolStrip(
+        leading: _emoji?.tool(enabled: !_busy && !_dictation.active),
+        voice: _dictation.bar(enabled: !_busy),
+        voiceActive: _dictation.barExpanded,
+        image: images == null
+            ? null
+            : ComposerImageTool(
+                key: const ValueKey('attachment-add'),
+                onPressed: !_busy && !_dictation.active && images.remaining > 0
+                    ? images.pick
+                    : null,
+                semanticLabel: images.remaining > 0
+                    ? '添加图片'
+                    : '最多 ${images.limit} 张图片',
               ),
-              if (widget.quoteText?.isNotEmpty == true)
-                Padding(
-                  padding: const EdgeInsets.only(left: 26, right: 12),
-                  child: Text(
-                    widget.quoteText!,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppType.footnote.copyWith(color: t.text3),
-                  ),
-                ),
-            ],
-          ),
-        )
-      else
-        Padding(
-          padding: const EdgeInsets.fromLTRB(8, 0, 12, 10),
-          child: Row(
-            children: [
-              AppButton(
-                label: '取消',
-                variant: AppButtonVariant.quiet,
-                onPressed: _busy ? null : () => _close(),
-              ),
-              Expanded(
-                child: Column(
-                  children: [
-                    Text(
-                      widget.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppType.headline.copyWith(color: t.text),
-                    ),
-                    Text(
-                      widget.modeLabel,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppType.footnote.copyWith(color: t.text3),
-                    ),
-                  ],
-                ),
-              ),
-              _sendButton(),
-            ],
-          ),
-        ),
-    ],
+        send: _sendButton(),
+      );
+    },
   );
 
-  Widget _sendButton() => ListenableBuilder(
-    listenable: Listenable.merge([_hasText, ?widget.attachments]),
-    builder: (context, _) => AppButton(
-      key: const ValueKey('composer-send'),
-      // 文字随状态变化,忙碌与成功时在同一个胶囊里变形
-      label: switch (_phase) {
-        _ComposePhase.success => '已发送',
-        _ComposePhase.sending => '发送中',
-        _ComposePhase.failure when !_uncertain => '重试发送',
-        _ => '发送',
-      },
-      small: true,
-      state: switch (_phase) {
-        _ComposePhase.sending => AppButtonState.busy,
-        _ComposePhase.success => AppButtonState.success,
-        _ => AppButtonState.idle,
-      },
-      onPressed: _busy || _uncertain || !_canSend ? null : _send,
-    ),
+  Widget _sendButton() => AppButton(
+    key: const ValueKey('composer-send'),
+    // 文字随状态变化,忙碌与成功时在同一个胶囊里变形
+    label: switch (_phase) {
+      _ComposePhase.success => '已发送',
+      _ComposePhase.sending => '发送中',
+      _ComposePhase.failure when !_uncertain => '重试发送',
+      _ => '发送',
+    },
+    variant: AppButtonVariant.composerSend,
+    state: switch (_phase) {
+      _ComposePhase.sending => AppButtonState.busy,
+      _ComposePhase.success => AppButtonState.success,
+      _ => AppButtonState.idle,
+    },
+    onPressed: _busy || _dictation.active || _uncertain || !_canSend
+        ? null
+        : _send,
   );
 
   /// 底部只在失败、需要登录或结果未知时出现,说明状态与下一步;草稿保留
-  Widget _footer(AppTokens t) => _failure == null
-      ? const SizedBox.shrink()
-      : DecoratedBox(
-          decoration: BoxDecoration(color: t.surface),
-          child: SafeArea(
-            top: false,
-            // 下面还有图片横栏时,底部安全区由横栏负责
-            bottom: widget.attachments == null,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(24, 14, 24, 14),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  if (_failure != null)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Icon(
-                            SolarIconsBold.dangerTriangle,
-                            color: t.red,
-                            size: 20,
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Semantics(
-                              liveRegion: true,
-                              child: Text(
-                                _failureMessage(_failure!),
-                                style: TextStyle(
-                                  fontSize: AppType.sizeFootnote,
-                                  color: t.red,
-                                  height: 1.6,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  if (_failure?.kind == PostResultKind.loginRequired &&
-                      widget.onLogin != null)
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: AppButton(
-                        label: '登录',
-                        variant: AppButtonVariant.plain,
-                        onPressed: widget.onLogin,
-                      ),
-                    ),
-                  if (_uncertain)
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: AppButton(
-                        label: widget.unknownActionLabel,
-                        variant: AppButtonVariant.plain,
-                        onPressed: () => _close(_failure),
-                      ),
-                    ),
-                ],
+  Widget? _footer(AppTokens t) {
+    final failure = _failure;
+    if (failure == null) return null;
+    return Padding(
+      padding: ComposerTokens.statusPadding,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                SolarIconsBold.dangerTriangle,
+                color: t.red,
+                size: ComposerTokens.statusIcon,
               ),
-            ),
+              const SizedBox(width: ComposerTokens.statusIconGap),
+              Expanded(
+                child: Semantics(
+                  liveRegion: true,
+                  child: Text(
+                    _failureMessage(failure),
+                    style: ComposerTokens.statusText.copyWith(color: t.red),
+                  ),
+                ),
+              ),
+            ],
           ),
-        );
+          const SizedBox(height: ComposerTokens.statusActionGap),
+          if (failure.kind == PostResultKind.loginRequired &&
+              widget.onLogin != null)
+            AppButton(
+              label: '登录',
+              variant: AppButtonVariant.plain,
+              onPressed: widget.onLogin,
+            ),
+          if (_uncertain)
+            AppButton(
+              label: widget.unknownActionLabel,
+              variant: AppButtonVariant.plain,
+              onPressed: () => _close(failure),
+            ),
+        ],
+      ),
+    );
+  }
 }

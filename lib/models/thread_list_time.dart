@@ -19,9 +19,7 @@ class ThreadListTime {
     final clock = (now ?? DateTime.now()).toLocal();
     final posted = sort == ThreadSort.posted;
     final raw = posted ? thread.createdAtRaw : thread.lastPostTimeRaw;
-    final at =
-        (posted ? thread.createdAt : null)?.toLocal() ??
-        (raw == null ? null : parseSiteTime(raw, now: clock));
+    final at = _sortTime(thread, posted, raw, clock);
     final label = formatDisplayTime(
       raw: raw,
       at: at,
@@ -34,6 +32,39 @@ class ThreadListTime {
       sort.groupsByDate && at != null ? _section(at, clock) : null,
     );
   }
+
+  /// Grouping visits every thread, while only mounted rows need display labels.
+  static String? Function(ThreadSummary)? sectionLabels(
+    ThreadSort sort, {
+    required DateTime now,
+  }) {
+    if (!sort.groupsByDate) return null;
+    final clock = now.toLocal();
+    final posted = sort == ThreadSort.posted;
+    final today = DateTime(clock.year, clock.month, clock.day);
+    final yesterday = DateTime(clock.year, clock.month, clock.day - 1);
+    final tomorrow = DateTime(clock.year, clock.month, clock.day + 1);
+    final labels = <(DateTime?, String?), String?>{};
+    return (thread) {
+      final raw = posted ? thread.createdAtRaw : thread.lastPostTimeRaw;
+      final key = (posted ? thread.createdAt : null, raw);
+      return labels.putIfAbsent(key, () {
+        final at = _sortTime(thread, posted, raw, clock);
+        if (at == null || !at.isBefore(tomorrow)) return null;
+        if (!at.isBefore(today)) return '今天';
+        return at.isBefore(yesterday) ? '更早' : '昨天';
+      });
+    };
+  }
+
+  static DateTime? _sortTime(
+    ThreadSummary thread,
+    bool posted,
+    String? raw,
+    DateTime clock,
+  ) =>
+      (posted ? thread.createdAt : null)?.toLocal() ??
+      (raw == null ? null : parseSiteTime(raw, now: clock));
 
   static String? _section(DateTime at, DateTime now) {
     final today = DateTime(now.year, now.month, now.day);

@@ -16,6 +16,8 @@ import 'package:chh_app/widgets/thread_comment_widgets.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/inline_forum_parser.dart';
+
 const _tid = 900014;
 const _title = '回填样例';
 final _before = find.text('查看前面的回复');
@@ -118,6 +120,7 @@ void main() {
   ) async {
     final transport = _PendingPages();
     final client = ChhClient(
+      dispatchParser: parseForumInline,
       fetchers: [transport],
       threadRequestInterval: Duration.zero,
     );

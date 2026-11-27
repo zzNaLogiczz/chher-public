@@ -258,7 +258,7 @@ void main() {
         final scroll = tester.state<ScrollableState>(
           find.byType(Scrollable).first,
         );
-        expect(scroll.position.pixels, greaterThan(1000));
+        expect(scroll.position.extentBefore, greaterThan(1000));
       }
       expect(tester.takeException(), isNull);
     });

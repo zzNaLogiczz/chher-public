@@ -70,7 +70,11 @@ class PortalRepository {
       fallback: fallback,
     );
 
-    final content = await parsePortalContentAsync(html, aid: aid);
+    final content = await parsePortalContentAsync(
+      html,
+      aid: aid,
+      dispatch: client.dispatchParser,
+    );
     if (content is! ThreadContent) return content;
     final revision = client.threadCacheRevision(content.tid);
     client.registerThreadAlias(url, content.tid, matchingHtml: html);

@@ -1,4 +1,5 @@
-import 'package:flutter/rendering.dart' show ScrollCacheExtent;
+import 'package:flutter/rendering.dart'
+    show ScrollCacheExtent, SliverConstraints;
 import 'package:flutter/widgets.dart';
 
 /// The retained row is the viewport origin; prepended rows grow upward without
@@ -7,7 +8,9 @@ class AnchoredReadingList extends StatelessWidget {
   final ScrollController controller;
   final int centerIndex;
   final int itemCount;
-  final IndexedWidgetBuilder itemBuilder;
+  final bool unknownItemCount;
+  final int? initialItemLimit;
+  final NullableIndexedWidgetBuilder itemBuilder;
   final ChildIndexGetter findChildIndexCallback;
   final ScrollCacheExtent? scrollCacheExtent;
 
@@ -19,6 +22,8 @@ class AnchoredReadingList extends StatelessWidget {
     required this.itemBuilder,
     required this.findChildIndexCallback,
     this.scrollCacheExtent,
+    this.unknownItemCount = false,
+    this.initialItemLimit,
   });
 
   static const _center = ValueKey('reading-list-center');
@@ -43,11 +48,13 @@ class AnchoredReadingList extends StatelessWidget {
             },
           ),
         ),
-      SliverList(
+      _ReadingSliver(
         key: _center,
         delegate: SliverChildBuilderDelegate(
           (context, index) => itemBuilder(context, centerIndex + index),
-          childCount: itemCount - centerIndex,
+          childCount:
+              initialItemLimit ??
+              (unknownItemCount ? null : itemCount - centerIndex),
           findChildIndexCallback: (key) {
             final index = findChildIndexCallback(key);
             return index == null || index < centerIndex
@@ -58,4 +65,34 @@ class AnchoredReadingList extends StatelessWidget {
       ),
     ],
   );
+}
+
+class _ReadingSliver extends SliverList {
+  const _ReadingSliver({required super.key, required super.delegate});
+
+  @override
+  SliverMultiBoxAdaptorElement createElement() => _ReadingSliverElement(this);
+}
+
+class _ReadingSliverElement extends SliverMultiBoxAdaptorElement {
+  _ReadingSliverElement(super.widget) : super(replaceMovedChildren: true);
+
+  @override
+  double estimateMaxScrollOffset(
+    SliverConstraints? constraints, {
+    int? firstIndex,
+    int? lastIndex,
+    double? leadingScrollOffset,
+    double? trailingScrollOffset,
+  }) {
+    // The viewport has a finite extent while its first rows are generated.
+    if (estimatedChildCount == null) return trailingScrollOffset!;
+    return super.estimateMaxScrollOffset(
+      constraints,
+      firstIndex: firstIndex,
+      lastIndex: lastIndex,
+      leadingScrollOffset: leadingScrollOffset,
+      trailingScrollOffset: trailingScrollOffset,
+    );
+  }
 }

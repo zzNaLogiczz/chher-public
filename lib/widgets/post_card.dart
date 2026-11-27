@@ -288,101 +288,103 @@ class PostCard extends StatelessWidget {
     AppTokens t, {
     required Widget name,
     required bool owner,
-  }) => LayoutBuilder(
-    builder: (context, constraints) {
-      final level = isSuppressedPost(post)
-          ? null
-          : LevelDefinition.lookup(post.authorGroupId);
-      if (level == null) {
-        return Row(
-          crossAxisAlignment: CrossAxisAlignment.baseline,
-          textBaseline: TextBaseline.alphabetic,
-          children: [
-            Flexible(child: name),
-            if (owner) _ownerBadge(t),
-          ],
-        );
-      }
-      final scaler = MediaQuery.textScalerOf(context);
-      double textWidth(String text, TextStyle style, TextScaler scale) {
-        final painter = TextPainter(
-          text: TextSpan(
-            text: text,
-            style: DefaultTextStyle.of(context).style.merge(style),
-          ),
-          textDirection: TextDirection.ltr,
-          textScaler: scale,
-        )..layout();
-        final width = painter.width;
-        painter.dispose();
-        return width;
-      }
-
-      final scale = scaler.scale(LevelTokens.fontSize) / LevelTokens.fontSize;
-      final badgeWidth =
-          (LevelTokens.inset +
-                  LevelTokens.tileSize +
-                  LevelTokens.gap +
-                  LevelTokens.rightInset) *
-              scale +
-          textWidth(
-            level.displayName,
-            TextStyle(
-              fontSize: LevelTokens.fontSize * scale,
-              fontWeight: LevelTokens.fontWeight,
-              letterSpacing: (level.tier == 'gold' || level.tier == 'champ')
-                  ? LevelTokens.letterSpacing * scale
-                  : 0,
-            ),
-            TextScaler.noScaling,
-          );
-      final badge = _levelBadge(context);
-      final ownerWidth = owner
-          ? textWidth(LevelTokens.ownerText, LevelTokens.ownerStyle, scaler) +
-                LevelTokens.ownerInset * 2 +
-                LevelTokens.authorGap
-          : 0.0;
-      if (badgeWidth +
-              LevelTokens.authorGap +
-              ownerWidth +
-              LevelTokens.authorNameMinWidth >
-          constraints.maxWidth) {
-        // At large system type, keep both labels whole on subsequent lines.
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SizedBox(width: constraints.maxWidth, child: name),
-            const SizedBox(height: LevelTokens.authorGap),
-            Wrap(
-              runSpacing: LevelTokens.authorGap,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                if (badgeWidth > constraints.maxWidth)
-                  FittedBox(
-                    fit: BoxFit.scaleDown,
-                    alignment: AlignmentDirectional.centerStart,
-                    child: badge,
-                  )
-                else
-                  badge,
-                if (owner) _ownerBadge(t),
-              ],
-            ),
-          ],
-        );
-      }
+  }) {
+    final level = isSuppressedPost(post)
+        ? null
+        : LevelDefinition.lookup(post.authorGroupId);
+    if (level == null) {
       return Row(
         crossAxisAlignment: CrossAxisAlignment.baseline,
         textBaseline: TextBaseline.alphabetic,
         children: [
           Flexible(child: name),
-          const SizedBox(width: LevelTokens.authorGap),
-          badge,
           if (owner) _ownerBadge(t),
         ],
       );
-    },
-  );
+    }
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final scaler = MediaQuery.textScalerOf(context);
+        double textWidth(String text, TextStyle style, TextScaler scale) {
+          final painter = TextPainter(
+            text: TextSpan(
+              text: text,
+              style: DefaultTextStyle.of(context).style.merge(style),
+            ),
+            textDirection: TextDirection.ltr,
+            textScaler: scale,
+          )..layout();
+          final width = painter.width;
+          painter.dispose();
+          return width;
+        }
+
+        final scale = scaler.scale(LevelTokens.fontSize) / LevelTokens.fontSize;
+        final badgeWidth =
+            (LevelTokens.inset +
+                    LevelTokens.tileSize +
+                    LevelTokens.gap +
+                    LevelTokens.rightInset) *
+                scale +
+            textWidth(
+              level.displayName,
+              TextStyle(
+                fontSize: LevelTokens.fontSize * scale,
+                fontWeight: LevelTokens.fontWeight,
+                letterSpacing: (level.tier == 'gold' || level.tier == 'champ')
+                    ? LevelTokens.letterSpacing * scale
+                    : 0,
+              ),
+              TextScaler.noScaling,
+            );
+        final badge = _levelBadge(context);
+        final ownerWidth = owner
+            ? textWidth(LevelTokens.ownerText, LevelTokens.ownerStyle, scaler) +
+                  LevelTokens.ownerInset * 2 +
+                  LevelTokens.authorGap
+            : 0.0;
+        if (badgeWidth +
+                LevelTokens.authorGap +
+                ownerWidth +
+                LevelTokens.authorNameMinWidth >
+            constraints.maxWidth) {
+          // At large system type, keep both labels whole on subsequent lines.
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(width: constraints.maxWidth, child: name),
+              const SizedBox(height: LevelTokens.authorGap),
+              Wrap(
+                runSpacing: LevelTokens.authorGap,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  if (badgeWidth > constraints.maxWidth)
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: AlignmentDirectional.centerStart,
+                      child: badge,
+                    )
+                  else
+                    badge,
+                  if (owner) _ownerBadge(t),
+                ],
+              ),
+            ],
+          );
+        }
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.baseline,
+          textBaseline: TextBaseline.alphabetic,
+          children: [
+            Flexible(child: name),
+            const SizedBox(width: LevelTokens.authorGap),
+            badge,
+            if (owner) _ownerBadge(t),
+          ],
+        );
+      },
+    );
+  }
 
   Widget _commentMetaRow(BuildContext context, AppTokens t) => CommentMetaRow(
     timeLabel: _commentTime,

@@ -62,7 +62,8 @@ class ChannelUpdatePlatform implements UpdatePlatform {
   static const _channel = MethodChannel('chh/update');
   final _status = StreamController<InstallStatus>.broadcast();
 
-  ChannelUpdatePlatform() {
+  ChannelUpdatePlatform({bool listenForInstallStatus = true}) {
+    if (!listenForInstallStatus) return;
     _channel.setMethodCallHandler((call) async {
       if (call.method != 'installStatus') return;
       final args = Map<String, dynamic>.from(call.arguments as Map);

@@ -70,7 +70,7 @@ ImageBlock? parseAttachmentImage(dom.Element image) {
       return null;
     }
   }
-  if (_smileyUrl(image) != null) return null;
+  if (smileyUrl(image) != null) return null;
   // 与正文共用懒加载优先级及地址标准化，不把文件类型图标当成附件图。
   final url = _imageUrl(image);
   if (url == null ||
@@ -287,7 +287,7 @@ class _BlockWalker {
 
   void _walkImage(dom.Element node) {
     // 表情留在行内,不能当成独立图片块,否则一句话会被表情切碎
-    final smiley = _smileyUrl(node);
+    final smiley = smileyUrl(node);
     if (smiley != null) {
       _pushText();
       _inline.add(InlineSmiley(smiley));
@@ -568,7 +568,7 @@ String? _quoteSource(dom.Element quoteDiv) {
 ///
 /// 站点形态:<img src="static/image/smiley/diy/fd.gif" smilieid="390">
 /// 以 smilieid 为准,路径作兜底 —— 属性比路径稳。
-String? _smileyUrl(dom.Element img) {
+String? smileyUrl(dom.Element img) {
   final src = img.attributes['src']?.trim() ?? '';
   if (src.isEmpty) return null;
   final isSmiley =

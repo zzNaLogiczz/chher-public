@@ -6,7 +6,8 @@
 #   tool/build_release.sh 1.0.6 --universal # 兼容旧命令，结果相同
 #
 # 输出 build/release/<版本>/chher-<版本>.apk；symbols/ 中的符号用于崩溃解析。
-# 可选 config/update.local.json 仅供本机正式构建注入更新地址。
+# 可选 config/update.local.json 注入更新地址，语音由该服务签发；
+# 可选 config/voice.local.json 供不接服务器的自用构建内置语音密钥，二者不能同时启用。
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -19,15 +20,19 @@ NAME=$1
 CODE=$(( BASH_REMATCH[1] * 10000 + BASH_REMATCH[2] * 100 + BASH_REMATCH[3] ))
 [[ -f android/key.properties ]] || { echo "缺少 android/key.properties，无法用正式签名打包" >&2; exit 1; }
 
+VOICE_SOURCE=$(python3 tool/voice_build_config.py config/voice.local.json config/update.local.json)
 OUT=build/release/$NAME
 mkdir -p "$OUT/symbols"
 STAMP=$(date +%Y%m%d%H%M)
 AAPT2=$(ls -d "${ANDROID_HOME:-$HOME/Library/Android/sdk}"/build-tools/*/aapt2 | tail -1)
 DEFINES=(--dart-define=app_version="$NAME" --dart-define=build_stamp="$STAMP")
 if [[ -f config/update.local.json ]]; then
-  python3 tool/update_build_config.py config/update.local.json
   DEFINES+=(--dart-define-from-file=config/update.local.json)
 fi
+if [[ $VOICE_SOURCE == 本机密钥 ]]; then
+  DEFINES+=(--dart-define-from-file=config/voice.local.json)
+fi
+echo "语音：$VOICE_SOURCE"
 
 flutter build apk --release --target-platform android-arm,android-arm64,android-x64 \
   --build-name="$NAME" --build-number="$CODE" --split-debug-info="$OUT/symbols" "${DEFINES[@]}"

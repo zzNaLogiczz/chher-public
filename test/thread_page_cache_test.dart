@@ -6,6 +6,8 @@ import 'package:chh_app/network/chh_client.dart';
 import 'package:chh_app/network/chh_fetcher.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/inline_forum_parser.dart';
+
 class _Fetcher extends ChhFetcher {
   final gets = <Uri>[];
   final requestHeaders = <Map<String, String>?>[];
@@ -93,6 +95,7 @@ void main() {
       final client = ChhClient(
         fetchers: [fetcher],
         now: tester.binding.clock.now,
+        dispatchParser: parseForumInline,
       );
       final a = client.getHtml(ChhUrls.thread(10));
       final b = client.getHtml(ChhUrls.thread(10, page: 2));
@@ -213,6 +216,7 @@ void main() {
       final client = ChhClient(
         fetchers: [fetcher],
         now: tester.binding.clock.now,
+        dispatchParser: parseForumInline,
       );
       await client.getHtml(ChhUrls.thread(10));
       var visible = true;
@@ -236,6 +240,7 @@ void main() {
       final client = ChhClient(
         fetchers: [fetcher],
         now: tester.binding.clock.now,
+        dispatchParser: parseForumInline,
       );
       await client.getHtml(ChhUrls.thread(10));
       var visible = true;
@@ -286,6 +291,7 @@ void main() {
       final client = ChhClient(
         fetchers: [fetcher],
         now: tester.binding.clock.now,
+        dispatchParser: parseForumInline,
       );
       await expectLater(
         client.getHtml(ChhUrls.thread(10)),

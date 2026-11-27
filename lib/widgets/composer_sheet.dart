@@ -1,4 +1,4 @@
-/// 论坛回复使用统一的半屏/全屏写作画布，草稿按目标隔离。
+/// 论坛回复使用统一的贴边写作面板，草稿按目标隔离。
 library;
 
 import 'package:flutter/material.dart';
@@ -10,6 +10,7 @@ import 'expressive_composer.dart';
 class ComposerSheet extends StatefulWidget {
   final String? quoteOf;
   final String? quoteText;
+  final String? threadTitle;
   final String hintText;
   final Future<PostResult> Function(String message) onSubmit;
   final String initialText;
@@ -22,6 +23,7 @@ class ComposerSheet extends StatefulWidget {
     required this.onSubmit,
     this.quoteOf,
     this.quoteText,
+    this.threadTitle,
     this.hintText = '回复内容',
     this.initialText = '',
     this.draftKey,
@@ -36,6 +38,7 @@ class ComposerSheet extends StatefulWidget {
     required Future<PostResult> Function(String message) onSubmit,
     String? quoteOf,
     String? quoteText,
+    String? threadTitle,
     String hintText = '回复内容',
     String initialText = '',
     String? draftKey,
@@ -43,10 +46,12 @@ class ComposerSheet extends StatefulWidget {
     AttachmentController? attachments,
   }) => showExpressiveComposerRoute(
     context,
+    docked: true,
     builder: (_) => ComposerSheet(
       onSubmit: onSubmit,
       quoteOf: quoteOf,
       quoteText: quoteText,
+      threadTitle: threadTitle,
       hintText: hintText,
       initialText: draftKey == null
           ? initialText
@@ -65,11 +70,10 @@ class _ComposerSheetState extends State<ComposerSheet> {
   @override
   Widget build(BuildContext context) => ExpressiveComposer(
     title: widget.quoteOf == null ? '写回复' : '回复 ${widget.quoteOf}',
-    compactReply: true,
-    modeLabel: widget.quoteOf == null ? '社区讨论' : '楼层回复',
+    showReplyIcon: true,
     hintText: widget.hintText,
     initialText: widget.initialText,
-    quoteText: widget.quoteText,
+    contextLine: widget.quoteText ?? widget.threadTitle,
     onSubmit: widget.onSubmit,
     attachments: widget.attachments,
     onDraftChanged: (text) {

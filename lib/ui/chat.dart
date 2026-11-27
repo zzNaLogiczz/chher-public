@@ -1,4 +1,4 @@
-/// 私信:气泡与发送圆钮(规格 §6.12)
+/// 私信气泡、菜单与消息到达动效（规格 §6.12）
 library;
 
 import 'dart:async';
@@ -9,14 +9,13 @@ import 'package:flutter/services.dart';
 import 'package:motor/motor.dart';
 
 import '../design/chat_tokens.dart';
-import '../design/icons.dart';
 import '../core/chh_urls.dart';
 import '../models/models.dart';
 import '../design/motion.dart';
 import '../design/tokens.dart';
 import '../design/typography.dart';
+import '../widgets/rich_content_text.dart';
 import 'press.dart';
-import '../widgets/chhers_loader.dart';
 
 /// Only known source timestamps can establish a ten-minute gap.
 bool chatShowsTimestamp(PmMessage current, PmMessage? previous) {
@@ -32,6 +31,7 @@ bool chatShowsTimestamp(PmMessage current, PmMessage? previous) {
 
 class ChatBubble extends StatefulWidget {
   final String text;
+  final List<InlineNode> nodes;
   final bool mine;
   final bool joinsPrevious;
   final bool joinsNext;
@@ -39,6 +39,7 @@ class ChatBubble extends StatefulWidget {
   const ChatBubble({
     super.key,
     required this.text,
+    this.nodes = const [],
     required this.mine,
     this.joinsPrevious = false,
     this.joinsNext = false,
@@ -98,6 +99,12 @@ class _ChatBubbleState extends State<ChatBubble>
   Widget _content(AppTokens t, double alpha) {
     const round = Radius.circular(ChatTokens.bubbleRadius);
     const joined = Radius.circular(ChatTokens.joinedRadius);
+    final style = AppType.body.copyWith(
+      fontSize: ChatTokens.bodySize,
+      height: 1.5,
+      color: (widget.mine ? ChatTokens.outgoingForeground(t) : t.text)
+          .withValues(alpha: alpha),
+    );
     return DecoratedBox(
       decoration: BoxDecoration(
         color: (widget.mine ? t.accent : t.surface).withValues(alpha: alpha),
@@ -111,15 +118,12 @@ class _ChatBubbleState extends State<ChatBubble>
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        child: Text(
-          widget.text,
-          style: AppType.body.copyWith(
-            fontSize: ChatTokens.bodySize,
-            height: 1.5,
-            color: (widget.mine ? ChatTokens.outgoingForeground(t) : t.text)
-                .withValues(alpha: alpha),
-          ),
-        ),
+        child: widget.nodes.isEmpty
+            ? Text(widget.text, style: style)
+            : RichContentText(
+                block: TextBlock(widget.text, nodes: widget.nodes),
+                style: style,
+              ),
       ),
     );
   }
@@ -352,67 +356,4 @@ class _ChatArrivalState extends State<ChatArrival>
       child: Transform.translate(offset: Offset(0, _rise.value), child: child),
     ),
   );
-}
-
-/// 发送圆钮:有文字时以 pop 弹出,没有文字时缩小隐藏;发送中显示转圈
-class ChatSendButton extends StatelessWidget {
-  final bool visible;
-  final bool sending;
-  final VoidCallback? onPressed;
-  const ChatSendButton({
-    super.key,
-    required this.visible,
-    required this.sending,
-    this.onPressed,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final t = AppTokens.of(context);
-    final reduced = MediaQuery.disableAnimationsOf(context);
-    return SingleMotionBuilder(
-      value: visible || sending ? 1.0 : 0.0,
-      motion: AppMotion.pop,
-      active: !reduced,
-      // 可点与否跟随目标状态,不等弹出动画走完
-      builder: (_, v, child) => Transform.scale(
-        scale: v.clamp(0.0, 2.0),
-        // 命中区按完整尺寸计算,弹出过程中也能点到
-        transformHitTests: false,
-        child: IgnorePointer(ignoring: !(visible || sending), child: child),
-      ),
-      child: Tooltip(
-        message: '发送私信',
-        child: PressScale(
-          onTap: sending ? null : onPressed,
-          semanticLabel: sending ? '发送中' : '发送私信',
-          child: SizedBox.square(
-            dimension: 44,
-            child: Center(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: t.accent,
-                  shape: BoxShape.circle,
-                ),
-                child: SizedBox.square(
-                  dimension: ChatTokens.sendSize,
-                  child: sending
-                      ? Center(
-                          child: ChhersSpinner(
-                            color: ChatTokens.outgoingForeground(t),
-                          ),
-                        )
-                      : Icon(
-                          AppIcons.up,
-                          size: 20,
-                          color: ChatTokens.outgoingForeground(t),
-                        ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
 }

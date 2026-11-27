@@ -54,6 +54,7 @@ class NetImage extends StatelessWidget {
   /// Hero flights use a stable viewport-sized decode while their rect changes.
   final int? decodeWidth;
   final bool dimInDark;
+  final ImageErrorWidgetBuilder? errorBuilder;
 
   const NetImage({
     super.key,
@@ -63,6 +64,7 @@ class NetImage extends StatelessWidget {
     this.height,
     this.decodeWidth,
     this.dimInDark = false,
+    this.errorBuilder,
   });
 
   @override
@@ -97,12 +99,14 @@ class NetImage extends StatelessWidget {
                   synchronous || frame != null
                   ? child
                   : Container(height: height ?? 150, color: t.fill),
-              errorBuilder: (context, _, _) => Container(
-                height: height ?? 90,
-                color: t.fill,
-                alignment: Alignment.center,
-                child: Icon(AppIcons.image, size: 18, color: t.text3),
-              ),
+              errorBuilder:
+                  errorBuilder ??
+                  (context, _, _) => Container(
+                    height: height ?? 90,
+                    color: t.fill,
+                    alignment: Alignment.center,
+                    child: Icon(AppIcons.image, size: 18, color: t.text3),
+                  ),
             ),
           );
         },

@@ -18,7 +18,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.18+10018
+version: 1.0.19+10019
 
 environment:
   sdk: ^3.12.2
@@ -52,6 +52,8 @@ dependencies:
   # 6.3.26 起依赖 androidx.core 1.17 / browser 1.9,要求 AGP 8.9.1;项目是 AGP 8.7.3,先锁在 6.3.25。
   # 升级 AGP 时去掉这一行。
   url_launcher_android: 6.3.25
+  record: 7.2.0
+  crypto: 3.0.7
 
 dev_dependencies:
   flutter_test:

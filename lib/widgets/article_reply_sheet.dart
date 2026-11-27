@@ -11,6 +11,7 @@ class ArticleReplySheet extends StatefulWidget {
   final ValueChanged<String>? onDraftChanged;
   final String? quoteAuthor;
   final String? quoteText;
+  final String? articleTitle;
   final Future<void> Function()? onLogin;
 
   const ArticleReplySheet({
@@ -20,6 +21,7 @@ class ArticleReplySheet extends StatefulWidget {
     this.onDraftChanged,
     this.quoteAuthor,
     this.quoteText,
+    this.articleTitle,
     this.onLogin,
   });
 
@@ -30,15 +32,18 @@ class ArticleReplySheet extends StatefulWidget {
     ValueChanged<String>? onDraftChanged,
     String? quoteAuthor,
     String? quoteText,
+    String? articleTitle,
     Future<void> Function()? onLogin,
   }) => showExpressiveComposerRoute(
     context,
+    docked: true,
     builder: (_) => ArticleReplySheet(
       onSubmit: onSubmit,
       initialText: initialText,
       onDraftChanged: onDraftChanged,
       quoteAuthor: quoteAuthor,
       quoteText: quoteText,
+      articleTitle: articleTitle,
       onLogin: onLogin,
     ),
   );
@@ -50,14 +55,16 @@ class ArticleReplySheet extends StatefulWidget {
 class _ArticleReplySheetState extends State<ArticleReplySheet> {
   @override
   Widget build(BuildContext context) => ExpressiveComposer(
-    title: widget.quoteAuthor == null ? '写评论' : '写回复',
-    modeLabel: widget.quoteAuthor == null
-        ? '文章评论'
-        : '回复给 ${widget.quoteAuthor}',
+    title: widget.quoteAuthor == null ? '写评论' : '回复 ${widget.quoteAuthor}',
+    showReplyIcon: widget.quoteAuthor != null,
+    // Discuz portal comments display smiley codes as literal text.
+    emojiAvailable: false,
     hintText: widget.quoteAuthor == null ? '分享你的看法' : '回复内容',
     initialText: widget.initialText,
-    quoteLabel: widget.quoteText?.isNotEmpty == true ? '引用评论' : null,
-    quoteText: widget.quoteText,
+    expandableQuote: widget.quoteText?.isNotEmpty == true,
+    contextLine: widget.quoteText?.isNotEmpty == true
+        ? widget.quoteText
+        : widget.articleTitle,
     unknownActionLabel: '返回评论确认',
     onSubmit: widget.onSubmit,
     onDraftChanged: widget.onDraftChanged,

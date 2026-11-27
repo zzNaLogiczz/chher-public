@@ -5,10 +5,17 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import '../core/display_time.dart';
+import '../data/smiley_store.dart';
 import '../widgets/chhers_loading_transition.dart';
 import '../widgets/chhers_refresh_indicator.dart';
 import '../widgets/compact_scaffold.dart';
-import '../ui/editor_touch.dart';
+import '../design/composer_tokens.dart';
+import '../widgets/composer/composer_dictation_binding.dart';
+import '../widgets/composer/composer_editor.dart';
+import '../widgets/composer/composer_emoji_input.dart';
+import '../widgets/composer/composer_panel.dart';
+import '../widgets/composer/composer_tool_strip.dart';
+import '../widgets/composer/smiley_editing_controller.dart';
 import '../ui/app_button.dart';
 import '../design/chat_tokens.dart';
 import '../widgets/avatar_image.dart';
@@ -27,14 +34,23 @@ import '../widgets/state_view.dart';
 class PmThreadPage extends StatefulWidget {
   final PmConversation conversation;
   final MessageRepository? repository;
-  const PmThreadPage({super.key, required this.conversation, this.repository});
+  final SmileyStore? smilies;
+
+  const PmThreadPage({
+    super.key,
+    required this.conversation,
+    this.repository,
+    this.smilies,
+  });
   @override
   State<PmThreadPage> createState() => _PmThreadPageState();
 }
 
 class _PmThreadPageState extends State<PmThreadPage> {
-  final _input = TextEditingController();
+  final _input = SmileyEditingController();
   final _focus = FocusNode();
+  ComposerEmojiInput? _emoji;
+  ComposerDictationBinding? _dictation;
   final _scroll = ScrollController();
   final _composerKey = GlobalKey();
   List<PmMessage> _messages = const [];
@@ -59,11 +75,29 @@ class _PmThreadPageState extends State<PmThreadPage> {
   @override
   void initState() {
     super.initState();
+    if (!_announcement) {
+      _emoji = ComposerEmojiInput(
+        input: _input,
+        focus: _focus,
+        store: widget.smilies ?? smileyStore,
+        onChanged: _emojiChanged,
+      );
+    }
     _load(scrollToEnd: true);
+  }
+
+  void _emojiChanged() => setState(() {});
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _emoji?.updateMedia(context);
   }
 
   @override
   void dispose() {
+    _emoji?.dispose();
+    _dictation?.dispose();
     _input.dispose();
     _focus.dispose();
     _scroll.dispose();
@@ -88,6 +122,12 @@ class _PmThreadPageState extends State<PmThreadPage> {
       setState(() {
         _reconcile(result);
         _loaded = true;
+        if (!_announcement) {
+          _dictation ??= ComposerDictationBinding(
+            editor: _input,
+            onChanged: () => setState(() {}),
+          );
+        }
       });
       if (scrollToEnd) _scrollToEnd(animate: animateScroll);
     } catch (e) {
@@ -103,6 +143,8 @@ class _PmThreadPageState extends State<PmThreadPage> {
             _receiptKeys.clear();
             _receipts.clear();
             _loaded = false;
+            _dictation?.dispose();
+            _dictation = null;
           }
         });
       }
@@ -119,11 +161,48 @@ class _PmThreadPageState extends State<PmThreadPage> {
   String _matchingText(String text) =>
       text.replaceAll(RegExp(r'[\s\u00a0]+'), ' ').trim();
 
+  List<InlineNode> _smileyNodes(String text) {
+    final catalog = _input.catalog;
+    if (catalog == null) return const [];
+    final nodes = <InlineNode>[];
+    var offset = 0;
+    for (final match in catalog.codePattern.allMatches(text)) {
+      if (offset < match.start) {
+        nodes.add(InlineText(text.substring(offset, match.start)));
+      }
+      nodes.add(InlineSmiley(catalog.byCode[match.group(0)]!.url));
+      offset = match.end;
+    }
+    if (offset == 0) return const [];
+    if (offset < text.length) nodes.add(InlineText(text.substring(offset)));
+    return nodes;
+  }
+
+  String _messageKey(PmMessage message) => _matchingText(
+    message.nodes.isEmpty
+        ? message.text
+        : message.nodes
+              .map(
+                (node) => switch (node) {
+                  InlineText(:final text) || InlineLink(:final text) => text,
+                  InlineSmiley(:final url) =>
+                    '\uFFFC${Uri.tryParse(url)?.path ?? url}\uFFFC',
+                },
+              )
+              .join(),
+  );
+
   Map<Object, PmMessage> _keyedMessages(List<PmMessage> messages) {
     final occurrences = <Object, int>{};
     final keyed = <Object, PmMessage>{};
     for (final m in messages) {
-      final content = (m.authorUid, m.author, m.text, m.timeRaw, m.fromSelf);
+      final content = (
+        m.authorUid,
+        m.author,
+        _messageKey(m),
+        m.timeRaw,
+        m.fromSelf,
+      );
       final occurrence = occurrences.update(
         content,
         (n) => n + 1,
@@ -138,12 +217,15 @@ class _PmThreadPageState extends State<PmThreadPage> {
     final incoming = _keyedMessages(messages);
     final matched = <Object>{};
     _localReplies.removeWhere((reply) {
+      final expected = _messageKey(reply.message);
       for (final entry in incoming.entries) {
         if (!reply.knownMessages.contains(entry.key) &&
             !matched.contains(entry.key) &&
             _isMine(entry.value) &&
-            _matchingText(entry.value.text) ==
-                _matchingText(reply.message.text)) {
+            (entry.value.nodes.isEmpty
+                ? _matchingText(entry.value.text) ==
+                      _matchingText(reply.message.text)
+                : _messageKey(entry.value) == expected)) {
           matched.add(entry.key);
           if (reply.result?.kind == PostResultKind.unknown &&
               _input.text.trim() == reply.message.text) {
@@ -187,12 +269,14 @@ class _PmThreadPageState extends State<PmThreadPage> {
   Future<void> _send([_LocalReply? retry]) async {
     final text = retry?.message.text ?? _input.text.trim();
     if (_sending ||
+        _dictation?.active == true ||
         !_loaded ||
         _announcement ||
         text.isEmpty ||
         _hasUnconfirmedReply) {
       return;
     }
+    if (retry == null) _dictation?.controller.dismissReview();
     final previousFailure = _localReplies
         .where(
           (r) =>
@@ -206,7 +290,13 @@ class _PmThreadPageState extends State<PmThreadPage> {
         retry ??
         previousFailure ??
         _LocalReply(
-          PmMessage(author: '您', fromSelf: true, text: text, timeRaw: ''),
+          PmMessage(
+            author: '您',
+            fromSelf: true,
+            text: text,
+            timeRaw: '',
+            nodes: _smileyNodes(text),
+          ),
           _keyedMessages(_serverMessages).keys.toSet(),
           originY: box?.localToGlobal(Offset.zero).dy,
         );
@@ -244,6 +334,7 @@ class _PmThreadPageState extends State<PmThreadPage> {
     });
     if (result.isSuccess || reply.observed) {
       if (_input.text.trim() == text) _input.clear();
+      _emoji?.dismiss();
       _focus.unfocus();
       _scrollToEnd(animate: true);
       AppToast.show(context, '已发送');
@@ -259,7 +350,7 @@ class _PmThreadPageState extends State<PmThreadPage> {
   @override
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
-    return CompactScaffold(
+    final scaffold = CompactScaffold(
       title: widget.conversation.peer,
       background: t.grouped,
       centerTitle: true,
@@ -297,31 +388,21 @@ class _PmThreadPageState extends State<PmThreadPage> {
               },
             ),
           ),
-          if (_announcement)
-            SafeArea(
-              top: false,
-              child: Padding(
-                padding: const EdgeInsets.all(ChatTokens.composerInset),
-                child: Container(
-                  alignment: Alignment.center,
-                  constraints: const BoxConstraints(minHeight: 52),
-                  decoration: BoxDecoration(
-                    color: t.surface,
-                    borderRadius: BorderRadius.circular(
-                      ChatTokens.composerRadius,
-                    ),
-                  ),
-                  child: Text(
-                    '公共消息不能回复',
-                    style: AppType.footnote.copyWith(color: t.text3),
-                  ),
-                ),
-              ),
-            )
-          else if (_loaded)
-            _composer(t),
+          if (_announcement) _announcementBar(t) else if (_loaded) _composer(),
+          if (_emoji case final emoji? when _loaded)
+            emoji.dock(
+              context,
+              enabled: !_sending && _dictation?.active != true,
+            ),
         ],
       ),
+    );
+    return PopScope(
+      canPop: _emoji?.isOpen != true,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _emoji?.dismiss();
+      },
+      child: scaffold,
     );
   }
 
@@ -343,8 +424,10 @@ class _PmThreadPageState extends State<PmThreadPage> {
       onRefresh: _load,
       child: ListView.builder(
         controller: _scroll,
-        physics: const AlwaysScrollableScrollPhysics(
-          parent: BouncingScrollPhysics(),
+        physics: const _ConversationScrollPhysics(
+          parent: AlwaysScrollableScrollPhysics(
+            parent: BouncingScrollPhysics(),
+          ),
         ),
         keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         padding: ChatTokens.listPadding,
@@ -403,6 +486,7 @@ class _PmThreadPageState extends State<PmThreadPage> {
               local ?? message.pmid ?? (message.text, message.timeRaw, i),
             ),
             message: message,
+            copyText: local?.message.text,
             isMine: mine,
             showTime: stamp,
             joinsPrevious: previous,
@@ -440,67 +524,110 @@ class _PmThreadPageState extends State<PmThreadPage> {
     );
   }
 
-  Widget _composer(AppTokens t) => SafeArea(
-    top: false,
-    child: Padding(
-      padding: const EdgeInsets.all(ChatTokens.composerInset),
-      child: Container(
-        key: _composerKey,
-        padding: const EdgeInsets.fromLTRB(18, 4, 4, 4),
-        decoration: BoxDecoration(
-          color: t.surface,
-          borderRadius: BorderRadius.circular(ChatTokens.composerRadius),
-          boxShadow: ChatTokens.composerShadow(t),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
+  Widget _composer() {
+    final dictation = _dictation!;
+    return KeyedSubtree(
+      key: _composerKey,
+      child: dictation.scope(
+        enabled: !_sending,
+        Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Expanded(
-              child: EditorTouchGuard(
+            dictation.status(chat: true, enabled: !_sending),
+            ComposerPanel.docked(
+              key: const ValueKey('pm-composer'),
+              dictation: dictation.controller,
+              inputDocked: _emoji?.reservesSpace ?? false,
+              editor: ComposerEditor(
+                fieldKey: const ValueKey('pm-input'),
+                controller: _input,
+                dictation: dictation.controller,
                 focusNode: _focus,
-                builder: (context, editorFocus, onEditorTap) => TextField(
-                  focusNode: editorFocus,
-                  onTapAlwaysCalled: true,
-                  onTap: onEditorTap,
-                  key: const ValueKey('pm-input'),
-                  controller: _input,
-                  enabled: !_sending,
-                  minLines: 1,
-                  maxLines: 5,
-                  style: AppType.body.copyWith(
-                    fontSize: ChatTokens.bodySize,
-                    height: 1.5,
-                    color: t.text,
+                hintText: '回复 ${widget.conversation.peer}',
+                enabled: !_sending,
+                onTap: dictation.active ? null : _emoji?.showKeyboard,
+                chat: true,
+              ),
+              toolbar: ValueListenableBuilder<TextEditingValue>(
+                valueListenable: _input,
+                builder: (context, value, _) => ComposerToolStrip(
+                  leading: _emoji?.tool(
+                    enabled: !_sending && !dictation.active,
                   ),
-                  decoration: InputDecoration(
-                    hintText: '回复 ${widget.conversation.peer}',
-                    filled: false,
-                    contentPadding: const EdgeInsets.symmetric(vertical: 10),
-                    border: InputBorder.none,
-                    enabledBorder: InputBorder.none,
-                    focusedBorder: InputBorder.none,
-                    disabledBorder: InputBorder.none,
+                  voice: dictation.bar(enabled: !_sending),
+                  voiceActive: dictation.barExpanded,
+                  send: AppButton(
+                    key: const ValueKey('pm-send'),
+                    label: _sending ? '发送中' : '发送',
+                    variant: AppButtonVariant.composerSend,
+                    state: _sending ? AppButtonState.busy : AppButtonState.idle,
+                    onPressed:
+                        _sending ||
+                            dictation.active ||
+                            value.text.trim().isEmpty ||
+                            _hasUnconfirmedReply
+                        ? null
+                        : _send,
                   ),
                 ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            ValueListenableBuilder<TextEditingValue>(
-              valueListenable: _input,
-              builder: (context, value, _) => ChatSendButton(
-                key: const ValueKey('pm-send'),
-                visible: value.text.trim().isNotEmpty,
-                sending: _sending,
-                onPressed: value.text.trim().isEmpty || _hasUnconfirmedReply
-                    ? null
-                    : _send,
               ),
             ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _announcementBar(AppTokens t) => ComposerPanel.docked(
+    key: const ValueKey('pm-announcement'),
+    editor: Padding(
+      padding: ComposerTokens.chatEditorInsets,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(
+          minHeight: ComposerTokens.chatInputMinHeight,
+        ),
+        child: Padding(
+          padding: ComposerTokens.chatInputPadding,
+          child: Text(
+            '公共消息不能回复',
+            style: ComposerTokens.chatBody.copyWith(color: t.text3),
+          ),
+        ),
+      ),
     ),
+    toolbar: const SizedBox(height: ComposerTokens.strip),
   );
+}
+
+/// Keep the latest message above the dock as the input or keyboard resizes it.
+class _ConversationScrollPhysics extends ScrollPhysics {
+  const _ConversationScrollPhysics({super.parent});
+
+  @override
+  _ConversationScrollPhysics applyTo(ScrollPhysics? ancestor) =>
+      _ConversationScrollPhysics(parent: buildParent(ancestor));
+
+  @override
+  double adjustPositionForNewDimensions({
+    required ScrollMetrics oldPosition,
+    required ScrollMetrics newPosition,
+    required bool isScrolling,
+    required double velocity,
+  }) {
+    if (!isScrolling &&
+        oldPosition.viewportDimension != newPosition.viewportDimension &&
+        (oldPosition.pixels - oldPosition.maxScrollExtent).abs() <=
+            toleranceFor(oldPosition).distance) {
+      return newPosition.maxScrollExtent;
+    }
+    return super.adjustPositionForNewDimensions(
+      oldPosition: oldPosition,
+      newPosition: newPosition,
+      isScrolling: isScrolling,
+      velocity: velocity,
+    );
+  }
 }
 
 class _LocalReply {
@@ -515,6 +642,7 @@ class _LocalReply {
 
 class _ConversationMessage extends StatelessWidget {
   final PmMessage message;
+  final String? copyText;
   final bool isMine, showTime, joinsPrevious, joinsNext, pending;
   final String? avatarUrl;
   final String peer;
@@ -524,6 +652,7 @@ class _ConversationMessage extends StatelessWidget {
   const _ConversationMessage({
     super.key,
     required this.message,
+    this.copyText,
     required this.isMine,
     required this.showTime,
     required this.joinsPrevious,
@@ -587,7 +716,20 @@ class _ConversationMessage extends StatelessWidget {
                     maxWidth: MediaQuery.sizeOf(context).width * .74,
                   ),
                   child: ChatBubble(
-                    text: message.text,
+                    text:
+                        copyText ??
+                        (message.nodes.isEmpty
+                            ? message.text
+                            : message.nodes
+                                  .map(
+                                    (node) => switch (node) {
+                                      InlineText(:final text) ||
+                                      InlineLink(:final text) => text,
+                                      InlineSmiley() => '[表情]',
+                                    },
+                                  )
+                                  .join()),
+                    nodes: message.nodes,
                     mine: isMine,
                     joinsPrevious: joinsPrevious,
                     joinsNext: joinsNext,

@@ -280,9 +280,11 @@ class _ToastViewState extends State<_ToastView> with TickerProviderStateMixin {
 class LoadingPlaceholder extends StatefulWidget {
   final bool active;
   final Widget child;
+  final VoidCallback? onVisible;
   const LoadingPlaceholder({
     super.key,
     this.active = true,
+    this.onVisible,
     required this.child,
   });
 
@@ -323,16 +325,20 @@ class _LoadingPlaceholderState extends State<LoadingPlaceholder> {
   }
 
   @override
-  Widget build(BuildContext context) => Visibility(
-    visible: _visible && widget.active,
-    maintainState: true,
-    maintainAnimation: true,
-    maintainSize: true,
-    child: TickerMode(
-      enabled: _visible && widget.active,
-      child: IgnorePointer(child: widget.child),
-    ),
-  );
+  Widget build(BuildContext context) {
+    final visible = _visible && widget.active;
+    if (visible) widget.onVisible?.call();
+    return Visibility(
+      visible: visible,
+      maintainState: true,
+      maintainAnimation: true,
+      maintainSize: true,
+      child: TickerMode(
+        enabled: visible,
+        child: IgnorePointer(child: widget.child),
+      ),
+    );
+  }
 }
 
 /// Loading breathes as one cached layer; scroll and TickerMode stop hidden work.
@@ -340,10 +346,12 @@ class SkeletonPulse extends StatelessWidget {
   final bool active;
   final bool immediate;
   final Widget child;
+  final VoidCallback? onVisible;
   const SkeletonPulse({
     super.key,
     this.active = true,
     this.immediate = false,
+    this.onVisible,
     required this.child,
   });
 
@@ -352,7 +360,11 @@ class SkeletonPulse extends StatelessWidget {
     final breath = _SkeletonBreath(active: active, child: child);
     return immediate
         ? breath
-        : LoadingPlaceholder(active: active, child: breath);
+        : LoadingPlaceholder(
+            active: active,
+            onVisible: onVisible,
+            child: breath,
+          );
   }
 }
 
@@ -541,7 +553,8 @@ class _SkeletonContentState extends State<SkeletonContent>
 /// 列表首屏骨架:整组呼吸,不逐条重画。
 class SkeletonList extends StatelessWidget {
   final int rows;
-  const SkeletonList({super.key, this.rows = 6});
+  final VoidCallback? onVisible;
+  const SkeletonList({super.key, this.rows = 6, this.onVisible});
 
   @override
   Widget build(BuildContext context) {
@@ -561,6 +574,7 @@ class SkeletonList extends StatelessWidget {
       ),
     );
     return SkeletonPulse(
+      onVisible: onVisible,
       child: Semantics(
         label: '加载中',
         child: ClipRect(

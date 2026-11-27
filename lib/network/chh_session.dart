@@ -154,8 +154,17 @@ class ChhSession extends ChangeNotifier {
   /// 是否识别到页头；计数未变化也返回 true，阻止更旧的请求覆盖。
   bool observeHtml(String html) {
     if (_holdIdentity || _accountLogin == _AccountLogin.pending) return false;
-    final next = parseHeaderBadges(html);
-    if (loggedIn && next == null && isGuestAccountDocument(html)) {
+    final badges = parseHeaderBadges(html);
+    return observeHeader((
+      badges: badges,
+      guest: loggedIn && badges == null && isGuestAccountDocument(html),
+    ));
+  }
+
+  bool observeHeader(HeaderObservation observation) {
+    if (_holdIdentity || _accountLogin == _AccountLogin.pending) return false;
+    final next = observation.badges;
+    if (loggedIn && observation.guest) {
       if (!_currentExpired) {
         _currentExpired = true;
         _savedIdentity = null;

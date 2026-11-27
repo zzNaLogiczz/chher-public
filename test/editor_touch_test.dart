@@ -419,7 +419,6 @@ void main() {
         _app(
           ExpressiveComposer(
             title: '本地回复',
-            modeLabel: '样例',
             hintText: '本地草稿',
             initialText: '草稿内容',
             onSubmit: (_) => response.future,

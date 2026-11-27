@@ -24,6 +24,7 @@ import '../ui/chrome_button.dart';
 import '../ui/picker.dart';
 import '../widgets/browse_thread_list.dart';
 import '../widgets/password_sheet.dart';
+import '../widgets/route_entry_gate.dart';
 import '../ui/plain_rows.dart';
 import '../widgets/expressive_controls.dart';
 import 'new_thread_page.dart';
@@ -47,13 +48,14 @@ class ForumThreadsPage extends StatefulWidget {
 class _ForumThreadsPageState extends State<ForumThreadsPage>
     with SingleTickerProviderStateMixin {
   static final Map<int, ThreadSort> _sortMemory = {};
+  final _entryGate = RouteEntryGate();
   late ThreadSort _sort;
   bool _typePickerOpen = false;
   late final _composeProgress = ScrollDeltaProgress(
     vsync: this,
     travel: ForumTokens.fabTravel,
   );
-  List<ThreadType> _types = const [];
+  final _types = ValueNotifier<List<ThreadType>>(const []);
   int _typeid = 0;
   String _lastTypeLabel = '';
   int _revision = 0;
@@ -63,16 +65,31 @@ class _ForumThreadsPageState extends State<ForumThreadsPage>
   void initState() {
     super.initState();
     _sort = _sortMemory[widget.fid] ?? ThreadSort.fallback;
-    _loadTypes();
+    if (_repository.cachedThreadTypes(widget.fid) case final cached?) {
+      _types.value = cached;
+    } else {
+      _loadTypes();
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _entryGate.update(ModalRoute.of(context));
   }
 
   Future<void> _loadTypes() async {
     try {
       final types = await _repository.threadTypes(widget.fid);
-      if (mounted) {
+      if (_entryGate.wait case final wait?) {
+        if (!await wait) return;
+      }
+      if (!mounted) return;
+      _types.value = types;
+      // With no active filter, only the category action needs to update.
+      if (_typeid != 0) {
         setState(() {
-          _types = types;
-          if (_typeid != 0 && !types.any((type) => type.typeid == _typeid)) {
+          if (!types.any((type) => type.typeid == _typeid)) {
             _typeid = 0;
           }
         });
@@ -134,6 +151,8 @@ class _ForumThreadsPageState extends State<ForumThreadsPage>
 
   @override
   void dispose() {
+    _entryGate.dispose();
+    _types.dispose();
     _composeProgress.dispose();
     super.dispose();
   }
@@ -149,18 +168,12 @@ class _ForumThreadsPageState extends State<ForumThreadsPage>
 
   @override
   Widget build(BuildContext context) {
-    final options = [
-      const PickerOption(value: 0, label: '全部分类'),
-      for (final type in _types.where((type) => type.typeid != 0))
-        PickerOption(value: type.typeid, label: type.name),
-    ];
-    final hasCategories = options.length > 1;
     final now = DateTime.now();
     final sort = _sort;
     final typeid = _typeid;
     final selectedType = _typeid == 0
         ? null
-        : _types.where((type) => type.typeid == _typeid).firstOrNull;
+        : _types.value.where((type) => type.typeid == _typeid).firstOrNull;
     return NotificationListener<ScrollNotification>(
       onNotification: _trackScroll,
       child: BrowseScaffold(
@@ -173,31 +186,49 @@ class _ForumThreadsPageState extends State<ForumThreadsPage>
               targetId: widget.fid,
               title: widget.title,
             ),
-            builder: (context, favorited, busy, toggle) => ChromeGroup(
-              items: [
-                ChromeGroupItem(
-                  tooltip: '分类筛选',
-                  icon: AppIcons.filter,
-                  selected: typeid != 0,
-                  dot: typeid != 0,
-                  onPressed: hasCategories ? () => _pickType(options) : null,
+            builder: (context, favorited, busy, toggle) =>
+                ValueListenableBuilder(
+                  valueListenable: _types,
+                  builder: (context, types, _) {
+                    final options = [
+                      const PickerOption(value: 0, label: '全部分类'),
+                      for (final type in types)
+                        if (type.typeid != 0)
+                          PickerOption(value: type.typeid, label: type.name),
+                    ];
+                    return ChromeGroup(
+                      items: [
+                        ChromeGroupItem(
+                          tooltip: '分类筛选',
+                          icon: AppIcons.filter,
+                          selected: typeid != 0,
+                          dot: typeid != 0,
+                          onPressed: options.length > 1
+                              ? () => _pickType(options)
+                              : null,
+                        ),
+                        ChromeGroupItem(
+                          tooltip: '搜索帖子',
+                          icon: AppIcons.search,
+                          onPressed: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const SearchPage(),
+                            ),
+                          ),
+                        ),
+                        ChromeGroupItem(
+                          tooltip: favorited ? '取消收藏版块' : '收藏版块',
+                          icon: favorited
+                              ? AppIcons.bookmarkFilled
+                              : AppIcons.bookmark,
+                          selected: favorited,
+                          onPressed: busy ? null : toggle,
+                        ),
+                      ],
+                    );
+                  },
                 ),
-                ChromeGroupItem(
-                  tooltip: '搜索帖子',
-                  icon: AppIcons.search,
-                  onPressed: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const SearchPage()),
-                  ),
-                ),
-                ChromeGroupItem(
-                  tooltip: favorited ? '取消收藏版块' : '收藏版块',
-                  icon: favorited ? AppIcons.bookmarkFilled : AppIcons.bookmark,
-                  selected: favorited,
-                  onPressed: busy ? null : toggle,
-                ),
-              ],
-            ),
           ),
         ],
         header: SingleMotionBuilder(
@@ -286,6 +317,18 @@ class _ForumThreadsPageState extends State<ForumThreadsPage>
         body: BrowseThreadList(
           key: PageStorageKey('forum-list-${widget.fid}'),
           queryKey: (widget.fid, _typeid, _sort, _revision),
+          entryGate: _entryGate,
+          cachedFirstPage: () {
+            final result = _repository.cachedThreadList(
+              widget.fid,
+              typeid: typeid == 0 ? null : typeid,
+              filter: sort.filter,
+              orderby: sort.orderby,
+            );
+            return result == null
+                ? null
+                : Paged(items: result.threads, page: result.page);
+          },
           groupCards: true,
           sectionAction: Tooltip(
             message: '排序',
@@ -326,9 +369,8 @@ class _ForumThreadsPageState extends State<ForumThreadsPage>
           emptyMessage: '这个分类还没有帖子',
           collapsePinned: true,
           pinnedMemoryKey: widget.fid,
-          sectionLabel: sort.groupsByDate
-              ? (thread) => ThreadListTime.of(thread, sort, now: now).section
-              : null,
+          sectionLayoutKey: (sort, now.year, now.month, now.day),
+          sectionLabel: ThreadListTime.sectionLabels(sort, now: now),
           // 行级监听:一次 markRead 只重建对应一行
           itemBuilder: (context, thread) => ReadStateBuilder(
             tid: thread.tid,

@@ -1,12 +1,15 @@
 import 'dart:async';
 
 import 'package:chh_app/design/chat_tokens.dart';
+import 'package:chh_app/design/composer_tokens.dart';
 import 'package:chh_app/design/motion.dart';
 import 'package:chh_app/design/theme.dart';
 import 'package:chh_app/design/tokens.dart';
 import 'package:chh_app/models/models.dart';
 import 'package:chh_app/pages/pm_thread_page.dart';
+import 'package:chh_app/ui/app_button.dart';
 import 'package:chh_app/ui/chat.dart';
+import 'package:chh_app/widgets/composer/composer_tool_strip.dart';
 import 'package:chh_app/widgets/avatar_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -131,6 +134,85 @@ void main() {
     expect(list.controller!.offset, greaterThan(100));
   });
 
+  testWidgets('composer growth and keyboard insets resize the message list', (
+    tester,
+  ) async {
+    phone(tester);
+    tester.view.viewPadding = const FakeViewPadding(bottom: 18);
+    tester.view.padding = tester.view.viewPadding;
+    addTearDown(tester.view.resetViewPadding);
+    addTearDown(tester.view.resetPadding);
+    addTearDown(tester.view.resetViewInsets);
+    final repo = _ReconcilingMessages()
+      ..server = [
+        for (var i = 0; i < 30; i++)
+          PmMessage(
+            pmid: '$i',
+            author: '对方',
+            text: '本地私信 $i',
+            timeRaw: '2026-11-15 10:10',
+          ),
+      ];
+    await showPm(tester, repo);
+    final panel = find.byKey(const ValueKey('pm-composer'));
+    final field = find.byKey(const ValueKey('pm-input'));
+    final strip = find.byType(ComposerToolStrip);
+    final list = find.byType(ListView);
+    final latest = find.text('本地私信 29');
+    final position = tester.widget<ListView>(list).controller!.position;
+    final docked = tester.getRect(panel);
+    final editor = tester.getRect(field);
+    final toolbar = tester.getRect(strip);
+    expect(docked, const Rect.fromLTRB(0, 724, 390, 844));
+    expect(editor, const Rect.fromLTRB(20, 730, 376, 774));
+    expect(toolbar, const Rect.fromLTRB(0, 774, 390, 826));
+    expect(toolbar.height, ComposerTokens.strip);
+    expect(tester.getRect(list).bottom, docked.top);
+    expect(tester.widget<TextField>(field).style!.fontSize, 15.5);
+    expect(tester.widget<TextField>(field).style!.height, 1.5);
+    expect(find.text('回复 对方'), findsOneWidget);
+    expect(find.text('按住说话'), findsNothing);
+    expect(latest.hitTestable(), findsOneWidget);
+    final latestGap = docked.top - tester.getBottomRight(latest).dy;
+
+    await tester.showKeyboard(field);
+    tester.view.viewInsets = const FakeViewPadding(bottom: 280);
+    tester.view.padding = FakeViewPadding.zero;
+    await tester.pumpAndSettle();
+    expect(tester.getRect(panel).bottom, 844 - 280);
+    expect(tester.getRect(panel).height, 102);
+    expect(tester.getRect(list).bottom, tester.getRect(panel).top);
+
+    await tester.enterText(field, '第一行\n第二行');
+    await tester.pumpAndSettle();
+    expect(tester.getSize(field).height, closeTo(67, 1));
+    expect(tester.getRect(list).bottom, tester.getRect(panel).top);
+    await tester.enterText(field, List.filled(5, '一行私信').join('\n'));
+    await tester.pumpAndSettle();
+    final grown = tester.getRect(panel);
+    expect(tester.getSize(field).height, closeTo(136.25, 2));
+    expect(grown.bottom, 844 - 280);
+    expect(tester.getRect(list).bottom, grown.top);
+    expect(position.pixels, closeTo(position.maxScrollExtent, .5));
+    expect(
+      grown.top - tester.getBottomRight(latest).dy,
+      closeTo(latestGap, .5),
+    );
+
+    await tester.enterText(field, List.filled(8, '一行私信').join('\n'));
+    await tester.pumpAndSettle();
+    expect(tester.getRect(panel), grown);
+    await tester.enterText(field, '');
+    FocusManager.instance.primaryFocus?.unfocus();
+    tester.view.viewInsets = FakeViewPadding.zero;
+    tester.view.padding = tester.view.viewPadding;
+    await tester.pumpAndSettle();
+    expect(tester.getRect(panel), docked);
+    expect(tester.getRect(list).bottom, docked.top);
+    expect(position.pixels, closeTo(position.maxScrollExtent, .5));
+    expect(repo.sends, 0);
+  });
+
   testWidgets('failed bubble retries once and retains the original draft', (
     tester,
   ) async {
@@ -188,7 +270,9 @@ void main() {
       await tester.enterText(input, '新草稿');
       await tester.pumpAndSettle();
       expect(
-        tester.widget<ChatSendButton>(find.byType(ChatSendButton)).onPressed,
+        tester
+            .widget<AppButton>(find.byKey(const ValueKey('pm-send')))
+            .onPressed,
         isNull,
       );
       repo.server = const [
@@ -205,7 +289,9 @@ void main() {
       expect(tester.widget<TextField>(input).controller!.text, '新草稿');
       expect(find.text('原来的消息'), findsOneWidget);
       expect(
-        tester.widget<ChatSendButton>(find.byType(ChatSendButton)).onPressed,
+        tester
+            .widget<AppButton>(find.byKey(const ValueKey('pm-send')))
+            .onPressed,
         isNotNull,
       );
       repo.response = const PostResult(PostResultKind.failed, '失败');
@@ -241,7 +327,7 @@ void main() {
     expect(find.text('这里还没有消息'), findsNothing);
     expect(find.text('公共消息不能回复'), findsOneWidget);
     expect(find.byKey(const ValueKey('pm-input')), findsNothing);
-    expect(find.byType(ChatSendButton), findsNothing);
+    expect(find.byKey(const ValueKey('pm-send')), findsNothing);
     await tester.tap(find.text('刷新'));
     await tester.pumpAndSettle();
     expect(repo.reads, 2);
@@ -341,18 +427,32 @@ void main() {
         }
         await tester.enterText(find.byKey(const ValueKey('pm-input')), '不发送');
         await tester.pumpAndSettle();
-        final sendIcon = tester.widget<Icon>(
-          find.descendant(
-            of: find.byType(ChatSendButton),
-            matching: find.byType(Icon),
-          ),
+        final send = find.byKey(const ValueKey('pm-send'));
+        final label = tester.widget<Text>(
+          find.descendant(of: send, matching: find.text('发送')),
         );
-        final a = sendIcon.color!.computeLuminance();
-        final b = tokens.accent.computeLuminance();
-        expect(
-          a > b ? (a + .05) / (b + .05) : (b + .05) / (a + .05),
-          greaterThanOrEqualTo(3),
-        );
+        final surface =
+            tester
+                    .widget<DecoratedBox>(
+                      find.descendant(
+                        of: send,
+                        matching: find.byKey(AppButton.surfaceKey),
+                      ),
+                    )
+                    .decoration
+                as BoxDecoration;
+        final foreground = label.style!.color!;
+        final backgrounds =
+            (surface.gradient as LinearGradient?)?.colors ?? [surface.color!];
+        expect(foreground, tokens.onAccent);
+        for (final background in backgrounds) {
+          final a = foreground.computeLuminance();
+          final b = background.computeLuminance();
+          expect(
+            a > b ? (a + .05) / (b + .05) : (b + .05) / (a + .05),
+            greaterThanOrEqualTo(4.5),
+          );
+        }
         await tester.enterText(find.byKey(const ValueKey('pm-input')), '');
         FocusManager.instance.primaryFocus?.unfocus();
         await tester.pumpAndSettle();

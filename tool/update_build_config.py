@@ -5,12 +5,10 @@ import sys
 from pathlib import Path
 from urllib.parse import urlsplit
 
+INVALID_CONFIG = '更新配置无效，请检查本地配置文件。'
 
-def validate(path):
-    value = json.loads(Path(path).read_text())
-    if not isinstance(value, dict) or set(value) != {'CHH_UPDATE_ENDPOINTS'}:
-        raise ValueError('keys')
-    endpoints = value['CHH_UPDATE_ENDPOINTS']
+
+def _validate_endpoints(endpoints):
     if not isinstance(endpoints, str):
         raise ValueError('type')
     if not endpoints:
@@ -27,10 +25,23 @@ def validate(path):
             raise ValueError('endpoint')
 
 
+def validate(path):
+    """Return the validated address list, or an empty string when disabled."""
+    try:
+        value = json.loads(Path(path).read_text(encoding='utf-8'))
+        if not isinstance(value, dict) or set(value) != {'CHH_UPDATE_ENDPOINTS'}:
+            raise ValueError('keys')
+        endpoints = value['CHH_UPDATE_ENDPOINTS']
+        _validate_endpoints(endpoints)
+        return endpoints
+    except (OSError, ValueError, RecursionError):
+        raise ValueError(INVALID_CONFIG) from None
+
+
 if __name__ == '__main__':
     try:
         if len(sys.argv) != 2:
             raise ValueError('arguments')
         validate(sys.argv[1])
-    except (OSError, ValueError, UnicodeError):
-        raise SystemExit('更新配置无效，请检查本地配置文件。') from None
+    except ValueError:
+        raise SystemExit(INVALID_CONFIG) from None

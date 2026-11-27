@@ -4,7 +4,7 @@ import '../design/motion.dart';
 import 'chhers_loader.dart';
 import 'expressive_controls.dart';
 
-/// Retains a visible waiting mark for its exit before revealing the result.
+/// Transitions from a visible waiting mark to the result.
 class ChhersLoadingTransition extends StatefulWidget {
   const ChhersLoadingTransition({
     super.key,
@@ -14,6 +14,7 @@ class ChhersLoadingTransition extends StatefulWidget {
     this.animateOnMount = false,
     this.contentRevision,
     this.onContentReady,
+    this.overlapExit = false,
   }) : sliver = false;
 
   const ChhersLoadingTransition.sliver({
@@ -22,6 +23,7 @@ class ChhersLoadingTransition extends StatefulWidget {
     required this.placeholderBuilder,
     this.contentRevision,
   }) : onContentReady = null,
+       overlapExit = false,
        sliver = true,
        size = ChhersLoaderSize.page,
        animateOnMount = false;
@@ -32,10 +34,11 @@ class ChhersLoadingTransition extends StatefulWidget {
   final Widget Function(Widget indicator)? placeholderBuilder;
   final bool sliver;
   final bool animateOnMount;
+  final bool overlapExit;
 
   final Object? contentRevision;
 
-  /// Runs after the result's first layout, including after a visible exit.
+  /// Runs after the result's first layout.
   final VoidCallback? onContentReady;
 
   @override
@@ -87,7 +90,11 @@ class _ChhersLoadingTransitionState extends State<ChhersLoadingTransition>
       }
     } else if (widget.child != null && oldWidget.child == null) {
       if (_showing && _foreground && TickerMode.valuesOf(context).enabled) {
-        _exit.reverse();
+        if (widget.overlapExit) {
+          _exit.reverse(from: 15 / 16);
+        } else {
+          _exit.reverse();
+        }
       } else {
         _showing = false;
       }
@@ -122,28 +129,32 @@ class _ChhersLoadingTransitionState extends State<ChhersLoadingTransition>
   @override
   Widget build(BuildContext context) {
     final child = widget.child;
-    if (child == null || _showing) {
-      final indicator = FadeTransition(
-        opacity: _exit,
-        child: ChhersLoader(
-          size: widget.size,
-          animate: child == null,
-          onVisible: () => _showing = true,
-        ),
+    if (widget.overlapExit) {
+      if (child != null) _reportContentLayout();
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          if (child != null)
+            ExpressivePageReveal(
+              active: true,
+              startOnFirstFrame: true,
+              animateOnMount: _showing || widget.animateOnMount,
+              revision: widget.contentRevision,
+              child: child,
+            ),
+          if (child == null || _showing)
+            Positioned.fill(
+              key: const ValueKey('loading-mark'),
+              child: _placeholder(waiting: child == null),
+            ),
+        ],
       );
-      return widget.placeholderBuilder?.call(indicator) ??
-          Center(child: indicator);
+    }
+    if (child == null || _showing) {
+      return _placeholder(waiting: child == null);
     }
 
-    if (!_contentReady && widget.onContentReady != null) {
-      _contentReady = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && widget.child != null && !_showing) {
-          widget.onContentReady?.call();
-        }
-      });
-    }
-
+    _reportContentLayout();
     return ExpressivePageReveal(
       active: true,
       sliver: widget.sliver,
@@ -151,5 +162,37 @@ class _ChhersLoadingTransitionState extends State<ChhersLoadingTransition>
       revision: widget.contentRevision,
       child: child,
     );
+  }
+
+  Widget _placeholder({required bool waiting}) {
+    final indicator = FadeTransition(
+      opacity: _exit,
+      child: ChhersLoader(
+        size: widget.size,
+        animate: waiting,
+        onVisible: () => _showing = true,
+      ),
+    );
+    final placeholder =
+        widget.placeholderBuilder?.call(indicator) ?? Center(child: indicator);
+    return widget.overlapExit
+        ? ExcludeSemantics(
+            excluding: !waiting,
+            child: IgnorePointer(ignoring: !waiting, child: placeholder),
+          )
+        : placeholder;
+  }
+
+  void _reportContentLayout() {
+    if (!_contentReady && widget.onContentReady != null) {
+      _contentReady = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted &&
+            widget.child != null &&
+            (!_showing || widget.overlapExit)) {
+          widget.onContentReady?.call();
+        }
+      });
+    }
   }
 }

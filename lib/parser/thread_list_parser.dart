@@ -26,6 +26,10 @@ import 'dom_utils.dart';
 ThreadListPage parseThreadList(String html, {int? forumFid}) {
   final doc = html_parser.parse(html);
   throwIfMessagePage(doc);
+  return parseThreadListDocument(doc, forumFid: forumFid);
+}
+
+ThreadListPage parseThreadListDocument(dom.Document doc, {int? forumFid}) {
   final forumName = forumFid == null
       ? null
       : doc

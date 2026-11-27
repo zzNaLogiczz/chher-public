@@ -1,7 +1,6 @@
 /// ChhClient:传输层门面 —— 获取器链(直连→WebView 降级)+ 短 TTL 缓存
 ///
-/// 只负责「把 URL 变成 HTML」。页面解析与域编排在 lib/data/ 的各仓库里,
-/// 这样换 UI 框架或上鸿蒙时这一层可以整体搬走。
+/// 保留每次读取的响应序号，并把版块列表的模型与对应 HTML 一起缓存。
 library;
 
 import 'dart:async';
@@ -10,26 +9,26 @@ import 'package:flutter/foundation.dart';
 
 import '../core/app_log.dart';
 import '../core/chh_urls.dart';
+import '../parser/background_parser.dart';
+import '../parser/get_page_parser.dart';
+import '../parser/header_parser.dart';
+import '../parser/parser_worker.dart';
 import 'chh_fetcher.dart';
 import 'direct_fetcher.dart';
 import 'file_fetcher.dart';
 import 'webview_fetcher.dart';
 
 typedef _ThreadAddress = ({int? tid, int? page});
+typedef _HtmlPage = ({String html, int sequence, ParsedForumList? forumList});
 
 class _CacheEntry {
   final DateTime fetchedAt;
   final DateTime expiresAt;
-  final String html;
-  final int sequence;
+  final _HtmlPage page;
+  String get html => page.html;
+  int get sequence => page.sequence;
   _ThreadAddress? thread;
-  _CacheEntry(
-    this.html,
-    this.fetchedAt,
-    this.expiresAt,
-    this.sequence,
-    this.thread,
-  );
+  _CacheEntry(this.page, this.fetchedAt, this.expiresAt, this.thread);
   int get bytes => html.length * 2;
 }
 
@@ -39,7 +38,7 @@ class _ReadFlight {
   int latestSuccessfulSequence;
   final readers = <bool Function()?>[];
   bool get canContinue => readers.any((reader) => reader?.call() ?? true);
-  late final Future<String> future;
+  late final Future<_HtmlPage> future;
 }
 
 class ThreadReadCancelled implements Exception {
@@ -56,6 +55,15 @@ class ChhClient {
   final int maxCacheEntries;
   final int maxCacheBytes;
   final DateTime Function() now;
+  final ParserDispatch _dispatchParser;
+  ParserDispatch? _parserOverride;
+  ParserDispatch get dispatchParser => _parserOverride ?? _dispatchParser;
+
+  @visibleForTesting
+  void setParserDispatchForTesting(ParserDispatch? dispatch) {
+    _parserOverride = dispatch;
+  }
+
   final headerFreshness = ValueNotifier<DateTime?>(null);
   int _freshHeaderRevision = 0;
   int get freshHeaderRevision => _freshHeaderRevision;
@@ -80,8 +88,10 @@ class ChhClient {
     this.maxCacheEntries = 128,
     this.maxCacheBytes = 64 << 20,
     this.threadRequestInterval = defaultThreadRequestInterval,
+    ParserDispatch? dispatchParser,
     DateTime Function()? now,
   }) : assert(maxCacheEntries >= 0 && maxCacheBytes >= 0),
+       _dispatchParser = dispatchParser ?? dispatchParserInWorker,
        now = now ?? DateTime.now,
        fetchers = fetchers ?? [DirectFetcher(), WebViewFetcher()];
 
@@ -104,6 +114,10 @@ class ChhClient {
   ///
   /// 用来顺带读页头账号与未读计数；会话失效前发出的请求不再回调。
   /// 返回 true 表示识别到页头，用于拦截并发请求反序到达的旧计数。
+  bool Function(HeaderObservation observation)? headerObserver;
+
+  /// Raw-response hook for transport and legacy session tests.
+  @visibleForTesting
   bool Function(String html)? htmlObserver;
 
   /// WebView 引擎(登录 POST 等需要 Cookie 自动落仓的写操作专用)
@@ -119,21 +133,57 @@ class ChhClient {
     bool refresh = false,
     bool fallback = true,
     bool Function()? shouldContinue,
-  }) => _getHtml(
+  }) async => (await _getHtml(
     url,
     refresh: refresh,
     fallback: fallback,
     shouldContinue: shouldContinue,
-  );
+  )).html;
+
+  /// Both forum-list readers use the model attached to this exact response.
+  Future<ParsedForumList> getForumList(Uri url, {bool refresh = false}) async {
+    final page = await _getHtml(url, refresh: refresh);
+    return page.forumList!;
+  }
+
+  ParsedForumList? cachedForumList(Uri url) {
+    _pruneCache();
+    final key = '$url';
+    final entry = _cache[key];
+    if (entry?.page.forumList == null) return null;
+    _cache[key] = _cache.remove(key)!;
+    return entry!.page.forumList;
+  }
+
+  Future<({String html, int sequence})> getThreadHtml(
+    Uri url, {
+    required bool refresh,
+    bool Function()? shouldContinue,
+  }) async {
+    final page = await _getHtml(
+      url,
+      refresh: refresh,
+      shouldContinue: shouldContinue,
+      threadPage: true,
+    );
+    return (html: page.html, sequence: page.sequence);
+  }
 
   bool hasCachedHtml(Uri url) => cachedHtmlSequence(url) != null;
 
-  int? cachedHtmlSequence(Uri url, {String? matchingHtml}) {
+  int? cachedHtmlSequence(
+    Uri url, {
+    String? matchingHtml,
+    bool touch = false,
+  }) {
     _pruneCache();
-    final entry = _cache['$url'];
-    return matchingHtml == null || entry?.html == matchingHtml
-        ? entry?.sequence
-        : null;
+    final key = '$url';
+    final entry = _cache[key];
+    if (entry == null || (matchingHtml != null && entry.html != matchingHtml)) {
+      return null;
+    }
+    if (touch) _cache[key] = _cache.remove(key)!;
+    return entry.sequence;
   }
 
   bool isRecentHtml(Uri url) {
@@ -200,8 +250,8 @@ class ChhClient {
 
   /// Discuz interaction forms require an XMLHttpRequest-shaped GET.
   /// Keep its cached response separate from ordinary full-page HTML.
-  Future<String> getAjaxHtml(Uri url, {bool refresh = false}) =>
-      _getHtml(url, refresh: refresh, ajax: true);
+  Future<String> getAjaxHtml(Uri url, {bool refresh = false}) async =>
+      (await _getHtml(url, refresh: refresh, ajax: true)).html;
 
   /// Read a standalone AJAX payload with the current transport cookies, without
   /// caching it, observing the header or recording response details in GET logs.
@@ -213,11 +263,12 @@ class ChhClient {
     return response.status == 200 ? response.body : null;
   }
 
-  Future<String> _getHtml(
+  Future<_HtmlPage> _getHtml(
     Uri url, {
     bool refresh = false,
     bool fallback = true,
     bool ajax = false,
+    bool threadPage = false,
     bool Function()? shouldContinue,
   }) {
     if (shouldContinue?.call() == false) {
@@ -230,7 +281,7 @@ class ChhClient {
     if (!refresh && entry != null) {
       _cache.remove(key);
       _cache[key] = entry;
-      return Future.value(entry.html);
+      return Future.value(entry.page);
     }
     final directThread = ajax ? null : _threadAddress(url);
     final thread = directThread ?? entry?.thread;
@@ -249,12 +300,13 @@ class ChhClient {
     final flight = _ReadFlight(++_requestSequence, entry?.sequence ?? 0);
     flight.readers.add(shouldContinue);
     _inFlight[request] = flight;
-    Future<String> read() => _fetchHtml(
+    Future<_HtmlPage> read() => _fetchHtml(
       url,
       key: key,
       generation: generation,
       fallback: fallback,
       ajax: ajax,
+      threadPage: threadPage,
       thread: thread,
       threadTtl: directThread != null,
       refreshThread: refreshThread,
@@ -280,8 +332,8 @@ class ChhClient {
     return flight.future;
   }
 
-  Future<String> _readThread(
-    Future<String> Function() read, {
+  Future<_HtmlPage> _readThread(
+    Future<_HtmlPage> Function() read, {
     required String key,
     required int generation,
     required bool refresh,
@@ -306,7 +358,7 @@ class ChhClient {
       _pruneCache();
       // Another transport policy may have filled this page while it queued.
       final cached = _cache[key];
-      if (!refresh && cached != null) return cached.html;
+      if (!refresh && cached != null) return cached.page;
       if (_lastThreadReadAt case final last?) {
         final remaining = threadRequestInterval - now().difference(last);
         if (remaining > Duration.zero) await Future<void>.delayed(remaining);
@@ -338,22 +390,15 @@ class ChhClient {
 
   void _cacheHtml(
     String key,
-    String html,
-    int sequence, {
+    _HtmlPage page,
+    DateTime fetchedAt, {
     required _ThreadAddress? thread,
     required bool threadTtl,
   }) {
     _pruneCache();
     _removeCached(key);
     final ttl = threadTtl ? const Duration(minutes: 30) : cacheTtl;
-    final fetchedAt = now();
-    final entry = _CacheEntry(
-      html,
-      fetchedAt,
-      fetchedAt.add(ttl),
-      sequence,
-      thread,
-    );
+    final entry = _CacheEntry(page, fetchedAt, fetchedAt.add(ttl), thread);
     // UTF-16 is a conservative payload budget without allocating encoded copies.
     if (maxCacheEntries == 0 || entry.bytes > maxCacheBytes) return;
     _cache[key] = entry;
@@ -363,12 +408,13 @@ class ChhClient {
     }
   }
 
-  Future<String> _fetchHtml(
+  Future<_HtmlPage> _fetchHtml(
     Uri url, {
     required String key,
     required int generation,
     required bool fallback,
     required bool ajax,
+    required bool threadPage,
     required _ThreadAddress? thread,
     required bool threadTtl,
     required bool refreshThread,
@@ -376,6 +422,12 @@ class ChhClient {
     required _ReadFlight flight,
   }) async {
     final sequence = flight.sequence;
+    final fid =
+        !ajax &&
+            url.path == '/forum.php' &&
+            url.queryParameters['mod'] == 'forumdisplay'
+        ? int.tryParse(url.queryParameters['fid'] ?? '')
+        : null;
     final failures = <String>[];
     var wafDetected = false;
     for (final f in fallback ? fetchers : fetchers.take(1)) {
@@ -395,8 +447,32 @@ class ChhClient {
       if (generation == _cacheGeneration && !isCurrentThread()) {
         throw const ThreadReadCancelled();
       }
-      final rejection = resp.getPageRejection(url, ajax: ajax);
-      if (!resp.isBlocked && rejection == null) {
+      final fetchedAt = now();
+      final input = (
+        html: resp.body,
+        status: resp.status,
+        url: url,
+        ajax: ajax,
+        forumFid: fid,
+        observeHeader:
+            headerObserver != null &&
+            resp.status == 200 &&
+            generation == _cacheGeneration &&
+            sequence >= _lastObservedHeaderSequence,
+      );
+      final inspected =
+          fid != null || threadPage || thread != null || input.observeHeader
+          ? await inspectGetPageAsync(input, dispatch: dispatchParser)
+          : inspectGetPage(input);
+      if (generation == _cacheGeneration && !isCurrentThread()) {
+        throw const ThreadReadCancelled();
+      }
+      if (!inspected.blocked && inspected.rejection == null) {
+        final page = (
+          html: resp.body,
+          sequence: sequence,
+          forumList: inspected.forumList,
+        );
         _lastFetcherName = f.name;
         if (generation == _cacheGeneration &&
             sequence >= flight.latestSuccessfulSequence &&
@@ -409,8 +485,8 @@ class ChhClient {
           }
           _cacheHtml(
             key,
-            resp.body,
-            sequence,
+            page,
+            fetchedAt,
             thread: thread,
             threadTtl: threadTtl,
           );
@@ -418,29 +494,31 @@ class ChhClient {
         AppLog.i(
           'GET',
           '${f.name} ${AppLog.url(url)} '
-              'status=${resp.status} len=${resp.body.length} title=${AppLog.failureReason(resp.titleSummary)}',
+              'status=${resp.status} len=${resp.body.length} title=${AppLog.failureReason(inspected.title)}',
         );
+        final header = inspected.header;
         if (resp.status == 200 &&
             generation == _cacheGeneration &&
             sequence >= _lastObservedHeaderSequence &&
-            htmlObserver?.call(resp.body) == true) {
+            (header == null
+                ? htmlObserver?.call(resp.body) == true
+                : headerObserver?.call(header) == true)) {
           _lastObservedHeaderSequence = sequence;
           if (generation == _cacheGeneration) {
             _freshHeaderRevision++;
             headerFreshness.value = now();
           }
         }
-        return resp.body;
+        return page;
       }
-      wafDetected =
-          wafDetected || resp.hasWafFeatures || rejection == 'challenge';
+      wafDetected = wafDetected || inspected.waf;
       final reason = resp.error == null ? '' : AppLog.failureReason(resp.error);
       failures.add('${f.name} status=${resp.status} error=$reason');
       AppLog.w(
         'GET',
         '${f.name} 被拦 ${AppLog.url(url)} '
             'status=${resp.status} len=${resp.body.length} '
-            'title=${AppLog.failureReason(resp.titleSummary)} reason=${rejection ?? 'blocked'} error=$reason',
+            'title=${AppLog.failureReason(inspected.title)} reason=${inspected.rejection ?? 'blocked'} error=$reason',
       );
     }
     AppLog.e('GET', '所有通道失败 ${AppLog.url(url)} ${failures.join('; ')}');

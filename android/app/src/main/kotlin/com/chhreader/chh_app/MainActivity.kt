@@ -17,6 +17,7 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.android.FlutterSurfaceView
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import io.flutter.plugin.text.ProcessTextPlugin
 
 /** A per-window preference. Battery saver, user settings and OEM policy still win. */
 class MainActivity : FlutterActivity() {
@@ -34,6 +35,7 @@ class MainActivity : FlutterActivity() {
     private var accountsBridge: AccountsBridge? = null
     private var motionBridge: MotionBridge? = null
     private var supportBridge: SupportBridge? = null
+    private var processTextHandler: CachedProcessTextHandler? = null
     private var surfaceVoteHz = 0f
     private var lastError: String? = null
     private var originalModeId = 0
@@ -90,6 +92,10 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        val processTextPlugin = flutterEngine.plugins.get(ProcessTextPlugin::class.java) as? ProcessTextPlugin
+        processTextHandler = processTextPlugin?.let { plugin ->
+            CachedProcessTextHandler(plugin).also(flutterEngine.processTextChannel::setMethodHandler)
+        }
         editorTouchBridge?.dispose()
         editorTouchBridge = EditorTouchBridge(this, flutterEngine)
         composerBackBridge?.dispose()
@@ -173,6 +179,7 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onResume() {
+        processTextHandler?.invalidate()
         super.onResume()
         resumed = true
         requestPreferredRefresh()

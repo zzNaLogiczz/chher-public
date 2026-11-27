@@ -12,6 +12,7 @@ import 'package:html/parser.dart' as html_parser;
 
 import '../core/chh_urls.dart';
 import '../models/models.dart';
+import 'content_walker.dart' show smileyUrl;
 import 'dom_utils.dart';
 
 /// 会话列表:私人消息与公共消息走同一结构,只是容器 id 前缀不同
@@ -112,14 +113,15 @@ List<PmMessage> parsePmThread(String html) {
     final authorA = selfMark == null
         ? ptm.querySelector('a.xw1') ?? found?.el
         : null;
-    final body = textWithout(ptm, [
-      'a.xw1',
-      'span.xw1',
-      'span.xg1',
-      '.o',
-      '.y',
-    ]);
-    if (body.isEmpty) continue;
+    final content = ptm.clone(true);
+    for (final meta in content.querySelectorAll(
+      'a.xw1, span.xw1, span.xg1, .o, .y',
+    )) {
+      meta.remove();
+    }
+    final body = cleanText(content.text);
+    final nodes = _smileyNodes(content);
+    if (body.isEmpty && nodes.isEmpty) continue;
     // 头像栏的主页链接对双方都存在,作者链接缺失时用它补 UID
     final avatarHref = dl.querySelector('dd.avt a')?.attributes['href'] ?? '';
 
@@ -133,11 +135,51 @@ List<PmMessage> parsePmThread(String html) {
             ChhUrls.uidFromUrl(avatarHref),
         timeRaw: cleanText(ptm.querySelector('span.xg1')?.text),
         text: body,
+        nodes: nodes,
         fromSelf: selfMark != null,
       ),
     );
   }
   return out;
+}
+
+final _whitespace = RegExp(r'[\s\u00a0]+');
+
+List<InlineNode> _smileyNodes(dom.Element content) {
+  if (content.querySelector('img') == null) return const [];
+  final nodes = <InlineNode>[];
+  final text = StringBuffer();
+
+  void flushText({bool last = false}) {
+    var run = text.toString().replaceAll(_whitespace, ' ');
+    text.clear();
+    if (nodes.isEmpty) run = run.trimLeft();
+    if (last) run = run.trimRight();
+    if (run.isNotEmpty) nodes.add(InlineText(run));
+  }
+
+  void visit(dom.Node node) {
+    if (node is dom.Text) {
+      text.write(node.data);
+      return;
+    }
+    if (node is dom.Element && node.localName == 'img') {
+      final url = smileyUrl(node);
+      if (url != null) {
+        flushText();
+        nodes.add(InlineSmiley(url));
+      }
+      return;
+    }
+    for (final child in node.nodes) {
+      visit(child);
+    }
+  }
+
+  visit(content);
+  if (nodes.isEmpty) return const [];
+  flushText(last: true);
+  return List.unmodifiable(nodes);
 }
 
 /// 会话回复表单(实测 2026-10-25)

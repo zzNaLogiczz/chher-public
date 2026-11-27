@@ -31,6 +31,10 @@ abstract final class AppMotion {
     snapToEnd: true,
   );
 
+  // Finish a page push once less than 0.5% of its travel remains and the
+  // spring is moving less than that distance per 60 Hz frame.
+  static const routeEntryTolerance = Tolerance(distance: .005, velocity: .075);
+
   /// Reading and compose controls settle from their current scroll position.
   static const scrollChrome = CupertinoMotion(
     duration: Duration(milliseconds: 260),
@@ -113,6 +117,7 @@ abstract final class AppMotion {
     required CupertinoMotion motion,
     double? velocity,
     bool reduced = false,
+    Tolerance tolerance = Tolerance.defaultTolerance,
   }) {
     final releaseVelocity = velocity ?? controller.velocity;
     if (reduced) {
@@ -125,6 +130,7 @@ abstract final class AppMotion {
       target,
       releaseVelocity,
       snapToEnd: true,
+      tolerance: tolerance,
     );
     return target < controller.value
         ? controller.animateBackWith(simulation)

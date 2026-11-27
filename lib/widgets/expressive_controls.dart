@@ -74,6 +74,7 @@ class ExpressiveVisibility extends StatelessWidget {
 class ExpressivePageReveal extends StatefulWidget {
   final bool active;
   final bool animateOnMount;
+  final bool startOnFirstFrame;
 
   /// Large cached destinations can move without an offscreen opacity layer.
   final bool fade;
@@ -87,6 +88,7 @@ class ExpressivePageReveal extends StatefulWidget {
     required this.active,
     required this.child,
     this.animateOnMount = false,
+    this.startOnFirstFrame = false,
     this.fade = true,
     this.revision,
     this.sliver = false,
@@ -97,6 +99,7 @@ class ExpressivePageReveal extends StatefulWidget {
 
 class _ExpressivePageRevealState extends State<ExpressivePageReveal>
     with SingleTickerProviderStateMixin {
+  bool _mountRevealStarted = false;
   late final _progress = AnimationController(
     vsync: this,
     duration: AppMotion.fade,
@@ -110,13 +113,14 @@ class _ExpressivePageRevealState extends State<ExpressivePageReveal>
     _progress.duration = MediaQuery.disableAnimationsOf(context)
         ? AppMotion.reducedFade
         : AppMotion.fade;
-    _progress.forward(from: 0);
+    // Paint the start of the fade on the frame that lays out the content.
+    _progress.forward(from: widget.startOnFirstFrame ? 1 / 12 : 0);
   }
 
   @override
   void initState() {
     super.initState();
-    if (widget.animateOnMount) {
+    if (widget.animateOnMount && !widget.startOnFirstFrame) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted && widget.active) _reveal();
       });
@@ -136,7 +140,13 @@ class _ExpressivePageRevealState extends State<ExpressivePageReveal>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (MediaQuery.disableAnimationsOf(context)) _progress.value = 1;
+    if (MediaQuery.disableAnimationsOf(context) && _progress.isAnimating) {
+      _progress.value = 1;
+    }
+    if (!_mountRevealStarted && widget.startOnFirstFrame) {
+      _mountRevealStarted = true;
+      if (widget.animateOnMount && widget.active) _reveal();
+    }
   }
 
   @override

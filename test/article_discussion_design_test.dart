@@ -215,7 +215,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('回复').first);
       await tester.pumpAndSettle();
-      expect(find.text('回复给 测试读者甲'), findsOneWidget);
+      expect(find.text('回复 测试读者甲'), findsOneWidget);
       await tester.enterText(find.byType(TextField), '新的回复草稿');
       await tester.pumpAndSettle();
       await tester.tap(find.text('发送'));

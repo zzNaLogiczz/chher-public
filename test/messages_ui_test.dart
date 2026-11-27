@@ -11,12 +11,15 @@ import 'package:chh_app/network/chh_client.dart';
 import 'package:chh_app/pages/messages_page.dart';
 import 'package:chh_app/pages/pm_thread_page.dart';
 import 'package:chh_app/parser/header_parser.dart';
+import 'package:chh_app/ui/app_button.dart';
 import 'package:chh_app/ui/message_filters.dart';
 import 'package:chh_app/ui/chat.dart';
 import 'package:chh_app/widgets/lacquer_tab_scaffold.dart';
 import 'package:chh_app/widgets/compact_scaffold.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import 'support/composer_voice_fixture.dart';
 
 const pmFixture = PmConversation(
   id: 'conversation-1',
@@ -144,7 +147,26 @@ void phone(WidgetTester tester) {
 }
 
 void main() {
-  chatButtonTests();
+  hostDictationKeyboardTests('private message', (tester) async {
+    phone(tester);
+    await showPm(tester, FakeMessages());
+    return find.byKey(const ValueKey('pm-input'));
+  });
+  testWidgets('dictation inserts and undoes private message text', (
+    tester,
+  ) async {
+    phone(tester);
+    final engine = installVoiceFixture();
+    final repository = FakeMessages();
+    await showPm(tester, repository);
+    await expectHostDictation(
+      tester,
+      engine,
+      find.byKey(const ValueKey('pm-input')),
+    );
+    expect(repository.sends, 0);
+  });
+
   testWidgets('titled messages keep section state and shared back navigation', (
     tester,
   ) async {
@@ -281,6 +303,44 @@ void main() {
     });
   }
 
+  testWidgets('pm send capsule docks in place and enables only for text', (
+    tester,
+  ) async {
+    phone(tester);
+    final repository = FakeMessages();
+    await showPm(tester, repository);
+    final send = find.byKey(const ValueKey('pm-send'));
+    final field = find.byKey(const ValueKey('pm-input'));
+    final surface = find.descendant(
+      of: send,
+      matching: find.byKey(AppButton.surfaceKey),
+    );
+    final label = find.descendant(of: send, matching: find.text('发送'));
+    expect(label, findsOneWidget);
+    final empty = tester.getRect(surface);
+    expect(empty.size, const Size(60, 36));
+    expect(tester.getCenter(label), empty.center);
+    expect(empty.right, 390 - 8);
+    expect(tester.getSize(send).height, greaterThanOrEqualTo(44));
+    expect(
+      tester.widget<AppButton>(send).variant,
+      AppButtonVariant.composerSend,
+    );
+    expect(tester.widget<AppButton>(send).onPressed, isNull);
+    await tester.tap(send);
+    await tester.pump();
+    expect(repository.sends, 0);
+
+    await tester.enterText(field, '打字以启用发送');
+    await tester.pumpAndSettle();
+    expect(tester.getRect(surface), empty);
+    expect(tester.widget<AppButton>(send).onPressed, isNotNull);
+    await tester.enterText(field, '  ');
+    await tester.pumpAndSettle();
+    expect(tester.getRect(surface), empty);
+    expect(tester.widget<AppButton>(send).onPressed, isNull);
+  });
+
   testWidgets(
     'failed send retains draft and rapid repeat cannot submit twice',
     (tester) async {
@@ -292,9 +352,24 @@ void main() {
         '请问电源的具体型号？',
       );
       await tester.pump();
-      await tester.tap(find.byKey(const ValueKey('pm-send')));
+      final originY = tester
+          .getTopLeft(find.byKey(const ValueKey('pm-composer')))
+          .dy;
+      final send = find.byKey(const ValueKey('pm-send'));
+      await tester.tap(send);
       await tester.pump();
-      await tester.tap(find.byKey(const ValueKey('pm-send')));
+      final button = tester.widget<AppButton>(send);
+      expect(button.state, AppButtonState.busy);
+      expect(button.label, '发送中');
+      expect(
+        tester.widget<TextField>(find.byKey(const ValueKey('pm-input'))).enabled,
+        isFalse,
+      );
+      expect(
+        tester.widget<ChatArrival>(find.byType(ChatArrival)).originY,
+        originY,
+      );
+      await tester.tap(send);
       await tester.pump();
       expect(repository.sends, 1);
       repository.pending!.complete(
@@ -338,26 +413,37 @@ void main() {
     },
   );
 
-  testWidgets('confirmed success clears input and reloads conversation', (
-    tester,
-  ) async {
-    final repository = FakeMessages()
-      ..response = const PostResult(PostResultKind.success, '发送成功');
-    await showPm(tester, repository);
-    await tester.enterText(find.byKey(const ValueKey('pm-input')), '谢谢分享');
-    await tester.pump();
-    await tester.tap(find.byKey(const ValueKey('pm-send')));
-    await tester.pumpAndSettle();
-    expect(
-      tester
-          .widget<TextField>(find.byKey(const ValueKey('pm-input')))
+  testWidgets(
+    'confirmed success clears input, reloads and scrolls to the end',
+    (tester) async {
+      phone(tester);
+      final repository = _RefreshingMessages()
+        ..server = [for (var i = 0; i < 32; i++) _sent('$i', '已发送的私信 $i')];
+      await showPm(tester, repository);
+      final position = tester
+          .widget<ListView>(find.byType(ListView))
           .controller!
-          .text,
-      isEmpty,
-    );
-    expect(repository.reads, 2);
-    expect(repository.sends, 1);
-  });
+          .position;
+      position.jumpTo(0);
+      await tester.pump();
+      expect(position.pixels, lessThan(position.maxScrollExtent));
+      await tester.enterText(find.byKey(const ValueKey('pm-input')), '谢谢分享');
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('pm-send')));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<TextField>(find.byKey(const ValueKey('pm-input')))
+            .controller!
+            .text,
+        isEmpty,
+      );
+      expect(repository.reads, 2);
+      expect(repository.sends, 1);
+      expect(position.pixels, closeTo(position.maxScrollExtent, .5));
+      expect(find.text('谢谢分享').hitTestable(), findsOneWidget);
+    },
+  );
 
   testWidgets(
     'confirmed bubble appears before refresh and survives stale data',
@@ -508,6 +594,14 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('pm-send')), findsNothing);
+      final panel = tester.getRect(
+        find.byKey(const ValueKey('pm-announcement')),
+      );
+      final label = tester.getRect(find.text('公共消息不能回复'));
+      expect(panel, const Rect.fromLTRB(0, 462, 390, 564));
+      expect(label.left, 20);
+      expect(label.center.dy, panel.top + 6 + 22);
+      expect(tester.getRect(find.byType(ListView)).bottom, panel.top);
     },
   );
 
@@ -624,6 +718,36 @@ void main() {
     },
   );
 
+  testWidgets('send requiring login preserves the draft through login', (
+    tester,
+  ) async {
+    final repository = FakeMessages()
+      ..response = const PostResult(PostResultKind.loginRequired, '请先登录');
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(Brightness.light),
+        routes: {'/login': (_) => const Scaffold(body: Text('登录页面'))},
+        home: PmThreadPage(conversation: pmFixture, repository: repository),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final input = find.byKey(const ValueKey('pm-input'));
+    await tester.enterText(input, '登录后继续的私信');
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('pm-send')));
+    await tester.pumpAndSettle();
+    expect(find.text('请先登录'), findsOneWidget);
+    expect(find.text('未送达，轻点重试'), findsNothing);
+    await tester.tap(find.text('登录'));
+    await tester.pumpAndSettle();
+    expect(find.text('登录页面'), findsOneWidget);
+    tester.state<NavigatorState>(find.byType(Navigator)).pop();
+    await tester.pumpAndSettle();
+    expect(tester.widget<TextField>(input).controller!.text, '登录后继续的私信');
+    expect(repository.reads, 2);
+    expect(repository.sends, 1);
+  });
+
   testWidgets('login state offers an actionable login route', (tester) async {
     final repository = FakeMessages()
       ..readError = const PageMessage(PageMessageKind.loginRequired, '请先登录');
@@ -639,40 +763,6 @@ void main() {
     await tester.tap(find.text('登录'));
     await tester.pumpAndSettle();
     expect(find.text('登录页面'), findsOneWidget);
-  });
-}
-
-void chatButtonTests() {
-  testWidgets('pm send button pops in only with text', (tester) async {
-    Widget button(bool visible) => MaterialApp(
-      theme: buildAppTheme(Brightness.light),
-      home: Scaffold(
-        body: Center(
-          child: ChatSendButton(
-            visible: visible,
-            sending: false,
-            onPressed: () {},
-          ),
-        ),
-      ),
-    );
-    await tester.pumpWidget(button(false));
-    await tester.pumpAndSettle();
-    double scale() => tester
-        .widget<Transform>(
-          find
-              .descendant(
-                of: find.byType(ChatSendButton),
-                matching: find.byType(Transform),
-              )
-              .first,
-        )
-        .transform
-        .storage[0];
-    expect(scale(), 0);
-    await tester.pumpWidget(button(true));
-    await tester.pumpAndSettle();
-    expect(scale(), closeTo(1, .001));
   });
 }
 

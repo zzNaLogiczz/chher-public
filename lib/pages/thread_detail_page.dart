@@ -7,6 +7,7 @@ import 'dart:math' as math;
 import 'package:flutter/gestures.dart' show PointerDeviceKind, VelocityTracker;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollCacheExtent;
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/cupertino.dart' show CupertinoIcons;
 import '../ui/balanced_title.dart';
 import '../design/display_text.dart';
@@ -59,6 +60,7 @@ import '../widgets/reading_list_end.dart';
 import '../widgets/post_feedback.dart';
 import '../widgets/state_view.dart';
 import '../data/thread_conversation_index.dart';
+import '../data/thread_page_reading.dart';
 import '../data/forum_repository.dart';
 import '../network/chh_client.dart' show ChhClient, ThreadReadCancelled;
 import '../widgets/password_sheet.dart';
@@ -66,10 +68,17 @@ import '../data/thread_read_index.dart';
 import '../widgets/thread_comment_widgets.dart';
 import '../widgets/anchored_reading_list.dart';
 import '../widgets/thread_landing.dart';
+import '../widgets/route_entry_gate.dart';
 
 typedef ThreadPageLoader =
     Future<ThreadDetail> Function(int page, String? authorUid, bool refresh);
 typedef ThreadGotoLoader = Future<ThreadDetail> Function(String url);
+typedef _ThreadCoverage = ({
+  int lastPage,
+  bool recent,
+  int? replyCount,
+  int? verifiedCountSequence,
+});
 typedef ThreadReplySubmitter =
     Future<PostResult> Function({
       required int tid,
@@ -148,7 +157,17 @@ class ThreadDetailPage extends StatefulWidget {
 class _ThreadDetailPageState extends State<ThreadDetailPage>
     with TickerProviderStateMixin, WidgetsBindingObserver {
   bool _initialDetailConsumed = false;
-  final _scroll = ScrollController();
+  double? _initialAnchorPixels;
+  late final _scroll = ScrollController(
+    onAttach: (position) {
+      final pixels = _initialAnchorPixels;
+      if (pixels == null) return;
+      _initialAnchorPixels = null;
+      position.correctPixels(pixels);
+      _animateFocus(_highlightPid);
+    },
+  );
+  final _entryGate = RouteEntryGate();
   final _readListKey = GlobalKey();
   String? _centerEntryKey;
 
@@ -205,10 +224,14 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     value: 1,
   );
   final _pages = <int, ThreadDetail>{};
-  final _postPages = <int, int>{};
-  final _knownPids = <int>{};
+  Map<int, int> _postPages = const {};
+  int? _singleReadPage;
   final _entries = <_ThreadReadEntry>[];
   final _entryIndices = <String, int>{};
+  Iterator<_ThreadReadEntry>? _firstViewport;
+  _FirstThreadRead? _firstRead;
+  bool _animateInitialArrival = false;
+  Post? _openingPost;
   ThreadDetail? _loadedDetail;
   int? _replyCountSequence;
   ({int replies, int sequence})? _verifiedReplyCount;
@@ -252,6 +275,8 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
           WidgetsBinding.instance.lifecycleState ==
               AppLifecycleState.resumed) &&
       !_loading &&
+      _firstRead?.cached != true &&
+      _firstRead?.positioning != true &&
       !_loadingBefore &&
       _updateCheck == null &&
       !_landingPaintPending &&
@@ -322,16 +347,19 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
   bool _blocked(Post post) => _blocks.isBlocked(post.authorUid);
   bool _isSourcePost(Post post) => post.pid == _activeBlockSource?.pid;
   Post? get _blockedSourcePost {
-    final post = _index.postsByPid[_activeBlockSource?.pid];
+    final pid = _activeBlockSource?.pid;
+    final post = _index.postsByPid[pid];
     return post != null && _blocked(post) ? post : null;
   }
 
-  List<Post> _conversationReplies(int pid) => _index
-      .repliesFor(pid)
-      .where((p) => !_blocked(p) || _isSourcePost(p))
-      .toList();
-  int get _shownReplyCount =>
-      _orderedPosts.where((p) => !postIsOpening(p) && !_blocked(p)).length;
+  List<Post> _conversationReplies(int pid) {
+    final replies = _index.repliesFor(pid);
+    if (_blocks.blockedUids.isEmpty) return replies;
+    return replies.where((p) => !_blocked(p) || _isSourcePost(p)).toList();
+  }
+
+  int _shownReplyCount = 0;
+  bool _completeReplyCount = false;
   final _unlocking = <int>{};
   bool _forumPasswordOpen = false;
   ForumRepository get _repository => widget.repository ?? forumRepo;
@@ -380,7 +408,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
 
   int? _highlightPid;
   bool _pauseHiddenAppend = false;
-  final _pinnedRoots = <int>{};
+  Set<int> _pinnedRoots = const {};
   final _visibleReplies = <int, int>{};
   final _heldReplies = <int, ValueNotifier<bool>>{};
   int? _expandingRoot;
@@ -400,13 +428,17 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     parent: _replyReveal,
     curve: AppMotion.revealCurve,
   );
-  List<Post> _orderedPosts = const [];
+  Iterable<Post> get _orderedPosts => _index.postsByPid.values;
   late ThreadConversationIndex _index = ThreadConversationIndex.build(
     tid: widget.tid,
     posts: const [],
   );
   @visibleForTesting
   ThreadConversationIndex get debugConversationIndex => _index;
+  @visibleForTesting
+  int get debugPreparedEntryCount => _entries.length;
+  @visibleForTesting
+  bool get debugPreparingEntries => _firstViewport != null;
 
   void _update(VoidCallback change) => setState(change);
 
@@ -440,8 +472,12 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
             _focusTargetPid == null &&
             widget.initialPage == 1;
         if (_loadedDetail != null && !_loading) {
-          _rebuildReadIndex();
-          if (_preferAuthor) {
+          if (_firstRead case final firstRead? when !firstRead.layoutReported) {
+            _restartFirstProjection();
+          } else {
+            _rebuildReadEntries();
+          }
+          if (_preferAuthor && _firstRead == null) {
             _preferAuthor = false;
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (mounted) _enterAuthorMode(null);
@@ -456,7 +492,19 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
         _landingArrival.value = 1;
       }
     }
+    if (!_initialReadStarted) {
+      _initialReadStarted = true;
+      _loadInitial(
+        useGoto: true,
+        deferColdStart:
+            !_portalLanding &&
+            widget.loadPage == null &&
+            widget.loadGoto == null,
+      );
+    }
   }
+
+  bool _initialReadStarted = false;
 
   String? _replyToAuthor(Post post) {
     if (!_grouped) return null;
@@ -476,48 +524,74 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     return author == null || author.isEmpty ? null : author;
   }
 
-  void _rebuildReadIndex() {
-    final seen = <int>{};
+  ({ThreadConversationIndex index, Map<int, int> postPages}) _buildReadIndex() {
     final keys = _pages.keys.toList()..sort();
-    _postPages.clear();
+    final postPages = <int, int>{};
     final orderedPosts = <Post>[];
     for (final page in keys) {
       for (final post in _pages[page]!.posts) {
-        if (seen.add(post.pid)) {
-          _postPages[post.pid] = page;
+        if (!postPages.containsKey(post.pid)) {
+          postPages[post.pid] = page;
           orderedPosts.add(post);
         }
       }
     }
-    _knownPids
-      ..clear()
-      ..addAll(seen);
-    _orderedPosts = List.unmodifiable(orderedPosts);
     final complete =
         _authorUid == null &&
         !_sourceMayHaveChanged &&
         keys.firstOrNull == 1 &&
         keys.last == keys.length &&
         !_pages[keys.last]!.page.hasNext;
-    _index = ThreadConversationIndex.build(
-      tid: widget.tid,
-      posts: orderedPosts,
-      sourceComplete: complete,
-      pinnedRootPids: _pinnedRoots,
+    return (
+      postPages: postPages,
+      index: ThreadConversationIndex.build(
+        tid: widget.tid,
+        posts: orderedPosts,
+        sourceComplete: complete,
+        pinnedRootPids: _pinnedRoots,
+      ),
     );
-    _pinnedRoots.addAll(_index.roots.map((p) => p.pid));
+  }
+
+  void _applyReadIndex(
+    ({ThreadConversationIndex index, Map<int, int> postPages}) snapshot,
+  ) {
+    _firstViewport = null;
+    _index = snapshot.index;
+    _singleReadPage = null;
+    _postPages = snapshot.postPages;
+    _openingPost = _orderedPosts.where(postIsOpening).firstOrNull;
+    _shownReplyCount = _orderedPosts
+        .where((post) => !postIsOpening(post) && !_blocked(post))
+        .length;
+    _completeReplyCount = _index.sourceComplete && !_orderedPosts.any(_blocked);
+    _pinnedRoots = {..._pinnedRoots, ..._index.roots.map((p) => p.pid)};
+  }
+
+  int? _pageForPost(int pid) => _singleReadPage == null
+      ? _postPages[pid]
+      : _index.postsByPid.containsKey(pid)
+      ? _singleReadPage
+      : null;
+
+  void _rebuildReadIndex() {
+    _applyReadIndex(_buildReadIndex());
     _rebuildReadEntries();
   }
 
   // 展开数量变化只更新展示投影，已加载楼层和引用归组快照保持不变。
   void _rebuildReadEntries() {
-    _entries.clear();
-    _entryIndices.clear();
+    _firstViewport = null;
+    _applyReadEntries(_projectReadEntries());
+  }
+
+  Iterable<_ThreadReadEntry> _projectReadEntries() sync* {
+    final ordered = _orderedPosts;
     var commentsStarted = false;
-    for (final post in _grouped ? _index.roots : _orderedPosts) {
+    for (final post in _grouped ? _index.roots : ordered) {
       if (!postIsOpening(post) && !commentsStarted) {
         commentsStarted = true;
-        _entries.add(_ThreadReadEntry(post, _ThreadEntryKind.commentsHeading));
+        yield _ThreadReadEntry(post, _ThreadEntryKind.commentsHeading);
       }
       final replies = _grouped
           ? _conversationReplies(post.pid)
@@ -525,10 +599,10 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
       if (_blocked(post)) {
         if (!postIsOpening(post) &&
             (_isSourcePost(post) || (_grouped && replies.isNotEmpty))) {
-          _entries.add(_ThreadReadEntry(post, _ThreadEntryKind.blocked));
+          yield _ThreadReadEntry(post, _ThreadEntryKind.blocked);
         }
       } else {
-        _addPostEntries(post);
+        yield* _projectPostEntries(post);
       }
       if (_grouped && !postIsOpening(post)) {
         final visible = (_visibleReplies[post.pid] ?? 0).clamp(
@@ -538,27 +612,34 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
         for (var i = 0; i < visible; i++) {
           final reply = replies[i];
           if (_blocked(reply)) {
-            _entries.add(
-              _ThreadReadEntry(reply, _ThreadEntryKind.blocked, nested: true),
+            yield _ThreadReadEntry(
+              reply,
+              _ThreadEntryKind.blocked,
+              nested: true,
             );
           } else {
-            _addPostEntries(reply, nested: true);
+            yield* _projectPostEntries(reply, nested: true);
           }
         }
         // Source pages contain mixed conversations, so the source-wide total
         // must never be advertised as this root's remaining reply count.
         if (replies.isNotEmpty || _visibleReplies.containsKey(post.pid)) {
-          _entries.add(_ThreadReadEntry(post, _ThreadEntryKind.replies));
+          yield _ThreadReadEntry(post, _ThreadEntryKind.replies);
         }
       }
     }
     // 查看方式切换在评论区标题上;只有首楼(例如只看楼主时)也必须给出标题,
     // 否则用户无法切回评论或原楼层
-    if (!commentsStarted && _orderedPosts.isNotEmpty) {
-      _entries.add(
-        _ThreadReadEntry(_orderedPosts.last, _ThreadEntryKind.commentsHeading),
-      );
+    if (!commentsStarted && ordered.isNotEmpty) {
+      yield _ThreadReadEntry(ordered.last, _ThreadEntryKind.commentsHeading);
     }
+  }
+
+  void _applyReadEntries(Iterable<_ThreadReadEntry> entries) {
+    _entries
+      ..clear()
+      ..addAll(entries);
+    _entryIndices.clear();
     for (var i = 0; i < _entries.length; i++) {
       _entryIndices[_entries[i].key] = i + 1;
     }
@@ -568,6 +649,23 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
       _centerEntryKey = null;
       if (_scroll.hasClients) _scroll.position.correctPixels(0);
     }
+  }
+
+  bool _prepareNextEntry() {
+    final viewport = _firstViewport;
+    if (viewport == null || !viewport.moveNext()) {
+      _firstViewport = null;
+      return false;
+    }
+    final entry = viewport.current;
+    _entries.add(entry);
+    _entryIndices[entry.key] = _entries.length;
+    return true;
+  }
+
+  _ThreadReadEntry? _entryAt(int index) {
+    while (index > _entries.length && _prepareNextEntry()) {}
+    return index <= _entries.length ? _entries[index - 1] : null;
   }
 
   void _rebuildProgressIndex() {
@@ -649,7 +747,10 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     }
   }
 
-  void _addPostEntries(Post post, {bool nested = false}) {
+  Iterable<_ThreadReadEntry> _projectPostEntries(
+    Post post, {
+    bool nested = false,
+  }) sync* {
     post = projectBlockedPost(
       post,
       tid: widget.tid,
@@ -673,42 +774,34 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     final shortImageGroup =
         smallSegments?.any((segment) => segment.imageStack != null) ?? false;
     if (post.lock != null || (smallReply && !shortImageGroup)) {
-      _entries.add(
-        _ThreadReadEntry(post, _ThreadEntryKind.whole, nested: nested),
-      );
+      yield _ThreadReadEntry(post, _ThreadEntryKind.whole, nested: nested);
       return;
     }
     final gallery = List<String>.unmodifiable(images);
-    _entries.add(
-      _ThreadReadEntry(post, _ThreadEntryKind.header, nested: nested),
-    );
+    yield _ThreadReadEntry(post, _ThreadEntryKind.header, nested: nested);
     var firstContent = true;
     for (final segment in smallSegments ?? groupPostImages(blocks)) {
       final block = segment.block;
       if (hideQuotes && block is QuoteBlock && !block.isNotice) continue;
       final group = segment.imageStack;
-      _entries.add(
-        _ThreadReadEntry(
-          post,
-          group == null ? _ThreadEntryKind.block : _ThreadEntryKind.imageStack,
-          block: block,
-          imageStack: group,
-          siteLinks: segment.siteLinks,
-          linksGrouped: segment.linksGrouped,
-          linkGroupStart: segment.linkGroupStart,
-          linkGroupEnd: segment.linkGroupEnd,
-          firstContent: firstContent,
-          blockIndex: segment.blockIndex,
-          gallery: gallery,
-          imageIndex: segment.galleryIndex,
-          nested: nested,
-        ),
+      yield _ThreadReadEntry(
+        post,
+        group == null ? _ThreadEntryKind.block : _ThreadEntryKind.imageStack,
+        block: block,
+        imageStack: group,
+        siteLinks: segment.siteLinks,
+        linksGrouped: segment.linksGrouped,
+        linkGroupStart: segment.linkGroupStart,
+        linkGroupEnd: segment.linkGroupEnd,
+        firstContent: firstContent,
+        blockIndex: segment.blockIndex,
+        gallery: gallery,
+        imageIndex: segment.galleryIndex,
+        nested: nested,
       );
       firstContent = false;
     }
-    _entries.add(
-      _ThreadReadEntry(post, _ThreadEntryKind.footer, nested: nested),
-    );
+    yield _ThreadReadEntry(post, _ThreadEntryKind.footer, nested: nested);
   }
 
   int get _firstPage => _pages.keys.reduce((a, b) => a < b ? a : b);
@@ -731,7 +824,6 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     chhSession.addListener(_sessionChanged);
     _blockSourceEpoch = _blocks.epoch;
     _blocks.addListener(_blocksChanged);
-    _loadInitial(useGoto: true);
   }
 
   void _sessionChanged() {
@@ -749,9 +841,9 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     _prefetching = false;
     _authorEpoch++;
     _update(() {
+      _clearFirstRead();
       _pages.clear();
-      _postPages.clear();
-      _pinnedRoots.clear();
+      _pinnedRoots = const {};
       _visibleReplies.clear();
       _finishReplyReveal();
       _expandingRoot = null;
@@ -981,6 +1073,8 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
   Future<void> _setViewMode(ThreadViewMode mode) async {
     _preferencesApplied = true;
     if (mode == _shownMode) return;
+    _preferAuthor = false;
+    _finishFirstReadForInteraction();
     final anchor = _headingDy();
     if (_pendingMode != null) {
       _authorEpoch++;
@@ -1014,7 +1108,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     _update(() {
       _beforeLoad = null;
       _threaded = threaded;
-      _pinnedRoots.clear();
+      _pinnedRoots = const {};
       _visibleReplies.clear();
       _finishReplyReveal();
       _expandingRoot = null;
@@ -1177,25 +1271,66 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
   }
 
   /// 用一次完整读取替换已读楼层(首次进入、刷新、切换只看楼主)
-  void _resetPages(ThreadDetail detail) {
+  void _resetPages(ThreadDetail detail, {_FirstThreadRead? firstRead}) {
     _generation++;
     _beforeLoad = null;
     _prefetching = false;
     _preloadEndPage = detail.page.current + widget.preloadPages - 1;
     _pages.clear();
-    _postPages.clear();
-    _pinnedRoots.clear();
+    _pinnedRoots = const {};
     _visibleReplies.clear();
     _finishReplyReveal();
     _expandingRoot = null;
     _pauseHiddenAppend = false;
     _sourceMayHaveChanged = false;
-    _remember(detail);
+    _clearFirstRead();
+    _firstRead = firstRead;
+    if (firstRead != null) {
+      final reading = firstRead.reading;
+      _index = reading.index;
+      _singleReadPage = detail.page.current;
+      _postPages = const {};
+      _openingPost = reading.opening;
+      _pinnedRoots = reading.rootPids;
+      _storePage(detail, reading: reading);
+      _restartFirstProjection();
+      if (_portalLanding) {
+        _chrome.title = detail.title;
+        _chrome.sourceUrl = threadSourceUrl(widget.tid, page: _firstPage);
+      }
+    } else {
+      _remember(detail);
+    }
     _hasNext = detail.page.hasNext && detail.posts.isNotEmpty;
     _loading = false;
     _error = null;
     _tailError = null;
     _beforeError = null;
+  }
+
+  void _restartFirstProjection() {
+    final firstRead = _firstRead!;
+    final counts = firstRead.reading.visibleCounts(_blocks.blockedUids);
+    _shownReplyCount = counts.shown;
+    _completeReplyCount = _authorUid == null && counts.complete;
+    _entries.clear();
+    _entryIndices.clear();
+    _entryProgress.clear();
+    _visibleReplies.clear();
+    // Layout and idle preparation consume this same projection.
+    _firstViewport = _projectReadEntries().iterator;
+    if (_clearPendingFocusAnchor()) {
+      unawaited(_prepareInitialFocus(firstRead, _generation));
+    }
+  }
+
+  bool _clearPendingFocusAnchor() {
+    if (_initialAnchorPixels == null) return false;
+    _initialAnchorPixels = null;
+    _centerEntryKey = null;
+    _focusDone = false;
+    _highlightPid = null;
+    return true;
   }
 
   void _restorePages(_ReadSnapshot snapshot) {
@@ -1227,14 +1362,23 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     int page, {
     bool refresh = false,
     bool Function()? shouldContinue,
-  }) async {
+  }) =>
+      widget.loadPage?.call(page, author, refresh) ??
+      _repository.thread(
+        widget.tid,
+        page: page,
+        authorUid: author,
+        refresh: refresh,
+        shouldContinue: shouldContinue,
+      );
+
+  ThreadDetail? _takeInitialDetail(int page) {
     final initial = _initialDetailConsumed ? null : widget.initialDetail;
     _initialDetailConsumed = true;
     // Reuse only this navigation's landing page, never an older session's data.
     if (widget.loadPage == null &&
         _gotoUrl == null &&
-        !refresh &&
-        author == null &&
+        _authorUid == null &&
         initial?.tid == widget.tid &&
         initial?.page.current == page &&
         (widget.initialDetailThreadRevision == null ||
@@ -1242,21 +1386,12 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
                 _repository.client.threadCacheRevision(widget.tid)) &&
         widget.initialDetailCacheGeneration ==
             _repository.client.cacheGeneration) {
-      if (shouldContinue?.call() == false) throw const ThreadReadCancelled();
-      return initial!;
+      return initial;
     }
-    return widget.loadPage?.call(page, author, refresh) ??
-        _repository.thread(
-          widget.tid,
-          page: page,
-          authorUid: author,
-          refresh: refresh,
-          shouldContinue: shouldContinue,
-        );
+    return null;
   }
 
-  bool get _openingIsBlocked =>
-      _orderedPosts.any((p) => postIsOpening(p) && _blocked(p));
+  bool get _openingIsBlocked => _blocks.isBlocked(_openingPost?.authorUid);
 
   void _blocksChanged() {
     if (!mounted) return;
@@ -1267,7 +1402,11 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
         if (_focusTargetPid == sourcePid) _focusTargetPid = widget.focusPid;
         if (_highlightPid == sourcePid) _highlightPid = null;
       }
-      _rebuildReadIndex();
+      if (_firstRead case final firstRead? when !firstRead.layoutReported) {
+        _restartFirstProjection();
+      } else {
+        _rebuildReadIndex();
+      }
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && offset != null && _scroll.hasClients) {
@@ -1283,9 +1422,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
 
   Widget _blockedOpening(AppTokens t) {
     final epoch = _blocks.epoch;
-    final opening = _orderedPosts.firstWhere(
-      (p) => postIsOpening(p) && _blocked(p),
-    );
+    final opening = _openingPost!;
     final note = _blocks.entryFor(opening.authorUid)?.note;
     final source = _blockedSourcePost;
     final sourceIsOpening = source?.pid == opening.pid;
@@ -1383,7 +1520,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
 
   Future<void> _refreshPostPage(Post post) async {
     final generation = _generation;
-    final page = _postPages[post.pid];
+    final page = _pageForPost(post.pid);
     if (page == null) throw StateError('目标楼层尚未加载');
     final detail = await _read(page, refresh: true);
     if (!mounted || generation != _generation) return;
@@ -1557,7 +1694,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
   Future<void> _unlockPost(Post post) async {
     if (!_unlocking.add(post.pid)) return;
     final generation = _generation;
-    final page = _postPages[post.pid];
+    final page = _pageForPost(post.pid);
     try {
       final password = await showPasswordSheet(context, title: '输入帖子密码');
       if (!mounted ||
@@ -1641,20 +1778,15 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     _rebuildReadIndex();
   }
 
-  void _storePage(ThreadDetail detail) {
+  void _storePage(ThreadDetail detail, {ThreadPageReading? reading}) {
     // Page appends must not move the denominator while the viewport stays still.
     _readingTotalPosts ??= detail.replyCount == null
         ? null
         : detail.replyCount! + 1;
-    if (_readingTotalPosts == null &&
-        _authorUid == null &&
-        detail.page.current == 1 &&
-        !detail.page.hasNext &&
-        detail.posts.every((post) => post.floorIsKnown)) {
-      _readingTotalPosts = detail.posts.fold<int>(
-        0,
-        (last, post) => post.floor > last ? post.floor : last,
-      );
+    if (reading == null) {
+      _setFloorTotal(detail);
+    } else if (_authorUid == null && reading.index.sourceComplete) {
+      _readingTotalPosts ??= reading.floorTotal;
     }
     // 后续页可能省略统计；仅用实际返回的计数更新已经读到的数据。
     final sequence = detail.replyCount == null || widget.loadPage != null
@@ -1679,16 +1811,31 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     );
     _pages[detail.page.current] = detail;
     // 只有真正的首楼才能确定楼主；提醒落地页的首条回复不是楼主。
-    final opening = detail.posts.where((p) => postIsOpening(p)).firstOrNull;
+    final opening = reading == null
+        ? detail.posts.where(postIsOpening).firstOrNull
+        : reading.opening;
     _openingAuthor ??= opening?.authorUid;
+  }
+
+  void _setFloorTotal(ThreadDetail detail) {
+    if (_readingTotalPosts == null &&
+        _authorUid == null &&
+        detail.page.current == 1 &&
+        !detail.page.hasNext &&
+        detail.posts.every((post) => post.floorIsKnown)) {
+      _readingTotalPosts = detail.posts.fold<int>(
+        0,
+        (last, post) => post.floor > last ? post.floor : last,
+      );
+    }
   }
 
   void _verifyReplyCount() {
     if (widget.loadPage != null || _authorUid != null) return;
-    final coverage = _repository.cachedThreadCoverage(
-      widget.tid,
-      observedReplies: widget.observedReplies,
-    );
+    _applyVerifiedReplyCount(_readCoverage());
+  }
+
+  void _applyVerifiedReplyCount(_ThreadCoverage? coverage) {
     final replies = coverage?.replyCount;
     final sequence = coverage?.verifiedCountSequence;
     _verifiedReplyCount = replies != null && sequence != null
@@ -1745,18 +1892,18 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     int? page,
     bool refresh = false,
     bool resetThread = false,
+    bool deferColdStart = false,
   }) async {
-    final coverage = !refresh && widget.loadPage == null
-        ? _repository.cachedThreadCoverage(
-            widget.tid,
-            observedReplies: widget.observedReplies,
-          )
-        : null;
+    _finishFirstReadForInteraction();
     final generation = ++_generation;
+    final firstRead = _pages.isEmpty;
+    final targetPage = page ?? widget.initialPage;
+    final goto = useGoto ? _gotoUrl : null;
+    bool active() => mounted && generation == _generation;
     _beforeLoad = null;
     _updateCheck = null;
     _prefetching = false;
-    if (_portalLanding && _pages.isEmpty && !_landingSkeletonVisible) {
+    if (_portalLanding && firstRead && !_landingSkeletonVisible) {
       _landingSkeletonDelay?.cancel();
       _landingSkeletonDelay = Timer(AppMotion.skeletonDelay, () {
         if (mounted) setState(() => _landingSkeletonVisible = true);
@@ -1770,23 +1917,91 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
       _failedUpdatePage = null;
     });
     try {
-      final goto = useGoto ? _gotoUrl : null;
-      final detail = goto == null
-          ? await _read(
-              page ?? widget.initialPage,
-              refresh: refresh,
-              shouldContinue: () => mounted && generation == _generation,
-            )
-          : await (widget.loadGoto?.call(goto) ??
-                _repository.threadAtUrl(
-                  goto,
-                  tid: widget.tid,
+      final cached = refresh
+          ? null
+          : goto == null
+          ? _takeInitialDetail(targetPage) ??
+                (widget.loadPage == null && _authorUid == null
+                    ? _repository.cachedThreadForEntry(widget.tid, targetPage)
+                    : null)
+          : (widget.loadGoto == null
+                ? _repository.cachedThreadForEntry(
+                    widget.tid,
+                    targetPage,
+                    goto: goto,
+                  )
+                : null);
+      final cacheGeneration = widget.loadPage == null
+          ? _repository.client.cacheGeneration
+          : null;
+      final threadRevision = widget.loadPage == null
+          ? _repository.client.threadCacheRevision(widget.tid)
+          : null;
+      bool cacheIsCurrent() =>
+          cacheGeneration == null ||
+          (cacheGeneration == _repository.client.cacheGeneration &&
+              threadRevision ==
+                  _repository.client.threadCacheRevision(widget.tid));
+
+      if (cached == null && deferColdStart) {
+        final route = ModalRoute.of(context);
+        final binding = WidgetsBinding.instance;
+        // Hero may first lay out the destination offstage for its measurements.
+        if (route?.offstage == true) {
+          await binding.endOfFrame;
+          if (!active() || route?.isActive == false) return;
+        }
+        await binding.endOfFrame;
+        if (!active() || route?.isActive == false) return;
+        if (!cacheIsCurrent()) throw const ThreadReadCancelled();
+      }
+      final coverage = !refresh && cached == null && widget.loadPage == null
+          ? _readCoverage()
+          : null;
+      final detail =
+          cached ??
+          (goto == null
+              ? await _read(
+                  targetPage,
                   refresh: refresh,
-                  shouldContinue: () => mounted && generation == _generation,
-                ));
-      if (!mounted || generation != _generation) return;
+                  shouldContinue: active,
+                )
+              : await (widget.loadGoto?.call(goto) ??
+                    _repository.threadAtUrl(
+                      goto,
+                      tid: widget.tid,
+                      refresh: refresh,
+                      shouldContinue: active,
+                    )));
+      if (!active()) return;
+      if (cached == null && firstRead) {
+        final ready = _entryGate.wait;
+        if (ready != null && (!await ready || !active())) return;
+      }
+      if (!cacheIsCurrent()) throw const ThreadReadCancelled();
       _landingSkeletonDelay?.cancel();
-      final firstLanding = _landingPaintPending && _pages.isEmpty;
+      final landing = _landingPaintPending && firstRead;
+      final showCachedLanding =
+          landing && cached != null && !_landingSkeletonVisible;
+      final initialCoverage = cached == null ? coverage : _readCoverage();
+      _FirstThreadRead? initialRead;
+      if (firstRead) {
+        final reading = parsedThreadReading[detail] ?? ThreadPageReading(detail);
+        initialRead = _FirstThreadRead(
+          detail,
+          reading,
+          coverage: initialCoverage,
+          cached: cached != null,
+          stageViewport:
+              cached == null &&
+              deferColdStart &&
+              goto == null &&
+              _focusTargetPid == null &&
+              !_focusOpeningFeedback &&
+              (detail.posts.length > 4 ||
+                  reading.opening?.content.firstOrNull is ImageBlock),
+        );
+      }
       _update(() {
         // 主动刷新后,进入只看楼主前的旧楼层不再可信
         if (refresh) _beforeAuthor = null;
@@ -1803,59 +2018,223 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
           if (_scroll.hasClients) _scroll.position.correctPixels(0);
         }
         _readingTotalPosts = null;
-        _resetPages(detail);
-        if (coverage?.verifiedCountSequence != null) {
-          _verifyReplyCount();
-          _rebuildProgressIndex();
+        _animateInitialArrival = firstRead && cached == null;
+        if (showCachedLanding) {
+          _landingArrival.value = 1;
+          _landingPaintPending = false;
+        }
+        _resetPages(detail, firstRead: initialRead);
+        if (initialCoverage?.verifiedCountSequence != null) {
+          _applyVerifiedReplyCount(initialCoverage);
+          if (initialRead == null) _rebuildProgressIndex();
         }
       });
-      if (firstLanding) _startLandingArrival();
-      if (_preferAuthor) {
-        _preferAuthor = false;
-        await _enterAuthorMode(null);
-        if (!mounted) return;
+      if (initialRead != null &&
+          (_focusTargetPid != null || _focusOpeningFeedback)) {
+        final committedGeneration = _generation;
+        await _prepareInitialFocus(initialRead, committedGeneration);
+        if (!mounted || committedGeneration != _generation) return;
       }
-      // 等首次有效加载成功后再通知列表；刷新和分页不推进本次打开的已看计数。
-      if (!_markedRead && widget.seenReplies != null) {
-        _markedRead = true;
-        threadReadIndex.markRead(widget.tid, widget.seenReplies!);
+      if (landing && !showCachedLanding) _startLandingArrival();
+      if (!firstRead) {
+        await _afterInitialRead(detail, initialCoverage);
       }
-      _recordHistoryIfReadable(detail);
-      final observed = widget.observedReplies;
-      final previous = coverage?.replyCount;
-      if (coverage != null &&
-          _authorUid == null &&
-          (!coverage.recent ||
-              observed == null ||
-              previous == null ||
-              observed != previous)) {
-        final checkDecrease =
-            observed != null && previous != null && observed < previous;
-        final boundary = math.max(coverage.lastPage, detail.page.current);
-        unawaited(
-          _refreshFrom(
-            checkDecrease ? 1 : boundary,
-            previousReplies: previous,
-            checkDecrease: checkDecrease,
-            boundary: boundary,
-          ),
-        );
-      }
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        if (_portalLanding || _scroll.hasClients || _openingIsBlocked) {
-          _locateFocusedPost();
-        }
-        _considerAppend();
-      });
     } catch (error) {
-      if (!mounted || generation != _generation) return;
+      if (!active()) return;
       _landingSkeletonDelay?.cancel();
       _update(() {
         _error = error;
         _loading = false;
       });
     }
+  }
+
+  // Expand a goto target with the final index before painting the reading list.
+  // A far-away target can yield between entry batches while the loader stays up.
+  Future<void> _prepareInitialFocus(
+    _FirstThreadRead firstRead,
+    int generation,
+  ) async {
+    final budget = Stopwatch()..start();
+    while (true) {
+      if (_focusOpeningFeedback) {
+        _focusTargetPid ??= _openingPost?.pid;
+      }
+      final pid = _focusTargetPid;
+      final target = _index.postsByPid[pid];
+      if (_focusDone ||
+          target == null ||
+          (_focusOpeningFeedback && !_focusOnFeedback) ||
+          _openingIsBlocked ||
+          (_blocked(target) && !_isSourcePost(target))) {
+        break;
+      }
+      _expandToFocus(pid!);
+      final projection = _firstViewport;
+      for (var i = 0; i < _entries.length || _prepareNextEntry(); i++) {
+        final entry = _entries[i];
+        if (_isFocusEntry(entry)) {
+          _update(() {
+            final firstComment =
+                i + 1 == (_entryIndices[_ThreadReadEntry.headingKey] ?? -2) + 1;
+            _centerEntryKey = entry.key;
+            _initialAnchorPixels =
+                -(MediaQuery.paddingOf(context).top +
+                    NavOverlay.barHeight +
+                    12) +
+                (firstComment ? ThreadPageTokens.cardInset : 0);
+            _titleAt = double.negativeInfinity;
+            _commentsAt = double.negativeInfinity;
+            _focusDone = true;
+            _highlightPid = pid;
+            firstRead.positioning = false;
+          });
+          return;
+        }
+        if (budget.elapsedMicroseconds < 2000) continue;
+        firstRead.positioning = true;
+        await _afterReadingFrame();
+        if (!mounted ||
+            generation != _generation ||
+            !identical(_firstRead, firstRead)) {
+          return;
+        }
+        budget.reset();
+        if (!identical(projection, _firstViewport)) break;
+      }
+      if (identical(projection, _firstViewport) || _firstViewport == null) {
+        break;
+      }
+    }
+    if (firstRead.positioning) _update(() => firstRead.positioning = false);
+  }
+
+  void _firstContentLaidOut() {
+    final firstRead = _firstRead;
+    if (firstRead == null ||
+        firstRead.layoutReported ||
+        firstRead.positioning) {
+      return;
+    }
+    firstRead.layoutReported = true;
+    unawaited(_prepareReadingAfterLayout(firstRead, _generation));
+  }
+
+  Future<void> _prepareReadingAfterLayout(
+    _FirstThreadRead firstRead,
+    int generation,
+  ) async {
+    bool active() =>
+        mounted &&
+        generation == _generation &&
+        identical(_firstRead, firstRead);
+    final ready = _entryGate.wait;
+    if (ready != null && (!await ready || !active())) return;
+    await _afterReadingFrame();
+    if (!active()) return;
+    if (firstRead.stageViewport) {
+      _update(() => firstRead.stageViewport = false);
+    }
+    if (!firstRead.cached && !_portalLanding) {
+      // Leave the first visible fade frames to the viewport. Restoring
+      // overscan would lay out offscreen rows on the next fade tick.
+      await _afterReadingFrame();
+      if (!active()) return;
+    }
+    if (_navigationBusy) await _waitForNavigationIdle(generation);
+    if (!active()) return;
+    final budget = Stopwatch()..start();
+    while (_prepareNextEntry()) {
+      if (budget.elapsedMicroseconds < 2000) continue;
+      await _afterReadingFrame();
+      if (!active()) return;
+      if (_navigationBusy) await _waitForNavigationIdle(generation);
+      if (!active()) return;
+      budget.reset();
+    }
+    _update(() {
+      _rebuildProgressIndex();
+      _clearFirstRead();
+    });
+    await _afterInitialRead(firstRead.detail, firstRead.coverage);
+  }
+
+  void _clearFirstRead() {
+    _clearPendingFocusAnchor();
+    _firstRead?.prepared.complete();
+    _firstRead = null;
+  }
+
+  void _finishFirstReadForInteraction() {
+    final firstRead = _firstRead;
+    if (firstRead == null) return;
+    // A refresh or mode change takes a snapshot of the complete current view.
+    _update(() {
+      while (_prepareNextEntry()) {}
+      _rebuildProgressIndex();
+      _clearFirstRead();
+    });
+    _markFirstRead(firstRead.detail);
+  }
+
+  Future<void> _afterReadingFrame() {
+    // Resume at a new frame boundary, outside the sliver's build and layout.
+    final frame = Completer<void>();
+    SchedulerBinding.instance.scheduleFrameCallback((_) => frame.complete());
+    return frame.future;
+  }
+
+  _ThreadCoverage? _readCoverage() => _repository.cachedThreadCoverage(
+    widget.tid,
+    observedReplies: widget.observedReplies,
+  );
+
+  void _markFirstRead(ThreadDetail detail) {
+    // 等首次有效加载成功后再通知列表；刷新和分页不推进本次打开的已看计数。
+    if (!_markedRead && widget.seenReplies != null) {
+      _markedRead = true;
+      threadReadIndex.markRead(widget.tid, widget.seenReplies!);
+    }
+    _recordHistoryIfReadable(detail);
+  }
+
+  Future<void> _afterInitialRead(
+    ThreadDetail detail,
+    _ThreadCoverage? coverage,
+  ) async {
+    if (_preferAuthor) {
+      _preferAuthor = false;
+      await _enterAuthorMode(null);
+      if (!mounted) return;
+    }
+    _markFirstRead(detail);
+    final observed = widget.observedReplies;
+    final previous = coverage?.replyCount;
+    if (coverage != null &&
+        _authorUid == null &&
+        (!coverage.recent ||
+            observed == null ||
+            previous == null ||
+            observed != previous)) {
+      final checkDecrease =
+          observed != null && previous != null && observed < previous;
+      final boundary = math.max(coverage.lastPage, detail.page.current);
+      unawaited(
+        _refreshFrom(
+          checkDecrease ? 1 : boundary,
+          previousReplies: previous,
+          checkDecrease: checkDecrease,
+          boundary: boundary,
+        ),
+      );
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (_portalLanding || _scroll.hasClients || _openingIsBlocked) {
+        _locateFocusedPost();
+      }
+      _considerAppend();
+    });
   }
 
   Future<void> _refreshEntireThread() {
@@ -1872,7 +2251,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
       if (row.y >= bottom || row.y + row.height <= top) continue;
       final index = _entryIndices[row.key];
       if (index == null || row.key == _ThreadReadEntry.headingKey) continue;
-      final page = _postPages[_entries[index - 1].post.pid];
+      final page = _pageForPost(_entries[index - 1].post.pid);
       if (page != null) return page;
     }
     return _lastPage;
@@ -2098,7 +2477,8 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
   void _considerAppend() {
     if (!mounted) return;
     _schedulePreload();
-    if (_landingPaintPending ||
+    if (_firstRead != null ||
+        _landingPaintPending ||
         !_routeCurrent ||
         _navigationBusy ||
         !_scroll.hasClients ||
@@ -2155,12 +2535,13 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
             generation == _generation &&
             (!background || _canPreload),
       );
+      if (_firstRead case final firstRead?) await firstRead.prepared.future;
       await _waitForNavigationIdle(generation);
       if (!mounted || generation != _generation) return;
       if (background && !_canPreload) return;
       final advanced =
           detail.page.current == target &&
-          detail.posts.any((p) => !_knownPids.contains(p.pid));
+          detail.posts.any((p) => !_index.postsByPid.containsKey(p.pid));
       _update(() {
         // 越界静默回第一页时不重复追加，也不进入无限请求循环。
         if (advanced) _remember(detail);
@@ -2351,8 +2732,28 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
           ? entry.kind == _ThreadEntryKind.footer
           : entry.isStart);
 
+  bool _expandToFocus(int pid) {
+    final root = _index.rootPidFor(pid);
+    if (!_grouped || root == null || root == pid) return false;
+    final replies = _conversationReplies(root);
+    final position = replies.indexWhere((post) => post.pid == pid);
+    if (position < 0) return false;
+    _visibleReplies[root] = position + 1;
+    return true;
+  }
+
+  void _animateFocus(int? pid) {
+    if (pid == _activeBlockSource?.pid &&
+        MediaQuery.disableAnimationsOf(context)) {
+      _focusHighlight.value = 0;
+      _focusHighlight.animateTo(1, duration: AppMotion.reducedFade);
+    } else {
+      _focusHighlight.forward(from: 0);
+    }
+  }
+
   Future<void> _locateFocusedPost() async {
-    if (_focusDone) return;
+    if (_focusDone || _firstRead != null) return;
     if (_focusTargetPid == null && _focusOpeningFeedback) {
       _focusTargetPid = _orderedPosts.where(postIsOpening).firstOrNull?.pid;
     }
@@ -2365,17 +2766,8 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
       _focusDone = true;
       return;
     }
-    final groupedRoot = _index.rootPidFor(_focusTargetPid!);
-    if (!sourceInBlockedOpening &&
-        _grouped &&
-        groupedRoot != null &&
-        groupedRoot != _focusTargetPid) {
-      final replies = _conversationReplies(groupedRoot);
-      final position = replies.indexWhere((p) => p.pid == _focusTargetPid);
-      _update(() {
-        _visibleReplies[groupedRoot] = position + 1;
-        _rebuildReadEntries();
-      });
+    if (!sourceInBlockedOpening && _expandToFocus(targetPid!)) {
+      _update(_rebuildReadEntries);
     }
     final index = sourceInBlockedOpening
         ? -1
@@ -2423,12 +2815,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
           return;
         }
         _update(() => _highlightPid = targetPid);
-        if (fromBlockSource && MediaQuery.disableAnimationsOf(this.context)) {
-          _focusHighlight.value = 0;
-          _focusHighlight.animateTo(1, duration: AppMotion.reducedFade);
-        } else {
-          _focusHighlight.forward(from: 0);
-        }
+        _animateFocus(targetPid);
         return;
       }
       if (sourceInBlockedOpening) return;
@@ -2622,7 +3009,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
       _focusHighlight.value = 1;
       _focusOpeningFeedback = false;
       _focusDone = false;
-      _pinnedRoots.clear();
+      _pinnedRoots = const {};
       _visibleReplies.clear();
       _finishReplyReveal();
       _expandingRoot = null;
@@ -2676,7 +3063,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     _composerOpen = true;
     final replyPage = quoted == null
         ? _lastPage
-        : (_postPages[quoted.pid] ?? _lastPage);
+        : (_pageForPost(quoted.pid) ?? _lastPage);
     final draftKey = 'thread:${widget.tid}:${quoted?.pid ?? 0}';
     final images = _replyImages.putIfAbsent(
       draftKey,
@@ -2690,6 +3077,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
       context,
       draftKey: draftKey,
       attachments: images,
+      threadTitle: normalizeDisplayText(_loadedDetail?.title ?? widget.title),
       quoteOf: quoted?.author,
       quoteText:
           quoted != null &&
@@ -2750,6 +3138,8 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
 
   @override
   void dispose() {
+    _entryGate.dispose();
+    _clearFirstRead();
     _preloadTimer?.cancel();
     _navigationGesture?.removeListener(_navigationGestureChanged);
     _navigationIdle?.complete();
@@ -2811,6 +3201,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
           )!.covered,
           child: keyboardStableReader,
           builder: (context, covered, child) {
+            _entryGate.update(ModalRoute.of(context));
             // Back makes this route current before the viewer's Hero lands.
             _routeCurrent = ModalRoute.isCurrentOf(context) ?? true;
             if (!_routeCurrent) _beforeLoad = null;
@@ -2828,9 +3219,17 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     final metrics = ReadingMetrics.of(context);
     final top = MediaQuery.paddingOf(context).top;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && _scroll.hasClients) _handleScroll();
+      if (!mounted) return;
+      _firstContentLaidOut();
+      if (_scroll.hasClients) _handleScroll();
     });
     if (_openingIsBlocked) return _blockedOpening(t);
+    final stageViewport = _firstRead?.stageViewport == true;
+    // Commit the title and author before creating an opening image gallery.
+    final initialItemLimit = stageViewport
+        ? (_openingPost?.content.firstOrNull is ImageBlock ? 2 : 3)
+        : null;
+    final bottom = MediaQuery.paddingOf(context).bottom;
     final page = Scaffold(
       extendBody: true,
       backgroundColor: _portalLanding ? Colors.transparent : t.bg,
@@ -2841,8 +3240,11 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
           return Stack(
             children: [
               _initialArrival(
-                _pages.isEmpty
-                    ? (_loading && !_portalLanding ? null : _initialState())
+                _pages.isEmpty || _firstRead?.positioning == true
+                    ? ((_loading || _firstRead?.positioning == true) &&
+                              !_portalLanding
+                          ? null
+                          : _initialState())
                     : ChhersRefreshIndicator(
                         edgeOffset: top + NavOverlay.barHeight,
                         endEdgeOffset: readerInsets.bottom,
@@ -2890,10 +3292,13 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
                               key: _readListKey,
                               controller: _scroll,
                               centerIndex: _entryIndices[_centerEntryKey] ?? 0,
-                              scrollCacheExtent: _landingPaintPending
+                              scrollCacheExtent:
+                                  _firstRead != null || _landingPaintPending
                                   ? const ScrollCacheExtent.pixels(0)
                                   : null,
                               itemCount: _entries.length + 2,
+                              unknownItemCount: _firstViewport != null,
+                              initialItemLimit: initialItemLimit,
                               findChildIndexCallback: (key) {
                                 if (key == _focusKey) {
                                   final index = _entries.indexWhere(
@@ -2906,7 +3311,6 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
                                     : null;
                               },
                               itemBuilder: (context, index) {
-                                final metrics = ReadingMetrics.of(context);
                                 if (index == 0) {
                                   return Padding(
                                     padding: EdgeInsets.only(
@@ -2915,12 +3319,9 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
                                     child: _heading(t),
                                   );
                                 }
-                                // 标题之后的内容随查看方式切换淡化/淡入
-                                final heading =
-                                    _entryIndices[_ThreadReadEntry
-                                        .headingKey] ??
-                                    _entries.length + 1;
-                                if (index == _entries.length + 1) {
+                                final entry = _entryAt(index);
+                                if (entry == null) {
+                                  if (index != _entries.length + 1) return null;
                                   return _landingFade(
                                     t,
                                     ContentFade(
@@ -2934,7 +3335,16 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
                                     ),
                                   );
                                 }
-                                final entry = _entries[index - 1];
+                                // 标题之后的内容随查看方式切换淡化/淡入
+                                final heading =
+                                    _entryIndices[_ThreadReadEntry
+                                        .headingKey] ??
+                                    _entries.length + 1;
+                                // A visible terminal row needs its final
+                                // padding even during lazy preparation.
+                                final last =
+                                    index > heading &&
+                                    _entryAt(index + 1) == null;
                                 final originalPost = entry.post;
                                 final post = originalPost;
                                 final focused =
@@ -3085,9 +3495,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
                                         ThreadCommentHeading(
                                           loadedCount: _shownReplyCount,
                                           totalCount: _replyCount,
-                                          complete:
-                                              _index.sourceComplete &&
-                                              !_orderedPosts.any(_blocked),
+                                          complete: _completeReplyCount,
                                           mode: _shownMode,
                                           showAuthor: _openingAuthor != null,
                                           busy: _pendingMode != null,
@@ -3099,7 +3507,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
                                   _ThreadEntryKind.replies => _replyExpansion(
                                     context,
                                     post,
-                                    last: index == _entries.length,
+                                    last: last,
                                   ),
                                 };
                                 final wideImageRow = entry.imageStack != null;
@@ -3200,7 +3608,6 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
                                   );
                                 }
                                 final first = index == heading + 1;
-                                final last = index == _entries.length;
                                 return Padding(
                                   key: _ThreadRowKey(entry.key),
                                   padding: const EdgeInsets.symmetric(
@@ -3312,9 +3719,11 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
                             ],
                           ),
                         ],
-                        inlineTitle: normalizeDisplayText(
-                          _loadedDetail?.title ?? widget.title,
-                        ),
+                        inlineTitle: _pages.isEmpty
+                            ? ''
+                            : normalizeDisplayText(
+                                _loadedDetail?.title ?? widget.title,
+                              ),
                         scrollOffset: _navOffset,
                         collapseAt: _titleAt,
                         titleVisible: _collapsedTitle,
@@ -3331,6 +3740,14 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
       ),
       bottomNavigationBar: _pages.isEmpty
           ? null
+          // Reserve the final inset while the opening text gets its own frame.
+          : stageViewport
+          ? SizedBox(
+              height: ReadingBar.heightFor(
+                bottomPadding: bottom,
+                threadStyle: true,
+              ),
+            )
           : ImageViewerReaderChrome(
               child: ValueListenableBuilder<double>(
                 valueListenable: _barProgress,
@@ -3354,7 +3771,7 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
     );
     return ReadingBarAnchor(
       hiddenProgress: _barProgress,
-      bottomPadding: MediaQuery.paddingOf(context).bottom,
+      bottomPadding: bottom,
       reducedMotion: MediaQuery.disableAnimationsOf(context),
       child: page,
     );
@@ -3411,12 +3828,9 @@ class _ThreadDetailPageState extends State<ThreadDetailPage>
   Widget _initialArrival(Widget? child) => _portalLanding
       ? child!
       : ChhersLoadingTransition(
+          overlapExit: true,
+          animateOnMount: _animateInitialArrival,
           child: child,
-          onContentReady: () {
-            if (!_scroll.hasClients) return;
-            _locateFocusedPost();
-            _handleScroll();
-          },
         );
 
   Widget _landingFade(AppTokens tokens, Widget child) => !_portalLanding
@@ -3752,6 +4166,25 @@ enum _ThreadEntryKind {
   blocked,
   commentsHeading,
   replies,
+}
+
+class _FirstThreadRead {
+  _FirstThreadRead(
+    this.detail,
+    this.reading, {
+    required this.coverage,
+    required this.cached,
+    required this.stageViewport,
+  });
+
+  final ThreadDetail detail;
+  final ThreadPageReading reading;
+  final _ThreadCoverage? coverage;
+  final bool cached;
+  bool stageViewport;
+  final prepared = Completer<void>();
+  bool layoutReported = false;
+  bool positioning = false;
 }
 
 class _ThreadReadEntry {

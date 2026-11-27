@@ -77,8 +77,12 @@ class HeaderBadges {
 ///
 /// 返回 null 表示这个页面没有登录态页头(游客页、消息页等),调用方应当保持原值不动,
 /// 而不是清零 —— 否则随便打开一个游客页就会把未读抹掉。
-HeaderBadges? parseHeaderBadges(String html) {
-  final doc = _headerDocument(html);
+HeaderBadges? parseHeaderBadges(String html) =>
+    parseHeaderDocument(_headerDocument(html));
+
+typedef HeaderObservation = ({HeaderBadges? badges, bool guest});
+
+HeaderBadges? parseHeaderDocument(dom.Document doc) {
   // 模板可能不叫 #um。退出登录链接只在登录态出现,用它兜底定位页头容器。
   final um = doc.querySelector('#um') ?? _headerByLogout(doc);
   if (um == null) return null;

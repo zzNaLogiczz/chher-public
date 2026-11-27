@@ -260,7 +260,7 @@ void main() {
       final position = tester
           .state<ScrollableState>(find.byType(Scrollable).first)
           .position;
-      expect(position.pixels, greaterThan(0));
+      expect(position.extentBefore, greaterThan(0));
       expect(panelColor(), isSameColorAs(high));
       await _at(tester, controller, 800);
       expect(
